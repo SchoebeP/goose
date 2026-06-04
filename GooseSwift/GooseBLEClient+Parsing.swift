@@ -1025,7 +1025,8 @@ final class WhoopCloudForwarder {
         if end > buf.count { break }                 // frame not fully arrived yet
         let frame = Array(buf[i..<end])
         let type = frame.count > 4 ? frame[4] : 0
-        if type == 40 || type == 43 || type == 48 || type == 36 {   // HR / optical / event / cmd-resp
+        if type == 40 || type == 43 || type == 48 || type == 36 || type == 47 {
+          // HR / optical / event / cmd-resp / historical-backfill
           self.pendingFrames.append(frame.map { String(format: "%02x", $0) }.joined())
         }
         i = end

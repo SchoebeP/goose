@@ -1082,6 +1082,34 @@ extension GooseBLEClient {
         self?.writeGen4Command(step.0, payload: step.1, label: step.2)
       }
     }
+    // After the initial bond enable settles, pull the band's buffered HR history
+    // once (backfills the gap since the last sync). Only on bond (first connect),
+    // never on the 60 s re-enable.
+    if bond {
+      let after = base + Double(steps.count) * 0.25 + 1.0
+      DispatchQueue.main.asyncAfter(deadline: .now() + after) { [weak self] in
+        self?.requestGen4HistoricalBackfillIfNeeded()
+      }
+    }
+  }
+
+  /// One-shot request for the band's onboard HR history. GET_DATA_RANGE(34) asks
+  /// what's buffered; SEND_HISTORICAL_DATA(22) starts the stream of type-47
+  /// frames, which we forward to the VPS (stamped at their own past time). The
+  /// band paginates: each type-47 frame is ACKed with HISTORICAL_DATA_RESULT(23)
+  /// in gen4ObserveRawNotification to pull the next chunk. UNVERIFIED against the
+  /// 4.0 firmware — logged at .warn so we can confirm it live via the log stream.
+  func requestGen4HistoricalBackfillIfNeeded() {
+    guard connectionState == "ready",
+          let ch = commandCharacteristic, isGen4CommandCharacteristic(ch) else { return }
+    guard !gen4StartedHistoricalBackfill else { return }
+    gen4StartedHistoricalBackfill = true
+    record(level: .warn, source: "ble.gen4", title: "gen4.history.request",
+           body: "pulling buffered HR history (GET_DATA_RANGE -> SEND_HISTORICAL_DATA)")
+    writeGen4Command(34, payload: [], label: "GET_DATA_RANGE")
+    DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in
+      self?.writeGen4Command(22, payload: [], label: "SEND_HISTORICAL_DATA")
+    }
   }
 
   private func writeGen4Command(_ command: UInt8, payload: [UInt8], label: String) {
@@ -1127,6 +1155,24 @@ extension GooseBLEClient {
         self?.record(source: "ble.metadata", title: "battery.gen4_cmd.raw",
                      body: "raw=\(raw) -> \(pct)% frame=\(value.hexString.prefix(28))")
         self?.applyBatteryLevel(pct, capturedAt: Date(), sourceTitle: "battery.gen4_cmd")
+      }
+    }
+
+    // type-47 HISTORICAL_DATA: the band is streaming buffered history. ACK with
+    // HISTORICAL_DATA_RESULT(23) to pull the next chunk (throttled so a burst of
+    // frames doesn't flood the command channel). The frames themselves are
+    // forwarded to the VPS by ingestRawFrame above.
+    if type == 47 {
+      gen4ProbeLock.lock()
+      let now = Date()
+      let due = now.timeIntervalSince(gen4LastHistoryAck) >= 0.5
+      if due { gen4LastHistoryAck = now }
+      gen4ProbeLock.unlock()
+      if due {
+        DispatchQueue.main.async { [weak self] in
+          self?.writeGen4Command(23, payload: [1, 0, 0, 0, 0, 0, 0, 0, 0],
+                                 label: "HISTORICAL_DATA_RESULT(ack)")
+        }
       }
     }
 

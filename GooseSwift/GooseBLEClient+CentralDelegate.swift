@@ -237,6 +237,10 @@ extension GooseBLEClient: CBCentralManagerDelegate {
     autoReconnectInFlight = false
     autoConnectForPhysiologyCapture = false
     autoStartedPhysiologyCapture = false
+    gen4StartedPulseStream = false           // re-arm the once-per-connection 4.0 enable
+    gen4StartedHistoricalBackfill = false    // re-arm the once-per-connection history pull
+    gen4ReEnableTimer?.invalidate()
+    gen4ReEnableTimer = nil
     readySyncWorkItem?.cancel()
     if isHistoricalSyncing {
       failHistoricalSync("WHOOP disconnected during historical sync. \(error?.localizedDescription ?? "No CoreBluetooth error was provided.")")

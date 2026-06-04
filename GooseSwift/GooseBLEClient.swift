@@ -233,6 +233,17 @@ final class GooseBLEClient: NSObject, ObservableObject {
   var debugMenuCharacteristic: CBCharacteristic?
   var batteryLevelCharacteristic: CBCharacteristic?
   var batteryLevelStatusCharacteristic: CBCharacteristic?
+  // WHOOP 4.0 (GEN4) raw-pulse stream — the app's normal command path is V5-only
+  // (CRC16/8-byte header) and the 4.0 ignores it, so these drive the 4.0's
+  // optical/HR streams with the GEN4 frame format. See GooseBLEClient+Gen4Pulse.swift.
+  var gen4StartedPulseStream = false
+  var gen4StartedHistoricalBackfill = false   // one-shot HR history pull per connection
+  var gen4LastHistoryAck = Date.distantPast   // throttle for HISTORICAL_DATA_RESULT acks
+  var gen4ReEnableTimer: Timer?
+  let gen4ProbeLock = NSLock()
+  var gen4OpticalFrameCount = 0
+  var gen4HeartRateFrameCount = 0
+  var gen4LastProbeLogAt = Date.distantPast
   var lastBatteryLevelSample: (percent: Int, capturedAt: Date)?
   var inferredBatteryChargingUntil: Date?
   var rememberedDeviceID: UUID?
