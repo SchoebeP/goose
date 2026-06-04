@@ -144,24 +144,57 @@ extension GooseBLEClient {
     }
   }
 
+  // Generation of the active strap command channel. Gen4 (WHOOP 4.0) uses the
+  // 61080002 command-to-strap characteristic and a 4-byte framed packet; Gen5
+  // (WHOOP 5.0) uses fd4b0002 and the 8-byte frame. Outbound framing and a few
+  // command payloads differ per generation; the inbound parser is already
+  // generation-aware via GooseNotificationEvent.rustDeviceType.
+  enum CommandGeneration: Equatable {
+    case gen4
+    case gen5
+  }
+
+  var activeCommandGeneration: CommandGeneration? {
+    guard let commandCharacteristic else {
+      return nil
+    }
+    if isGen4CommandCharacteristic(commandCharacteristic) {
+      return .gen4
+    }
+    if isV5CommandCharacteristic(commandCharacteristic) {
+      return .gen5
+    }
+    return nil
+  }
+
+  // True when there is a usable WHOOP command characteristic (either generation)
+  // we know how to frame commands for. Replaces the former fd4b0002-only gate.
+  var supportsStrapCommands: Bool {
+    activeCommandGeneration != nil
+  }
+
   var supportsV5HistoricalSync: Bool {
-    commandCharacteristic.map(isV5CommandCharacteristic) == true
+    supportsStrapCommands
   }
 
   var supportsV5AlarmCommands: Bool {
-    commandCharacteristic.map(isV5CommandCharacteristic) == true
+    supportsStrapCommands
   }
 
   var supportsV5ClockCommands: Bool {
-    commandCharacteristic.map(isV5CommandCharacteristic) == true
+    supportsStrapCommands
   }
 
   var supportsV5SensorCommands: Bool {
-    commandCharacteristic.map(isV5CommandCharacteristic) == true
+    supportsStrapCommands
   }
 
   func isV5CommandCharacteristic(_ characteristic: CBCharacteristic) -> Bool {
     characteristic.uuid.uuidString.lowercased().hasPrefix("fd4b0002")
+  }
+
+  func isGen4CommandCharacteristic(_ characteristic: CBCharacteristic) -> Bool {
+    characteristic.uuid.uuidString.lowercased().hasPrefix("61080002")
   }
 
   func shouldUseCommandCharacteristic(_ characteristic: CBCharacteristic) -> Bool {
@@ -216,7 +249,7 @@ extension GooseBLEClient {
     }
 
     let sequence = nextClockSequence()
-    let frame = Self.buildV5CommandFrame(
+    let frame = buildCommandFrame(
       sequence: sequence,
       command: kind.commandNumber,
       data: kind.payload
@@ -311,7 +344,7 @@ extension GooseBLEClient {
     }
 
     let sequence = nextAlarmSequence()
-    let frame = Self.buildV5CommandFrame(
+    let frame = buildCommandFrame(
       sequence: sequence,
       command: kind.commandNumber,
       data: kind.payload
@@ -438,7 +471,7 @@ extension GooseBLEClient {
   ) {
     let sequence = nextSensorCommandSequence
     nextSensorCommandSequence = nextSensorCommandSequence == UInt8.max ? 180 : nextSensorCommandSequence + 1
-    let frame = Self.buildV5CommandFrame(
+    let frame = buildCommandFrame(
       sequence: sequence,
       command: command.commandNumber,
       data: command.payload
@@ -1043,11 +1076,9 @@ extension GooseBLEClient {
   }
 
   // MARK: Activation
-
-  /// True for the WHOOP 4.0 command characteristic (61080002); the V5 path uses fd4b0002.
-  func isGen4CommandCharacteristic(_ characteristic: CBCharacteristic) -> Bool {
-    characteristic.uuid.uuidString.lowercased().hasPrefix("61080002")
-  }
+  // (isGen4CommandCharacteristic lives with the generation gates above; the
+  // duplicate that used to sit here was removed when porting the po-sc Gen4
+  // support, which defines the same check.)
 
   /// True once connected to a WHOOP 4.0. Used to put the app in "4.0 quiet mode":
   /// the 5.0-oriented subsystems (overnight-guard resume, V5 physiology capture +

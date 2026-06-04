@@ -560,6 +560,22 @@ final class GooseBLEClient: NSObject, ObservableObject {
       SensorStreamCommandKind(commandNumber: 3, payload: [0], name: "TOGGLE_REALTIME_HR_OFF"),
     ]
 
+    // WHOOP 4.0 (Gen4) realtime capture. On a real Gen4 strap, live heart rate is
+    // delivered over the STANDARD BLE Heart Rate service (180D/2A37), which the app
+    // already subscribes to and reads directly — so HR needs no proprietary command.
+    // We send only TOGGLE_REALTIME_HR (cmd 3). We deliberately do NOT send
+    // SEND_R10_R11_REALTIME (cmd 63): it turns on the raw K10/K11 motion firehose
+    // (hundreds of accel/gyro samples per packet at high rate) which bloats storage
+    // to hundreds of MB in minutes and overwhelms this alpha pipeline — and it is not
+    // needed for HR. The Gen5-only optical/persistent toggles are likewise omitted.
+    static let startRealtimeHeartRateGen4 = [
+      SensorStreamCommandKind(commandNumber: 3, payload: [1], name: "TOGGLE_REALTIME_HR_ON"),
+    ]
+
+    static let stopRealtimeHeartRateGen4 = [
+      SensorStreamCommandKind(commandNumber: 3, payload: [0], name: "TOGGLE_REALTIME_HR_OFF"),
+    ]
+
     static func enterHighFrequencyHistorySync(intervalSeconds: Int, durationSeconds: Int) -> SensorStreamCommandKind? {
       guard
         intervalSeconds > 0,

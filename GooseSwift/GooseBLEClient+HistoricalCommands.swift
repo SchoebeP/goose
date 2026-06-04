@@ -58,17 +58,79 @@ extension GooseBLEClient {
       ? "Polling historical range"
       : (automatic ? "Requesting missed packets" : "Requesting historical packets")
     publishSyncToast(phase: .syncing, detail: toastDetail)
-    let firstCommand = firstCommandOverride ?? (requestHistoricalRangeBeforeTransfer ? .getDataRange : .sendHistoricalData)
+    var firstCommand = firstCommandOverride ?? (requestHistoricalRangeBeforeTransfer ? .getDataRange : .sendHistoricalData)
+    let isGen4 = activeCommandGeneration == .gen4
+    if isGen4 && !rangeOnly {
+      // WHOOP 4.0 has no GET_DATA_RANGE step; it goes hello → set_time →
+      // get_name → enter_high_freq_sync → history-start (SEND_HISTORICAL_DATA).
+      firstCommand = .sendHistoricalData
+    }
     if firstCommand == .getDataRange {
       updateHistoricalRangeDebugStatus("started trigger=\(trigger) first=GET_DATA_RANGE")
     }
     record(
       source: "ble.sync",
       title: "historical_sync.started",
-      body: "trigger=\(trigger) first=\(firstCommand.name) range_only=\(rangeOnly) ack_enabled=\(historicalDataResultAckEnabled)"
+      body: "trigger=\(trigger) first=\(firstCommand.name) range_only=\(rangeOnly) ack_enabled=\(historicalDataResultAckEnabled) gen4=\(isGen4)"
     )
     notifyHistoricalSyncProgress(status: "syncing", detail: "Starting \(firstCommand.name)", terminal: false, failed: false)
-    writeHistoricalCommand(firstCommand)
+    if isGen4 && !rangeOnly {
+      // Fire the Gen4 preamble, then kick off the transfer once it has drained.
+      sendGen4HistoryPreamble()
+      let kickoff = firstCommand
+      DispatchQueue.main.asyncAfter(deadline: .now() + 0.7) { [weak self] in
+        guard let self, self.isHistoricalSyncing else {
+          return
+        }
+        self.writeHistoricalCommand(kickoff)
+      }
+    } else {
+      writeHistoricalCommand(firstCommand)
+    }
+  }
+
+  // WHOOP 4.0 history preamble per the openwhoop Gen4 flow: set_time (cmd 10,
+  // unix u32 LE + 5 zero bytes), get_name (cmd 76, [0x00]), and enter
+  // high-frequency sync (cmd 96, empty). Sent fire-and-forget ahead of the
+  // history-start command so they do not contend with the response state machine.
+  func sendGen4HistoryPreamble() {
+    guard let activePeripheral,
+          let commandCharacteristic,
+          let writeType = writeType(for: commandCharacteristic) else {
+      return
+    }
+    let now = UInt32(Date().timeIntervalSince1970)
+    let setTime: [UInt8] = [
+      UInt8(now & 0xff),
+      UInt8((now >> 8) & 0xff),
+      UInt8((now >> 16) & 0xff),
+      UInt8((now >> 24) & 0xff),
+      0, 0, 0, 0, 0,
+    ]
+    let steps: [(command: UInt8, data: [UInt8], name: String)] = [
+      (10, setTime, "GEN4_SET_CLOCK"),
+      (76, [0x00], "GEN4_GET_NAME"),
+      (96, [], "GEN4_ENTER_HIGH_FREQ_SYNC"),
+    ]
+    for (index, step) in steps.enumerated() {
+      let delay = Double(index) * 0.2
+      DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self, weak activePeripheral, weak commandCharacteristic] in
+        guard let self,
+              let activePeripheral,
+              let commandCharacteristic,
+              self.isHistoricalSyncing else {
+          return
+        }
+        let sequence = self.nextHistoricalSequence()
+        let frame = self.buildCommandFrame(sequence: sequence, command: step.command, data: step.data)
+        activePeripheral.writeValue(frame, for: commandCharacteristic, type: writeType)
+        self.record(
+          source: "ble.sync",
+          title: "gen4_history_preamble.sent",
+          body: "\(step.name) seq=\(sequence) frame=\(frame.hexString)"
+        )
+      }
+    }
   }
 
   func writeHistoricalCommand(_ kind: HistoricalCommandKind) {
@@ -84,11 +146,18 @@ extension GooseBLEClient {
       return
     }
 
-    let commandPayload = kind == .historicalDataResult
-      ? pendingHistoryEndAckPayload ?? kind.payload
-      : kind.payload
+    let commandPayload: [UInt8]
+    if kind == .historicalDataResult {
+      commandPayload = pendingHistoryEndAckPayload ?? kind.payload
+    } else if activeCommandGeneration == .gen4 {
+      // WHOOP 4.0 GET_DATA_RANGE and history-start take a single 0x00 data byte,
+      // where Gen5 sends an empty body.
+      commandPayload = [0x00]
+    } else {
+      commandPayload = kind.payload
+    }
     let sequence = nextHistoricalSequence()
-    let frame = Self.buildV5CommandFrame(
+    let frame = buildCommandFrame(
       sequence: sequence,
       command: kind.commandNumber,
       data: commandPayload

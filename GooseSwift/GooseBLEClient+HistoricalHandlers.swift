@@ -8,13 +8,13 @@ extension GooseBLEClient {
     guard isHistoricalSyncing else {
       return
     }
-    for frame in Self.v5Frames(in: value) {
+    for frame in strapFrames(in: value) {
       handleHistoricalSyncFrame(frame, characteristic: characteristic)
     }
   }
 
   func handleHistoricalSyncFrame(_ frame: Data, characteristic: CBCharacteristic) {
-    guard let payload = Self.v5Payload(in: frame),
+    guard let payload = strapPayload(in: frame),
           let packetType = payload.first else {
       return
     }
@@ -59,8 +59,8 @@ extension GooseBLEClient {
     guard notificationCharacteristicIDs.contains(characteristic.uuid) else {
       return
     }
-    for frame in Self.v5Frames(in: value) {
-      guard let payload = Self.v5Payload(in: frame),
+    for frame in strapFrames(in: value) {
+      guard let payload = strapPayload(in: frame),
             let packetType = payload.first else {
         continue
       }
@@ -79,8 +79,8 @@ extension GooseBLEClient {
     guard notificationCharacteristicIDs.contains(characteristic.uuid) else {
       return
     }
-    for frame in Self.v5Frames(in: value) {
-      guard let payload = Self.v5Payload(in: frame),
+    for frame in strapFrames(in: value) {
+      guard let payload = strapPayload(in: frame),
             payload.count >= 5,
             let packetType = payload.first,
             packetType == V5PacketType.commandResponse || packetType == V5PacketType.puffinCommandResponse,
@@ -140,8 +140,8 @@ extension GooseBLEClient {
     guard notificationCharacteristicIDs.contains(characteristic.uuid) else {
       return
     }
-    for frame in Self.v5Frames(in: value) {
-      guard let payload = Self.v5Payload(in: frame),
+    for frame in strapFrames(in: value) {
+      guard let payload = strapPayload(in: frame),
             payload.count >= 5,
             let packetType = payload.first,
             packetType == V5PacketType.commandResponse || packetType == V5PacketType.puffinCommandResponse,
