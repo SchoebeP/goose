@@ -6,6 +6,11 @@ extension GooseAppModel {
   func handleAppLifecycleChange(_ phase: String) {
     let power = Self.currentOvernightPowerState()
     ble.record(source: "app.lifecycle", title: "scene_phase", body: "\(phase) | \(power.summary)")
+    // Whenever the app comes forward, make sure the link is actually live —
+    // heal a silent stall or kick a reconnect so opening the app always recovers.
+    if phase == "active" || phase == "foreground" {
+      ble.healConnectionIfStale(reason: "foreground")
+    }
     guard overnightGuardActive else {
       return
     }

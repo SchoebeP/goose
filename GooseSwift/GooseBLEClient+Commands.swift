@@ -1090,7 +1090,31 @@ extension GooseBLEClient {
             self.isGen4CommandCharacteristic(ch) else {
         return
       }
-      self.startGen4PulseStreamSequence(reason: "re_enable", bond: false)
+      // Stall watchdog: if we're "ready" but no frame has arrived for >70 s, the
+      // link is silently dead — re-enabling won't help, so force a reconnect.
+      let stale = Date().timeIntervalSince(self.lastDataFrameAt)
+      if stale > 70 {
+        self.record(level: .warn, source: "ble.gen4", title: "gen4.stall.detected",
+                    body: "no data for \(Int(stale))s while ready — forcing reconnect")
+        self.recoverFromDeadLink(reason: "silent stall \(Int(stale))s")
+      } else {
+        self.startGen4PulseStreamSequence(reason: "re_enable", bond: false)
+      }
+    }
+  }
+
+  /// Called when the app returns to the foreground: if we appear connected but
+  /// data has gone stale (a silent stall iOS didn't surface), recover now rather
+  /// than making the user wait for the watchdog tick. If nothing's connected,
+  /// kick a reconnect. Cheap to call; no-op when data is flowing.
+  func healConnectionIfStale(reason: String) {
+    if connectionState == "ready",
+       Date().timeIntervalSince(lastDataFrameAt) > 30 {
+      record(level: .warn, source: "ble", title: "connection.heal",
+             body: "stale on \(reason) — recovering")
+      recoverFromDeadLink(reason: "stale on \(reason)")
+    } else if activePeripheral == nil {
+      attemptAutomaticReconnect(reason: "heal_\(reason)")
     }
   }
 
@@ -1176,6 +1200,7 @@ extension GooseBLEClient {
     guard uuid.hasPrefix("61080005") || uuid.hasPrefix("61080003") || uuid.hasPrefix("61080004") else {
       return
     }
+    lastDataFrameAt = Date()   // stall watchdog: any notification = data is flowing
     // Forward every fragment to the cloud reassembler (powers the live /pulse).
     WhoopCloudForwarder.shared.ingestRawFrame(value, characteristicUUID: characteristicUUID)
     guard value.count >= 7 else { return }
