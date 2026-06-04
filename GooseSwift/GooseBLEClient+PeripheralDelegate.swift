@@ -213,6 +213,7 @@ extension GooseBLEClient: CBPeripheralDelegate {
   }
 
   func fanOutRawNotification(_ event: GooseNotificationEvent) {
+    gen4ObserveRawNotification(event.value, characteristicUUID: event.characteristicUUID)
     if let onRawNotificationWithContext {
       onRawNotificationWithContext(event, notificationContextSnapshot())
     } else {
@@ -297,6 +298,12 @@ extension GooseBLEClient: CBPeripheralDelegate {
 
     if let error {
       record(level: .error, source: "ble", title: "write.failed", body: "\(characteristic.uuid.uuidString) \(error.localizedDescription)")
+      // Zombie connection (dead handles after a background restore): recover
+      // instead of hammering the dead link forever — the actual cure for
+      // "connected but no live data".
+      if isDeadLinkWriteError(error) {
+        recoverFromDeadLink(reason: error.localizedDescription)
+      }
       if isHistoricalSyncing && characteristic.uuid == commandCharacteristic?.uuid {
         failHistoricalSync("Write to \(characteristic.uuid.uuidString) failed during historical sync: \(error.localizedDescription)")
       }

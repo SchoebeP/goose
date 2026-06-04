@@ -240,6 +240,7 @@ final class GooseBLEClient: NSObject, ObservableObject {
   var gen4StartedHistoricalBackfill = false   // one-shot HR history pull per connection
   var gen4LastHistoryAck = Date.distantPast   // throttle for HISTORICAL_DATA_RESULT acks
   var gen4HistoryDeadline: Date?              // hard stop for the ack loop (write-pressure guard)
+  var lastDeadLinkRecovery = Date.distantPast // throttle for zombie-connection recovery
   var gen4ReEnableTimer: Timer?
   let gen4ProbeLock = NSLock()
   var gen4OpticalFrameCount = 0

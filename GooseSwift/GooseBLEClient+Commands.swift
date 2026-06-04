@@ -670,6 +670,43 @@ extension GooseBLEClient {
     )
   }
 
+  /// A "zombie" connection: iOS reports the peripheral as connected (often after
+  /// background state-restoration) but its characteristic handles are dead, so
+  /// every command write fails with "device is not connected" / "the handle is
+  /// invalid". The app would otherwise hammer the dead handles forever. Detect
+  /// these and recover.
+  func isDeadLinkWriteError(_ error: Error) -> Bool {
+    let ns = error as NSError
+    if ns.domain == CBErrorDomain {
+      // CoreBluetooth-domain write errors mean the link itself is gone.
+      return true
+    }
+    let d = error.localizedDescription.lowercased()
+    return d.contains("not connected") || d.contains("handle is invalid")
+      || d.contains("invalid handle")
+  }
+
+  /// Tear down a dead link and let the normal disconnect path reconnect cleanly,
+  /// re-running the GEN4 enable on a fresh connection. Throttled so a burst of
+  /// failed writes triggers exactly one recovery.
+  func recoverFromDeadLink(reason: String) {
+    guard Date().timeIntervalSince(lastDeadLinkRecovery) > 10 else { return }
+    lastDeadLinkRecovery = Date()
+    record(level: .warn, source: "ble", title: "connection.recover",
+           body: "dead link (\(reason)) — tearing down for a fresh reconnect")
+    // Clear stale per-connection GEN4 state so the enable + history pull re-run.
+    gen4StartedPulseStream = false
+    gen4StartedHistoricalBackfill = false
+    gen4HistoryDeadline = nil
+    gen4ReEnableTimer?.invalidate()
+    gen4ReEnableTimer = nil
+    // Cancel the zombie connection. didDisconnectPeripheral fires the normal
+    // auto-reconnect, which rediscovers services with valid handles.
+    if let peripheral = activePeripheral, let central {
+      central.cancelPeripheralConnection(peripheral)
+    }
+  }
+
   func attemptAutomaticReconnect(reason: String) {
     guard let central, central.state == .poweredOn else {
       updateReconnectState("waiting for bluetooth")
