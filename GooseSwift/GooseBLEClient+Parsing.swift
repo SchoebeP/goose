@@ -1042,17 +1042,88 @@ final class WhoopCloudForwarder {
     }
   }
 
-  /// POST the batched complete frames to /ingest/frames. Call on `queue` only.
-  private func flushFramesOnQueue(_ now: Date) {
-    let batch = pendingFrames
-    pendingFrames = []
-    lastFrameFlush = now
+  // MARK: Disk-backed outbox — no internet must never lose biometric frames
+
+  private static let outboxDir: URL = {
+    let base = (try? FileManager.default.url(for: .applicationSupportDirectory,
+                                             in: .userDomainMask, appropriateFor: nil, create: true))
+      ?? URL.documentsDirectory
+    let dir = base.appendingPathComponent("whoop_outbox", isDirectory: true)
+    try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+    return dir
+  }()
+  private var outboxSeq = 0
+  private let maxOutboxFiles = 4000   // ~hours of backlog; oldest dropped beyond this
+
+  /// Build the POST body, tagging it with the capture time so frames that upload
+  /// late (after an outage) are stamped at when they happened, not when they land.
+  private func framesBody(_ frames: [String]) -> Data? {
+    try? JSONSerialization.data(withJSONObject: [
+      "frames": frames,
+      "base_wall_ts": iso.string(from: Date()),
+    ])
+  }
+
+  private func postFrames(_ body: Data, completion: @escaping (Bool) -> Void) {
     var req = URLRequest(url: Self.framesEndpoint)
     req.httpMethod = "POST"
     req.setValue("application/json", forHTTPHeaderField: "Content-Type")
     req.setValue(token, forHTTPHeaderField: "X-Ingest-Token")
-    req.httpBody = try? JSONSerialization.data(withJSONObject: ["frames": batch])
-    URLSession.shared.dataTask(with: req).resume()
+    req.httpBody = body
+    URLSession.shared.dataTask(with: req) { _, resp, err in
+      let ok = err == nil
+        && ((resp as? HTTPURLResponse).map { (200..<300).contains($0.statusCode) } ?? false)
+      completion(ok)
+    }.resume()
+  }
+
+  /// POST the batched complete frames to /ingest/frames. On failure (e.g. no
+  /// internet) the batch is saved to the disk outbox and retried later; on
+  /// success we also drain any backlog. Call on `queue` only.
+  private func flushFramesOnQueue(_ now: Date) {
+    let batch = pendingFrames
+    pendingFrames = []
+    lastFrameFlush = now
+    if batch.isEmpty { drainOutbox(); return }
+    guard let body = framesBody(batch) else { return }
+    postFrames(body) { [weak self] ok in
+      self?.queue.async {
+        if ok { self?.drainOutbox() } else { self?.persistFailedBody(body) }
+      }
+    }
+  }
+
+  /// Persist a body that failed to upload, ordered by time for in-order replay.
+  private func persistFailedBody(_ body: Data) {
+    outboxSeq += 1
+    let name = String(format: "%015.0f-%05d.json", Date().timeIntervalSince1970 * 1000, outboxSeq)
+    try? body.write(to: Self.outboxDir.appendingPathComponent(name))
+    trimOutboxIfNeeded()
+  }
+
+  /// Send the oldest backlog file; on success delete it and continue draining,
+  /// on failure stop (still offline) and leave it for the next attempt.
+  private func drainOutbox() {
+    let fm = FileManager.default
+    guard let url = (try? fm.contentsOfDirectory(at: Self.outboxDir, includingPropertiesForKeys: nil))?
+      .filter({ $0.pathExtension == "json" })
+      .sorted(by: { $0.lastPathComponent < $1.lastPathComponent }).first else { return }
+    guard let body = try? Data(contentsOf: url) else { try? fm.removeItem(at: url); return }
+    postFrames(body) { [weak self] ok in
+      self?.queue.async {
+        guard ok else { return }
+        try? fm.removeItem(at: url)
+        self?.drainOutbox()
+      }
+    }
+  }
+
+  private func trimOutboxIfNeeded() {
+    let fm = FileManager.default
+    guard let files = (try? fm.contentsOfDirectory(at: Self.outboxDir, includingPropertiesForKeys: nil))?
+      .filter({ $0.pathExtension == "json" })
+      .sorted(by: { $0.lastPathComponent < $1.lastPathComponent }), files.count > maxOutboxFiles else { return }
+    for url in files.prefix(files.count - maxOutboxFiles) { try? fm.removeItem(at: url) }
   }
 
   // MARK: Diagnostic log streaming (so we can debug live without the Export step)
