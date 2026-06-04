@@ -239,6 +239,7 @@ extension GooseBLEClient: CBCentralManagerDelegate {
     autoStartedPhysiologyCapture = false
     gen4StartedPulseStream = false           // re-arm the once-per-connection 4.0 enable
     gen4StartedHistoricalBackfill = false    // re-arm the once-per-connection history pull
+    gen4HistoryDeadline = nil                // close the backfill ack window
     gen4ReEnableTimer?.invalidate()
     gen4ReEnableTimer = nil
     readySyncWorkItem?.cancel()

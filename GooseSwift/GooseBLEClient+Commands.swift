@@ -1104,8 +1104,9 @@ extension GooseBLEClient {
           let ch = commandCharacteristic, isGen4CommandCharacteristic(ch) else { return }
     guard !gen4StartedHistoricalBackfill else { return }
     gen4StartedHistoricalBackfill = true
+    gen4HistoryDeadline = Date().addingTimeInterval(90)   // bound the ack loop
     record(level: .warn, source: "ble.gen4", title: "gen4.history.request",
-           body: "pulling buffered HR history (GET_DATA_RANGE -> SEND_HISTORICAL_DATA)")
+           body: "pulling buffered HR history (GET_DATA_RANGE -> SEND_HISTORICAL_DATA), 90s window")
     writeGen4Command(34, payload: [], label: "GET_DATA_RANGE")
     DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in
       self?.writeGen4Command(22, payload: [], label: "SEND_HISTORICAL_DATA")
@@ -1165,7 +1166,10 @@ extension GooseBLEClient {
     if type == 47 {
       gen4ProbeLock.lock()
       let now = Date()
-      let due = now.timeIntervalSince(gen4LastHistoryAck) >= 0.5
+      // ACK only inside the bounded backfill window, throttled to ≤2/sec, so a
+      // long historical stream can't pressure the command channel into a timeout.
+      let withinWindow = (gen4HistoryDeadline.map { now < $0 }) ?? false
+      let due = withinWindow && now.timeIntervalSince(gen4LastHistoryAck) >= 0.5
       if due { gen4LastHistoryAck = now }
       gen4ProbeLock.unlock()
       if due {
