@@ -362,6 +362,9 @@ final class GooseBLEClient: NSObject, ObservableObject {
   static let hrvRMSSDAverageWindowSize = 12
   static let hrvEstimatePublishInterval: TimeInterval = 60
   static let historicalPacketCountPublishInterval: TimeInterval = 1
+  // Max historical packets to ingest in a single sync pass before completing, so a
+  // huge first-time backlog cannot run for many minutes or balloon on-device storage.
+  static let historicalSyncPacketCap = 6000
   static let historicalProgressCallbackInterval: TimeInterval = 1
   static let strapClockAutoSyncThresholdSeconds: TimeInterval = 5
   static let diagnosticLogFormatter: ISO8601DateFormatter = {

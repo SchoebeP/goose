@@ -165,7 +165,12 @@ extension GooseBLEClient {
     if kind == .sendHistoricalData {
       historicalTransferRequestAttemptCount += 1
     }
-    if kind == .historicalDataResult {
+    // WHOOP 4.0 does not return a COMMAND_RESPONSE for history-start — it simply
+    // begins streaming HISTORICAL_DATA packets. Waiting for a response makes the
+    // sync time out, so on Gen4 we treat history-start as fire-and-forget (like the
+    // ACK) and rely on the data stream + idle completion instead.
+    let isGen4HistoryStart = activeCommandGeneration == .gen4 && kind == .sendHistoricalData
+    if kind == .historicalDataResult || isGen4HistoryStart {
       pendingHistoricalCommand = nil
       historicalCommandTimeoutWorkItem?.cancel()
     } else {
@@ -204,6 +209,12 @@ extension GooseBLEClient {
       } else {
         scheduleHistoricalIdleCompletion(reason: "history_result_ack_sent")
       }
+    }
+    if isGen4HistoryStart {
+      // No command response is coming; wait for the data stream. Each incoming
+      // HISTORICAL_DATA frame extends this idle window, so a real transfer keeps
+      // going; if nothing streams, the sync completes gracefully instead of erroring.
+      scheduleHistoricalIdleCompletion(reason: "gen4_history_start_sent")
     }
   }
 

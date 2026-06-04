@@ -11,7 +11,10 @@ use crate::{
 };
 
 pub const CURRENT_SCHEMA_VERSION: i64 = 14;
-pub const DEFAULT_RAW_EVIDENCE_PAYLOAD_RETENTION_LIMIT_BYTES: i64 = 512 * 1024 * 1024;
+// Cap raw-frame payload storage so a full WHOOP history backlog (which can be weeks
+// of data, pulled oldest-first) cannot balloon the on-device database. 512 MB was far
+// too high for a phone; 24 MB keeps recent raw payloads while old ones are compacted.
+pub const DEFAULT_RAW_EVIDENCE_PAYLOAD_RETENTION_LIMIT_BYTES: i64 = 24 * 1024 * 1024;
 
 const ALLOWED_METRIC_SOURCE_KINDS: [&str; 4] = [
     "device_counter",

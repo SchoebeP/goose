@@ -24,6 +24,20 @@ extension GooseBLEClient {
       handleHistoricalCommandResponse(payload)
     case V5PacketType.historicalData, V5PacketType.historicalIMUDataStream:
       historicalPacketsReceivedThisSync += 1
+      // Bound a single sync: a never-synced WHOOP can stream its entire multi-week
+      // backlog (oldest-first), which never reaches HistoryComplete in one pass and
+      // would balloon storage. Stop after a sane cap; the ACK'd read pointer persists,
+      // so a later Sync continues from where this one left off.
+      if historicalPacketsReceivedThisSync >= Self.historicalSyncPacketCap {
+        record(
+          level: .warn,
+          source: "ble.sync",
+          title: "historical_sync.packet_cap",
+          body: "reached \(Self.historicalSyncPacketCap) packets; completing this pass to bound storage"
+        )
+        completeHistoricalSync(reason: "historical_sync_packet_cap")
+        return
+      }
       publishHistoricalPacketCountIfNeeded()
       scheduleHistoricalIdleCompletion(reason: "historical_data_idle")
       notifyHistoricalSyncProgress(
