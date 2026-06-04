@@ -42,12 +42,16 @@ existing inbound parser.
   only `TOGGLE_REALTIME_HR` (cmd 3). It deliberately does **not** send
   `SEND_R10_R11_REALTIME` (cmd 63), whose raw K10/K11 motion firehose bloated
   on-device storage to hundreds of MB in minutes and is not needed for HR.
-- **Gen4 historical sync** (`GooseBLEClient+HistoricalCommands.swift`): the openwhoop
-  Gen4 preamble (`set_time` → `get_name` → `enter_high_freq_sync` → `history_start`,
-  with Gen4 `[0x00]` data bytes, skipping `GET_DATA_RANGE`). Gen4 history-start is
-  **fire-and-forget** — the band returns no command response, it just begins
-  streaming — so the sync waits on the data stream + idle completion instead of a
-  response (otherwise it times out with "SEND_HISTORICAL_DATA timed out").
+- **Gen4 historical sync** (`GooseBLEClient+HistoricalCommands.swift`): preamble
+  `set_time` → `get_name` → `history_start` (Gen4 `[0x00]` data, skipping
+  `GET_DATA_RANGE`). Gen4 history-start is **fire-and-forget** — the band returns no
+  command response, it just streams — so the sync waits on the data stream + idle
+  completion (otherwise it times out with "SEND_HISTORICAL_DATA timed out").
+  **`enter_high_freq_sync` (cmd 96) is deliberately NOT sent**: with it, a real WHOOP
+  4.0 streams the high-frequency raw-motion path (REALTIME_RAW_DATA k10/k11) and never
+  the normal-history records; without it the band returns `HISTORICAL_DATA` (type 47,
+  `normal_history`) carrying the per-sample heart-rate markers. Verified on hardware:
+  removing cmd 96 took type-47 frames from 0 to 750 in one short sync.
 
 ## Fixes (found against a real WHOOP 4.0)
 
@@ -82,10 +86,17 @@ existing inbound parser.
   mark these `NotDecoded` or readiness-blocked): respiratory rate, SpO2, skin
   temperature, signal quality, skin contact; HRV is blocked by
   `hrv_rr_interval_scale_unverified`.
-- **Full sleep/recovery** need the band's historical health records (HISTORICAL_DATA,
-  type 47). In testing those records were dropped during frame reassembly on the
-  Gen4 data characteristic (61080005) while console-log/metadata frames came through,
-  so this still needs work (ideally with a raw-notification capture to see the bytes).
+- **History content.** With cmd 96 removed (above) the band now streams its
+  `normal_history` (type 47) records, but those carry **heart rate only** (per-sample
+  HR markers) plus raw motion — no beat-to-beat RR intervals, optical/PPG, SpO2,
+  respiratory, or temperature. Verified by running the metric pipeline over a real
+  capture: resting heart rate computes correctly from the history (~91 bpm from 822 HR
+  features), but the recovery pipeline's own provenance blocks HRV
+  (`requires_true_beat_interval_data_not_coarse_bpm`), SpO2
+  (`oxygen_saturation_decoder_not_implemented`), respiratory, and skin temperature for
+  lack of source signals. Those stay empty regardless of code. Sleep/recovery scoring
+  would need an overnight history (HR + motion over a sleep window); a short daytime
+  capture does not contain one.
 
 ## Tests
 

@@ -107,10 +107,14 @@ extension GooseBLEClient {
       UInt8((now >> 24) & 0xff),
       0, 0, 0, 0, 0,
     ]
+    // NOTE: enter_high_freq_sync (cmd 96) is intentionally NOT sent here. On a real
+    // WHOOP 4.0 the high-frequency path streams raw motion (REALTIME_RAW_DATA k10/k11)
+    // instead of the normal_history (HISTORICAL_DATA type 47) records that carry the
+    // sleep/recovery metrics. We send only set_time + get_name before history_start so
+    // the band returns its normal history rather than the high-frequency motion stream.
     let steps: [(command: UInt8, data: [UInt8], name: String)] = [
       (10, setTime, "GEN4_SET_CLOCK"),
       (76, [0x00], "GEN4_GET_NAME"),
-      (96, [], "GEN4_ENTER_HIGH_FREQ_SYNC"),
     ]
     for (index, step) in steps.enumerated() {
       let delay = Double(index) * 0.2
