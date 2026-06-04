@@ -6,11 +6,48 @@ If you don't know what Xcode is, or how to build the Rust core, this build is no
 
 ![Goose app hero showing a connected WHOOP 5.0 device](docs/assets/readme-hero.png)
 
-This prototype targets WHOOP 5.0 only. Other WHOOP generations are not supported in this build.
+This prototype targets WHOOP 5.0. **Experimental WHOOP 4.0 (Gen4) support** has been added (see the WHOOP 4.0 section below and [`docs/WHOOP_4.0_GEN4.md`](docs/WHOOP_4.0_GEN4.md)): a 4.0 band connects, completes the handshake, and streams live heart rate; full sleep/recovery decoding from history is still in progress.
 
 The app and backend have had very little attention put into performance. The app will lag, very considerably. Performance PRs are welcome, or you can wait until I address it in due course.
 
 Goose is a local-first WHOOP 5.0 data and health metrics project. The iOS app connects to WHOOP 5.0 bands, routes packet data through the Goose Rust core, and turns that data into daily health, recovery, sleep, strain, stress, cardio, energy, coach, and debug views.
+
+## WHOOP 4.0 (Gen4)
+
+Experimental support for the WHOOP 4.0 band. The inbound parser was already
+generation-aware; this adds the missing outbound half (Gen4 framing, handshake,
+and commands) plus several stability/performance fixes found on real hardware.
+Full write-up: [`docs/WHOOP_4.0_GEN4.md`](docs/WHOOP_4.0_GEN4.md).
+
+What was added:
+
+- **Gen4 BLE framing** — a 4-byte-header + CRC8 frame builder/deframer and a
+  generation-aware command dispatcher (Gen4 `61080002` vs Gen5 `fd4b0002`), with a
+  Gen4 hello (`GetHelloHarvard`, cmd 35) and a Gen4 historical-sync sequence.
+- **Live heart rate on Gen4** via the standard BLE Heart Rate service (180D/2A37).
+
+What was fixed (mostly surfaced while bringing up Gen4, but general):
+
+- **`unsupported device_type: GEN4`** — the Rust bridge only accepted the string
+  `"GEN_4"`, so every Gen4 frame was rejected; now `"GEN4"` is accepted.
+- **FFI panic safety** — the C-FFI dispatch now uses `catch_unwind` and the release
+  profile uses `panic = "unwind"`, so a Rust panic returns a JSON error instead of
+  crashing the app.
+- **Lag** — a 12-hour, full-rate packet capture that auto-started on every connect
+  (persisting every frame to SQLite) is no longer automatic; it's opt-in.
+- **Export OOM crash** — the default raw export no longer pulls raw bytes and the
+  huge `sensor_samples` table fully into memory.
+- **Unbounded database growth** — raw-payload retention is capped (24 MB), live
+  writes compact, and a single history sync pass is bounded, so a WHOOP history
+  backlog can't balloon the on-device database.
+
+Not yet decoded for any generation (so still empty on Gen4): respiratory rate,
+SpO2, skin temperature, signal quality, skin contact; HRV is readiness-blocked.
+Full sleep/recovery need the band's historical health records, which are currently
+dropped during reassembly on the Gen4 data characteristic — tracked as an issue.
+
+Tests for the Gen4 work live in `Rust/core/tests/gen4_protocol_tests.rs` and
+`gen4_outbound_verification.rs`.
 
 ## Project Layout
 
