@@ -1,0 +1,1 @@
+hourly_metric_id,date_key,timezone,start_time_unix_ms,end_time_unix_ms,steps,active_kcal,resting_kcal,total_kcal,average_cadence_spm,source_kind,confidence,inputs_json,quality_flags_json,provenance_json,created_at,updated_at

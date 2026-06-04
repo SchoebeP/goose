@@ -15,6 +15,7 @@ extension GooseBLEClient {
     }
     recordLiveHeartRate(measurement.bpm, source: "ble.hr.standard", at: capturedAt)
     recordRRIntervals(measurement.rrIntervalsMS, source: "ble.hr.standard", at: capturedAt)
+    WhoopCloudForwarder.shared.forward(bpm: measurement.bpm, rrMs: measurement.rrIntervalsMS, at: capturedAt)
   }
 
   struct BatteryLevelStatus {
@@ -55,6 +56,23 @@ extension GooseBLEClient {
     guard sampleAge > 0, sampleAge <= 6 * 60 * 60 else {
       return
     }
+    if currentPercent < previousSample.percent {
+      // A falling level is unambiguous discharge evidence: the band is off the
+      // charger. Cancel any standing "charging (inferred)" window so a battery
+      // bump from an earlier charge can't keep the UI stuck on "Charging".
+      if inferredBatteryChargingUntil != nil || batteryIsCharging == true {
+        inferredBatteryChargingUntil = nil
+        persistInferredBatteryChargingUntil(nil)
+        batteryIsCharging = false
+        batteryPowerStatus = "Not charging"
+        record(
+          source: "ble.metadata",
+          title: "battery.charging.inference_cleared",
+          body: "\(previousSample.percent)% -> \(currentPercent)% (level fell, not charging)"
+        )
+      }
+      return
+    }
     guard currentPercent > previousSample.percent else {
       if inferredBatteryChargingUntil.map({ $0 > capturedAt }) == true, batteryIsCharging == nil {
         batteryIsCharging = true
@@ -81,42 +99,15 @@ extension GooseBLEClient {
   }
 
   func applyBatteryStatus(_ status: BatteryLevelStatus, rawValue: Data, capturedAt: Date) {
-    if let batteryLevel = status.batteryLevelPercent {
-      applyBatteryLevel(batteryLevel, capturedAt: capturedAt, sourceTitle: "battery.status.level")
-    } else {
-      batteryUpdatedAt = capturedAt
-      lastSyncAt = capturedAt
-    }
-
-    if status.isCharging == true {
-      batteryIsCharging = true
-      inferredBatteryChargingUntil = nil
-      persistInferredBatteryChargingUntil(nil)
-      batteryPowerStatus = status.summary
-    } else if status.isCharging == false {
-      if hasRecentInferredBatteryCharging(at: capturedAt) {
-        batteryIsCharging = true
-        batteryPowerStatus = "Charging (inferred)"
-        record(
-          source: "ble.metadata",
-          title: "battery.status.inference_kept",
-          body: "\(status.summary) raw=\(rawValue.hexString)"
-        )
-      } else {
-        batteryIsCharging = false
-        inferredBatteryChargingUntil = nil
-        persistInferredBatteryChargingUntil(nil)
-        batteryPowerStatus = status.summary
-      }
-    } else if hasRecentInferredBatteryCharging(at: capturedAt) {
-      batteryIsCharging = true
-      batteryPowerStatus = "Charging (inferred)"
-    } else {
-      batteryIsCharging = nil
-      inferredBatteryChargingUntil = nil
-      persistInferredBatteryChargingUntil(nil)
-      batteryPowerStatus = status.summary
-    }
+    // WHOOP 4.0: this bit-packed "battery status" characteristic uses the 5.0
+    // layout and decodes to garbage here — it reported 10/36% (and wrong charging)
+    // against a real 96% while charging. Ignore its level AND charging entirely;
+    // the standard 0x2A19 characteristic gives the percent and CHARGING_*/5V
+    // events give the charging state.
+    _ = status
+    _ = rawValue
+    batteryUpdatedAt = capturedAt
+    lastSyncAt = capturedAt
   }
 
   @discardableResult
@@ -129,6 +120,15 @@ extension GooseBLEClient {
     case batteryLevelCharacteristicID:
       guard let raw = value.first else {
         record(level: .warn, source: "ble.metadata", title: "battery.read.empty")
+        return true
+      }
+      // WHOOP 4.0: the standard 0x2A19 byte is unreliable here — it bounces
+      // 10/83/100% on the same band. Trust ONLY the GET_BATTERY command response
+      // (uint16/10, validated reliable). Log the raw byte for diagnosis but don't
+      // let it set the level. (5.0 still uses 2A19 normally.)
+      if isGen4Band {
+        record(source: "ble.metadata", title: "battery.read.2a19_ignored_gen4",
+               body: "raw=\(value.hexString) byte=\(Int(raw))% — using GET_BATTERY cmd instead")
         return true
       }
       applyBatteryLevel(Int(raw), capturedAt: capturedAt, sourceTitle: "battery.read")
@@ -957,5 +957,148 @@ extension GooseBLEClient {
       }
     }
     return ~crc
+  }
+}
+
+/// Forwards live HR + R-R intervals from the WHOOP 4.0 (standard HR characteristic)
+/// to the self-hosted whoop-band cloud (VPS). Fire-and-forget; never blocks BLE.
+final class WhoopCloudForwarder {
+  static let shared = WhoopCloudForwarder()
+
+  /// Self-hosted ingest endpoint (token-protected; no basic auth on this path).
+  private let endpoint = URL(string: "https://latenightgames.fr/whoop/ingest/samples")!
+  private let token = "c0067852565b4d0d46606172de35c6ba120112c447e1f25b"
+  private let queue = DispatchQueue(label: "com.goose.swift.cloud-forward", qos: .utility)
+  private let iso = ISO8601DateFormatter()
+  private var lastSent = Date.distantPast
+  private var frameBuffers: [String: [UInt8]] = [:]   // per-characteristic frame reassembly
+  private var pendingFrames: [String] = []            // complete-frame hex awaiting POST
+  private var lastFrameFlush = Date.distantPast
+
+  /// Enable/disable the cloud feed (defaults on; flip via UserDefaults "whoopCloudForwarding").
+  var isEnabled: Bool {
+    UserDefaults.standard.object(forKey: "whoopCloudForwarding") as? Bool ?? true
+  }
+
+  func forward(bpm: Int, rrMs: [Double], at date: Date) {
+    guard isEnabled, bpm > 0 else { return }
+    queue.async {
+      // throttle to at most ~1 post/sec to keep it light
+      guard date.timeIntervalSince(self.lastSent) >= 0.9 else { return }
+      self.lastSent = date
+      var req = URLRequest(url: self.endpoint)
+      req.httpMethod = "POST"
+      req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+      req.setValue(self.token, forHTTPHeaderField: "X-Ingest-Token")
+      let body: [String: Any] = [
+        "bpm": bpm,
+        "rr_intervals_ms": rrMs,
+        "wall_ts": self.iso.string(from: date),
+      ]
+      req.httpBody = try? JSONSerialization.data(withJSONObject: body)
+      URLSession.shared.dataTask(with: req).resume()  // fire-and-forget
+    }
+  }
+
+  // MARK: Raw GEN4 frame forwarding (powers the live /pulse waveform)
+
+  private static let framesEndpoint = URL(string: "https://latenightgames.fr/whoop/ingest/frames")!
+
+  /// Feed every raw BLE notification fragment from the 4.0 data characteristics.
+  /// The band fragments frames across notifications, so we reassemble whole
+  /// frames on-device (by the length header) and forward the realtime/optical/
+  /// event frames — the server decodes the pulse from them. All buffer state
+  /// lives on `queue`, so this is thread-safe and never blocks the BLE thread.
+  func ingestRawFrame(_ data: Data, characteristicUUID: String) {
+    guard isEnabled else { return }
+    let uuid = characteristicUUID.lowercased()
+    guard uuid.hasPrefix("61080005") || uuid.hasPrefix("61080003") || uuid.hasPrefix("61080004") else { return }
+    let bytes = [UInt8](data)
+    queue.async {
+      var buf = self.frameBuffers[uuid] ?? []
+      buf.append(contentsOf: bytes)
+      var i = 0
+      while i + 4 <= buf.count {
+        if buf[i] != 0xAA { i += 1; continue }
+        let len = Int(buf[i + 1]) | (Int(buf[i + 2]) << 8)
+        let end = i + 4 + len
+        if end > buf.count { break }                 // frame not fully arrived yet
+        let frame = Array(buf[i..<end])
+        let type = frame.count > 4 ? frame[4] : 0
+        if type == 40 || type == 43 || type == 48 || type == 36 {   // HR / optical / event / cmd-resp
+          self.pendingFrames.append(frame.map { String(format: "%02x", $0) }.joined())
+        }
+        i = end
+      }
+      if i > 0 { buf.removeFirst(i) }
+      if buf.count > 16384 { buf.removeFirst(buf.count - 8192) }     // guard against runaway
+      self.frameBuffers[uuid] = buf
+      let now = Date()
+      if self.pendingFrames.count >= 30
+          || (!self.pendingFrames.isEmpty && now.timeIntervalSince(self.lastFrameFlush) >= 3) {
+        self.flushFramesOnQueue(now)
+      }
+    }
+  }
+
+  /// POST the batched complete frames to /ingest/frames. Call on `queue` only.
+  private func flushFramesOnQueue(_ now: Date) {
+    let batch = pendingFrames
+    pendingFrames = []
+    lastFrameFlush = now
+    var req = URLRequest(url: Self.framesEndpoint)
+    req.httpMethod = "POST"
+    req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+    req.setValue(token, forHTTPHeaderField: "X-Ingest-Token")
+    req.httpBody = try? JSONSerialization.data(withJSONObject: ["frames": batch])
+    URLSession.shared.dataTask(with: req).resume()
+  }
+
+  // MARK: Diagnostic log streaming (so we can debug live without the Export step)
+
+  private static let logsEndpoint = URL(string: "https://latenightgames.fr/whoop/ingest/logs")!
+  private var pendingLogs: [[String: Any]] = []
+  private var lastLogFlush = Date.distantPast
+
+  /// Stream the app's diagnostic log lines to the VPS. On by default; flip via
+  /// UserDefaults "whoopLogStreaming".
+  var logStreamEnabled: Bool {
+    UserDefaults.standard.object(forKey: "whoopLogStreaming") as? Bool ?? true
+  }
+
+  /// Called from `GooseBLEClient.record` for every recorded message. Batches and
+  /// forwards to /ingest/logs. Fire-and-forget; never blocks the caller.
+  func ingestLog(level: String, source: String, title: String, body: String, at date: Date) {
+    guard isEnabled, logStreamEnabled else { return }
+    if source == "cloud.logstream" { return }   // never recurse on our own logs
+    queue.async {
+      let entry: [String: Any] = [
+        "ts": self.iso.string(from: date), "level": level,
+        "source": source, "title": title, "body": body,
+      ]
+      self.pendingLogs.append(entry)
+      let now = Date()
+      if self.pendingLogs.count >= 40
+          || (!self.pendingLogs.isEmpty && now.timeIntervalSince(self.lastLogFlush) >= 5) {
+        self.flushLogsOnQueue(now)
+      }
+      if self.pendingLogs.count > 500 {          // runaway guard if VPS unreachable
+        self.pendingLogs.removeFirst(self.pendingLogs.count - 250)
+      }
+    }
+  }
+
+  /// POST the batched log lines to /ingest/logs. Call on `queue` only.
+  private func flushLogsOnQueue(_ now: Date) {
+    let batch = pendingLogs
+    pendingLogs = []
+    lastLogFlush = now
+    guard !batch.isEmpty else { return }
+    var req = URLRequest(url: Self.logsEndpoint)
+    req.httpMethod = "POST"
+    req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+    req.setValue(token, forHTTPHeaderField: "X-Ingest-Token")
+    req.httpBody = try? JSONSerialization.data(withJSONObject: ["logs": batch])
+    URLSession.shared.dataTask(with: req).resume()
   }
 }

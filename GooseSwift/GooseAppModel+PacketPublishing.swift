@@ -445,6 +445,7 @@ extension GooseAppModel {
   func handleWhoopEvent(_ sample: WhoopEventSample) {
     publishWhoopEventStatus(sample.statusSummary, at: sample.capturedAt)
     recordOvernightEventTarget(sample)
+    applyChargingFromEvent(sample)
     if shouldLogWhoopEvent(sample) {
       ble.record(level: .debug, source: "whoop.event", title: "event.received", body: sample.logSummary)
     }
@@ -466,6 +467,26 @@ extension GooseAppModel {
       title: "temperature.skin_candidate",
       body: sample.logSummary
     )
+  }
+
+  /// Authoritative charging state from the band's own events (the bit-packed
+  /// status characteristic is unreliable on the WHOOP 4.0).
+  func applyChargingFromEvent(_ sample: WhoopEventSample) {
+    guard let id = sample.eventID else { return }
+    switch id {
+    case 5, 7, 21:   // EXTERNAL_5V_ON, CHARGING_ON, BATTERY_PACK_CONNECTED
+      ble.batteryIsCharging = true
+      ble.batteryPowerStatus = "Charging"
+    case 6, 8, 22:   // EXTERNAL_5V_OFF, CHARGING_OFF, BATTERY_PACK_REMOVED
+      ble.batteryIsCharging = false
+      ble.batteryPowerStatus = "Not charging"
+      // Cancel the inferred-charging window so it can't re-assert on the next
+      // battery reading or app restore (Commands.swift restore path).
+      ble.inferredBatteryChargingUntil = nil
+      ble.persistInferredBatteryChargingUntil(nil)
+    default:
+      break
+    }
   }
 
   func handleWhoopDataSignal(_ sample: WhoopDataSignalSample) {

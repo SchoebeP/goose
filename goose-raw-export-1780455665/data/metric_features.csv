@@ -1,0 +1,4 @@
+report_kind,schema,start_time,end_time,pass,feature_count,trusted_feature_count,issue_count,issues_json
+heart_rate,goose.heart-rate-feature-report.v1,1970-01-01T00:00:00Z,2026-06-03T02:48:58Z,true,0,0,0,[]
+hrv,goose.hrv-feature-report.v1,1970-01-01T00:00:00Z,2026-06-03T02:48:58Z,false,0,0,1,"[""not_enough_rr_intervals""]"
+metric_window,goose.metric-window-feature-report.v1,1970-01-01T00:00:00Z,2026-06-03T02:48:58Z,true,0,0,0,[]

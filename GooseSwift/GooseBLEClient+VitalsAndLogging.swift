@@ -218,6 +218,13 @@ extension GooseBLEClient {
     }
     appendDiagnosticLog(message)
     writeConsoleDiagnosticLog(message)
+    WhoopCloudForwarder.shared.ingestLog(
+      level: message.level.rawValue,
+      source: message.source,
+      title: message.title,
+      body: message.body,
+      at: message.timestamp
+    )
   }
 
   func enqueueDisplayedMessage(_ message: GooseMessage) {

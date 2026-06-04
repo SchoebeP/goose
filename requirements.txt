@@ -1,0 +1,15 @@
+# Core
+bleak>=0.22            # cross-platform BLE
+fastapi>=0.110         # read API
+uvicorn[standard]>=0.29
+python-dotenv>=1.0     # .env config
+# SQLite is stdlib (sqlite3); add sqlmodel only if it clearly earns its place
+# sqlmodel>=0.0.16
+
+# Dev
+pytest>=8.0
+ruff>=0.4
+
+# Later phases (derived metrics / signal processing) — uncomment when needed
+# numpy>=1.26
+# scipy>=1.13

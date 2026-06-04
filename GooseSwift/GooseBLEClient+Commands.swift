@@ -503,12 +503,11 @@ extension GooseBLEClient {
     if let capturedAt {
       lastBatteryLevelSample = (normalizedPercent, capturedAt)
     }
-    if let chargingUntil = defaults.object(forKey: DefaultsKey.inferredBatteryChargingUntil) as? Date,
-       chargingUntil > Date() {
-      inferredBatteryChargingUntil = chargingUntil
-      batteryIsCharging = true
-      batteryPowerStatus = "Charging (inferred)"
-    }
+    // Deliberately do NOT restore an "inferred charging" assertion across app
+    // launches: at launch there is no fresh evidence the band is still on the
+    // charger, and a stale 30-min window would keep the UI stuck on "Charging"
+    // after the charger was already removed. Charging state is driven only by
+    // live evidence — a rising battery level or a CHARGING_ON/OFF event.
   }
 
   func loadPersistedHRVSample() {
@@ -892,6 +891,7 @@ extension GooseBLEClient {
       scheduleDebugSkinTemperatureCommandIfNeeded(reason: cached ? "cached_ready" : "ready")
       scheduleAutomaticHistoricalSyncIfNeeded()
       scheduleAutomaticPhysiologyCaptureIfNeeded()
+      scheduleGen4PulseStreamIfNeeded()
     } else if connectionState == "discovering" {
       updateConnectionState("connected")
     }
@@ -945,4 +945,250 @@ extension GooseBLEClient {
     record(source: "ble.sync", title: "historical_sync.scheduled", body: reason)
   }
 
+}
+
+// WHOOP 4.0 (GEN4) raw-pulse stream support.
+//
+// The app's normal sensor-command path (`writeSensorStreamCommand`) builds V5
+// frames — 8-byte header, CRC16 — which only the WHOOP 5.0 understands. The 4.0
+// uses a different framing (4-byte header: [0xAA][len u16 LE][crc8], body
+// [type=35][seq][cmd][payload], trailing CRC32 LE) and silently ignores V5
+// frames. That is why the app has only ever seen standard-characteristic HR +
+// battery on a 4.0, never its optical/PPG pulse stream.
+//
+// This module sends the proven GEN4 enable sequence (validated on the owner's
+// band from macOS) so the 4.0 streams its raw optical frames (type 43, sub 0):
+//   GET_BATTERY(26) to bond → TOGGLE_REALTIME_HR(3) → SEND_R10_R11_REALTIME(63)
+//   → SET_RESEARCH_PACKET(131) x3 with ascii payloads enable_r19_packets /
+//   sigproc_10_sec_dp / sigproc_pdaf. Re-sent every 60 s (the band lets the
+//   stream lapse otherwise). The builder here is byte-for-byte identical to the
+//   reference Python implementation (verified against captured command frames).
+extension GooseBLEClient {
+
+  // MARK: GEN4 frame builder (verified byte-identical to the reference encoder)
+
+  static func crc8Gen4(_ bytes: [UInt8]) -> UInt8 {
+    var c: UInt8 = 0
+    for b in bytes {
+      c ^= b
+      for _ in 0..<8 {
+        c = (c & 0x80) != 0 ? (c << 1) ^ 0x07 : (c << 1)
+      }
+    }
+    return c
+  }
+
+  static func crc32Gen4(_ bytes: [UInt8]) -> UInt32 {
+    var crc = UInt32(0xffff_ffff)
+    for byte in bytes {
+      crc ^= UInt32(byte)
+      for _ in 0..<8 {
+        crc = (crc & 1 == 1) ? (crc >> 1) ^ 0xedb8_8320 : crc >> 1
+      }
+    }
+    return ~crc
+  }
+
+  static func buildGen4CommandFrame(sequence: UInt8, command: UInt8, payload: [UInt8]) -> [UInt8] {
+    let body: [UInt8] = [35, sequence, command] + payload
+    let declaredLength = UInt16(body.count + 4)
+    let lenBytes: [UInt8] = [UInt8(declaredLength & 0xff), UInt8((declaredLength >> 8) & 0xff)]
+    var frame: [UInt8] = [0xAA]
+    frame.append(contentsOf: lenBytes)
+    frame.append(crc8Gen4(lenBytes))
+    frame.append(contentsOf: body)
+    let crc = crc32Gen4(body)
+    frame.append(UInt8(crc & 0xff))
+    frame.append(UInt8((crc >> 8) & 0xff))
+    frame.append(UInt8((crc >> 16) & 0xff))
+    frame.append(UInt8((crc >> 24) & 0xff))
+    return frame
+  }
+
+  // MARK: Activation
+
+  /// True for the WHOOP 4.0 command characteristic (61080002); the V5 path uses fd4b0002.
+  func isGen4CommandCharacteristic(_ characteristic: CBCharacteristic) -> Bool {
+    characteristic.uuid.uuidString.lowercased().hasPrefix("61080002")
+  }
+
+  /// True once connected to a WHOOP 4.0. Used to put the app in "4.0 quiet mode":
+  /// the 5.0-oriented subsystems (overnight-guard resume, V5 physiology capture +
+  /// its 8 s retries, historical/range polling, Rust frame parsing) all fight the
+  /// 4.0 link and cause it to time out — so they're suppressed, leaving only the
+  /// GEN4 pulse stream, which is what kept the macOS capture stable.
+  var isGen4Band: Bool {
+    commandCharacteristic.map(isGen4CommandCharacteristic) == true
+  }
+
+  /// Defaults on; set UserDefaults "gen4PulseStream" = false to disable.
+  var gen4PulseStreamEnabled: Bool {
+    UserDefaults.standard.object(forKey: "gen4PulseStream") as? Bool ?? true
+  }
+
+  /// Called when a connection becomes ready (sibling of the V5 auto-capture).
+  /// No-op unless this is a 4.0 band and the feature is enabled.
+  func scheduleGen4PulseStreamIfNeeded() {
+    guard gen4PulseStreamEnabled,
+          connectionState == "ready",
+          activePeripheral != nil,
+          let characteristic = commandCharacteristic,
+          isGen4CommandCharacteristic(characteristic) else {
+      return
+    }
+    // Fire ONCE per connection. processDiscoveredCharacteristics() (our caller)
+    // runs once per GATT service — 4× for the WHOOP — so without this guard the
+    // whole enable sequence was sent 4× on every connect, a write-storm that
+    // overwhelmed the 4.0 link and timed it out. Reset on disconnect.
+    guard !gen4StartedPulseStream else { return }
+    gen4StartedPulseStream = true
+    record(source: "ble.gen4", title: "gen4.pulse.scheduled",
+           body: "4.0 band detected — enabling raw optical pulse stream")
+    startGen4PulseStreamSequence(reason: "ready", bond: true)
+    gen4ReEnableTimer?.invalidate()
+    gen4ReEnableTimer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in
+      guard let self,
+            self.connectionState == "ready",
+            let ch = self.commandCharacteristic,
+            self.isGen4CommandCharacteristic(ch) else {
+        return
+      }
+      self.startGen4PulseStreamSequence(reason: "re_enable", bond: false)
+    }
+  }
+
+  private func gen4ResearchPayload(_ token: String) -> [UInt8] {
+    Array(token.utf8) + [0]
+  }
+
+  /// Send the enable sequence with the proven inter-command timing.
+  func startGen4PulseStreamSequence(reason: String, bond: Bool) {
+    record(source: "ble.gen4", title: "gen4.pulse.enable.start", body: "reason=\(reason) bond=\(bond)")
+    // Always read battery via GET_BATTERY (the reliable uint16/10 source); this
+    // also serves as the bond write on connect, and refreshes battery every
+    // re-enable (~60 s). On the initial bond, wait for it to settle first.
+    writeGen4Command(26, payload: [0x00], label: bond ? "GET_BATTERY(bond)" : "GET_BATTERY(refresh)")
+    let base = bond ? 1.2 : 0.3
+    let steps: [(UInt8, [UInt8], String)] = [
+      (3, [0x01], "TOGGLE_REALTIME_HR"),
+      (63, [0x01], "SEND_R10_R11_REALTIME"),
+      (131, gen4ResearchPayload("enable_r19_packets"), "SET_RESEARCH_PACKET:r19"),
+      (131, gen4ResearchPayload("sigproc_10_sec_dp"), "SET_RESEARCH_PACKET:dp"),
+      (131, gen4ResearchPayload("sigproc_pdaf"), "SET_RESEARCH_PACKET:pdaf"),
+    ]
+    for (index, step) in steps.enumerated() {
+      let delay = base + Double(index) * 0.25
+      DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+        self?.writeGen4Command(step.0, payload: step.1, label: step.2)
+      }
+    }
+  }
+
+  private func writeGen4Command(_ command: UInt8, payload: [UInt8], label: String) {
+    guard let peripheral = activePeripheral,
+          let characteristic = commandCharacteristic,
+          let writeType = writeType(for: characteristic) else {
+      record(level: .warn, source: "ble.gen4", title: "gen4.command.blocked", body: label)
+      return
+    }
+    let sequence = nextSensorCommandSequence
+    nextSensorCommandSequence = nextSensorCommandSequence == UInt8.max ? 180 : nextSensorCommandSequence + 1
+    let frame = Data(Self.buildGen4CommandFrame(sequence: sequence, command: command, payload: payload))
+    peripheral.writeValue(frame, for: characteristic, type: writeType)
+    record(source: "ble.gen4", title: "gen4.command.sent",
+           body: "\(label) cmd=\(command) seq=\(sequence) frame=\(frame.hexString)")
+  }
+
+  // MARK: Probe — count optical/HR frames so the device test is observable
+
+  /// Tap every raw notification: count the first fragment of each GEN4 frame
+  /// (begins 0xAA; type at byte 4, sub at byte 6) so we can confirm the band is
+  /// actually streaming the optical pulse. Logged (throttled) at .warn so it is
+  /// always visible. Thread-safe; safe to call off the main thread.
+  func gen4ObserveRawNotification(_ value: Data, characteristicUUID: String) {
+    let uuid = characteristicUUID.lowercased()
+    guard uuid.hasPrefix("61080005") || uuid.hasPrefix("61080003") || uuid.hasPrefix("61080004") else {
+      return
+    }
+    // Forward every fragment to the cloud reassembler (powers the live /pulse).
+    WhoopCloudForwarder.shared.ingestRawFrame(value, characteristicUUID: characteristicUUID)
+    guard value.count >= 7 else { return }
+    let bytes = [UInt8](value)
+    guard bytes[0] == 0xAA else { return }   // only a frame's first fragment
+    let type = bytes[4]
+    let sub = bytes[6]
+
+    // GET_BATTERY(26) response = type-36 command response; battery is uint16/10
+    // at byte 9 (validated reliable, unlike the bouncing 0x2A19 byte).
+    if type == 36 && bytes[6] == 26 && bytes.count >= 11 {
+      let raw = Int(bytes[9]) | (Int(bytes[10]) << 8)
+      let pct = Int((Double(raw) / 10.0).rounded())
+      DispatchQueue.main.async { [weak self] in
+        self?.record(source: "ble.metadata", title: "battery.gen4_cmd.raw",
+                     body: "raw=\(raw) -> \(pct)% frame=\(value.hexString.prefix(28))")
+        self?.applyBatteryLevel(pct, capturedAt: Date(), sourceTitle: "battery.gen4_cmd")
+      }
+    }
+
+    // type-48 EVENT: event id is frame[6]. Decode charging directly here — the
+    // authoritative signal the VPS uses — instead of relying on the Rust parser,
+    // which does not surface these events on the 4.0 path.
+    if type == 48 {
+      let eventID = Int(bytes[6])
+      var charging: Bool? = nil
+      var detail = "event=\(eventID)"
+      switch eventID {
+      case 5, 7, 21: charging = true    // EXTERNAL_5V_ON, CHARGING_ON, PACK_CONNECTED
+      case 6, 8, 22: charging = false   // EXTERNAL_5V_OFF, CHARGING_OFF, PACK_REMOVED
+      case 3, 63:
+        // BATTERY_LEVEL / EXTENDED_BATTERY_INFORMATION carry a signed battery
+        // current as int16-LE at offset 20 (derived + validated on this band):
+        // positive = charging, negative = discharging. This is our reliable
+        // "not charging" signal, since the band drops the CHARGING_OFF event.
+        // Deadband ±400 ignores the ~0 current of a topped-off full battery.
+        if bytes.count >= 22 {
+          let cur = Int(Int16(bitPattern: UInt16(bytes[20]) | (UInt16(bytes[21]) << 8)))
+          detail = "event=\(eventID) current=\(cur)"
+          if cur > 400 { charging = true } else if cur < -400 { charging = false }
+        }
+      default: break
+      }
+      if let charging {
+        DispatchQueue.main.async { [weak self] in
+          guard let self else { return }
+          self.batteryIsCharging = charging
+          self.batteryPowerStatus = charging ? "Charging" : "Not charging"
+          self.inferredBatteryChargingUntil = nil
+          self.persistInferredBatteryChargingUntil(nil)
+          self.record(level: .warn, source: "ble.gen4", title: "battery.charging.gen4_event",
+                      body: "\(detail) -> charging=\(charging)")
+        }
+      }
+    }
+
+    gen4ProbeLock.lock()
+    if type == 43 && sub == 0 {
+      gen4OpticalFrameCount += 1
+    } else if type == 40 {
+      gen4HeartRateFrameCount += 1
+    }
+    let optical = gen4OpticalFrameCount
+    let heartRate = gen4HeartRateFrameCount
+    let shouldLog = Date().timeIntervalSince(gen4LastProbeLogAt) >= 5
+    if shouldLog {
+      gen4LastProbeLogAt = Date()
+    }
+    gen4ProbeLock.unlock()
+
+    if shouldLog {
+      DispatchQueue.main.async { [weak self] in
+        self?.record(
+          level: .warn,
+          source: "ble.gen4",
+          title: "gen4.pulse.frames",
+          body: "optical(type43)=\(optical) heart_rate(type40)=\(heartRate) — optical>0 means the 4.0 pulse stream is LIVE"
+        )
+      }
+    }
+  }
 }
