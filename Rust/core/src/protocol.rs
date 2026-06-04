@@ -410,7 +410,7 @@ pub fn decode_hex_with_whitespace(hex_value: &str) -> GooseResult<Vec<u8>> {
     Ok(hex::decode(stripped)?)
 }
 
-fn parse_payload(payload: &[u8]) -> Option<ParsedPayload> {
+pub fn parse_payload(payload: &[u8]) -> Option<ParsedPayload> {
     let packet_type = *payload.first()?;
     match packet_type {
         PACKET_TYPE_COMMAND | PACKET_TYPE_PUFFIN_COMMAND => Some(parse_command_payload(payload)),
