@@ -585,6 +585,14 @@ extension GooseBLEClient {
       }
     case .historyComplete:
       historyCompleteReceived = true
+      // The band signalled that the full history has been transferred. If we already
+      // pulled packet bodies this run, the sync succeeded — complete it now. Otherwise
+      // the post-completion idle/retry path treats the trailing empty pages as "no
+      // bodies" and marks a successful 13k-packet transfer as failed.
+      if historicalPacketsReceivedThisSync > 0 {
+        completeHistoricalSync(reason: "history_complete_after_data")
+        return
+      }
       guard !historyEndAckSentThisBurst else {
         return
       }
