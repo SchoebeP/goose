@@ -6,7 +6,7 @@ If you don't know what Xcode is, or how to build the Rust core, this build is no
 
 ![Goose app hero showing a connected WHOOP 5.0 device](docs/assets/readme-hero.png)
 
-This prototype targets WHOOP 5.0. **Experimental WHOOP 4.0 (Gen4) support** has been added (see the WHOOP 4.0 section below and [`docs/WHOOP_4.0_GEN4.md`](docs/WHOOP_4.0_GEN4.md)): a 4.0 band connects, completes the handshake, and streams live heart rate; full sleep/recovery decoding from history is still in progress.
+This prototype targets WHOOP 5.0. **Experimental WHOOP 4.0 (Gen4) support** has been added (see the WHOOP 4.0 section below and [`docs/WHOOP_4.0_GEN4.md`](docs/WHOOP_4.0_GEN4.md)): a 4.0 band connects, completes the handshake, streams live heart rate, and decodes HRV, respiratory rate, resting HR and strain from its history (SpO2/skin-temp need a reference calibration; recovery/sleep need more days of data).
 
 The app and backend have had very little attention put into performance. The app will lag, very considerably. Performance PRs are welcome, or you can wait until I address it in due course.
 
@@ -41,10 +41,13 @@ What was fixed (mostly surfaced while bringing up Gen4, but general):
   writes compact, and a single history sync pass is bounded, so a WHOOP history
   backlog can't balloon the on-device database.
 
-Not yet decoded for any generation (so still empty on Gen4): respiratory rate,
-SpO2, skin temperature, signal quality, skin contact; HRV is readiness-blocked.
-Full sleep/recovery need the band's historical health records, which are currently
-dropped during reassembly on the Gen4 data characteristic — tracked as an issue.
+Recovery metrics now decode from the band's own history. The V12/V24 `normal_history`
+frames carry the strap's DSP output, so **HRV (RMSSD), respiratory rate, resting HR and
+strain** are decoded and user-visible on Gen4 (verified against a real on-device capture).
+**SpO2** and **skin temperature** stay intentionally gated — both need a factory/reference
+calibration the test device (no WHOOP app) couldn't provide. **Recovery** is wired and
+activates once a few days of baseline data accumulate; **sleep staging** needs an overnight
+capture plus a reference-labelled classifier. See [`docs/WHOOP_4.0_GEN4.md`](docs/WHOOP_4.0_GEN4.md).
 
 Tests for the Gen4 work live in `Rust/core/tests/gen4_protocol_tests.rs` and
 `gen4_outbound_verification.rs`.
