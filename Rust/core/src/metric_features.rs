@@ -4396,6 +4396,13 @@ fn hrv_feature_from_normal_history(
     row: &DecodedFrameRow,
     trusted_frames: &BTreeMap<String, bool>,
 ) -> GooseResult<Option<HrvFeature>> {
+    // Cheap pre-filter before the (relatively expensive) raw-payload re-parse below:
+    // only HISTORICAL_DATA frames carry normal_history RR intervals. Bailing on the
+    // integer packet_type here avoids hex-decoding + parsing every other frame type,
+    // most importantly the high-volume raw-motion stream (thousands of large frames).
+    if row.packet_type != Some(i64::from(crate::protocol::PACKET_TYPE_HISTORICAL_DATA)) {
+        return Ok(None);
+    }
     // Re-parse the raw payload bytes with the current parser rather than trusting the
     // stored parsed_payload_json: that cache may have been decoded by an older on-device
     // parser version that predates the V12/V24 DSP-sensor (RR interval) decode. The raw
