@@ -80,30 +80,54 @@ existing inbound parser.
 
 ## What works / what doesn't on Gen4
 
-- **Works:** discovery, connection, handshake, live HR, resting HR (recovery,
-  packet-derived).
-- **Not decoded for any generation** (`metric_readiness.rs` / `openwhoop_reference.rs`
-  mark these `NotDecoded` or readiness-blocked): respiratory rate, SpO2, skin
-  temperature, signal quality, skin contact; HRV is blocked by
-  `hrv_rr_interval_scale_unverified`.
-- **History content.** With cmd 96 removed (above) the band now streams its
-  `normal_history` (type 47) records, but those carry **heart rate only** (per-sample
-  HR markers) plus raw motion — no beat-to-beat RR intervals, optical/PPG, SpO2,
-  respiratory, or temperature. Verified by running the metric pipeline over a real
-  capture: resting heart rate computes correctly from the history (~91 bpm from 822 HR
-  features), but the recovery pipeline's own provenance blocks HRV
-  (`requires_true_beat_interval_data_not_coarse_bpm`), SpO2
-  (`oxygen_saturation_decoder_not_implemented`), respiratory, and skin temperature for
-  lack of source signals. Those stay empty regardless of code. Sleep/recovery scoring
-  would need an overnight history (HR + motion over a sleep window); a short daytime
-  capture does not contain one.
+With cmd 96 removed (above) the band streams its `normal_history` (type 47) records.
+Decoding the **V12/V24** body of those frames showed they carry far more than heart
+rate: the strap runs its own DSP and embeds RR intervals, SpO2 red/ir, skin-temperature
+and respiratory values in every frame (offsets per the openwhoop reference, confirmed by
+the heart-rate marker). All of the below was verified by pulling the app's own database
+off a device (`devicectl copy appDataContainer`) and replaying the exact bridge calls
+the UI makes.
+
+- **Decoded and user-visible (no calibration needed):**
+  - **HRV (RMSSD ~62 ms)** — from the device's own beat-to-beat RR intervals. The metric
+    pipeline re-parses the raw `payload_hex` (parser-version independent), and RMSSD is
+    computed *segment-aware* — successive differences only within a capture window, never
+    across — which fixes a 452 ms → 42 ms error and needs no calibration (RR ms → RMSSD ms).
+  - **Respiratory rate (~15.4 rpm)** — V24 `body[63]`, device-native `÷200` scale,
+    self-validated as physiological; promoted with an honest `no_reference` provenance flag.
+  - **Resting HR (~80 bpm)** — HR marker + low-motion filter.
+  - **Strain (~12/21)** — from HR zones; needs no multi-day baseline, so it works from a
+    single session. (Behind the "Run Packet-Derived Scores" trigger, now auto-started.)
+- **Decoded but intentionally gated (need a reference the test device lacked):**
+  - **SpO2** — only the stable optical DC levels are present (no AC/pulsatile ratio);
+    an absolute % needs a factory ratio-of-ratios calibration curve.
+  - **Skin temperature** — the candidate field is the *most* variable in the frame and the
+    raw→°C scale can't be validated without a WHOOP reference; openwhoop itself marks its
+    units unverified.
+- **Needs more data, not more code:**
+  - **Recovery** is wired (`goose_recovery_v0`) but baseline-relative — it activates once a
+    few days of HRV/RHR baseline accumulate.
+  - **Sleep staging** needs an overnight capture plus a classifier with reference labels.
+
+### Storage / performance
+
+The cached `parsed_payload_json` carried a `body_hex` field that exactly duplicated the
+`payload_hex` stored next to it — ~43 MB of a 147 MB database on the high-volume raw-motion
+stream, scaling with wear time. `insert_decoded_frame` now drops it for large frames
+(metrics are byte-identical; only the debug timeline used it, for small frames), which
+bounds multi-day captures and makes the metric batch ~27% faster.
 
 ## Tests
 
-`Rust/core/tests/gen4_outbound_verification.rs` and
-`Rust/core/tests/gen4_protocol_tests.rs` (24 tests): Gen4 frame round-trip with CRC
-validation, `"GEN4"`/`"GEN_4"` acceptance via the bridge, 4- vs 8-byte header
-geometry, packet-type classification (CONSOLE_LOGS/EVENT/METADATA/COMMAND_RESPONSE),
-panic-safety on malformed/truncated/garbage input, and structured bridge errors.
+- `gen4_outbound_verification.rs` + `gen4_protocol_tests.rs` (24 tests): Gen4 frame
+  round-trip with CRC validation, `"GEN4"`/`"GEN_4"` acceptance via the bridge, 4- vs
+  8-byte header geometry, packet-type classification, panic-safety on malformed/truncated/
+  garbage input, structured bridge errors.
+- `gen4_v24_decode_test.rs`: the V12/V24 DSP-sensor decode (SpO2, skin temp, respiratory,
+  signal quality) against a real hardware frame.
+- `hrv_segment_rmssd_tests.rs`: `rmssd_segment_aware` (300/2000 ms band, Malik 20% rule,
+  never-difference-across-windows) and V24 RR-interval decode from a real owned capture.
+- `store_tests.rs::large_cached_body_hex_is_dropped_small_is_kept`: the body_hex storage
+  compaction.
 
-Run: `cd Rust/core && cargo test --test gen4_protocol_tests --test gen4_outbound_verification`
+Run: `cd Rust/core && cargo test`
