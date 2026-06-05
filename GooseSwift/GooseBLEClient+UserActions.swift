@@ -57,7 +57,7 @@ extension GooseBLEClient {
       record(level: .warn, source: "ble.debug_command", title: "command.blocked", body: debugCommandStatus)
       return false
     }
-    guard supportsV5SensorCommands else {
+    guard supportsSensorCommands else {
       setDebugCommandStatus("\(definition.title) needs fd4b0002 V5 command framing")
       record(level: .warn, source: "ble.debug_command", title: "command.blocked", body: commandCharacteristic.uuid.uuidString)
       return false

@@ -23,7 +23,7 @@ extension GooseBLEClient {
       failHistoricalSync("Historical sync can only start from the ready state. Current connection state: \(connectionState).")
       return
     }
-    guard supportsV5HistoricalSync else {
+    guard supportsHistoricalSync else {
       let characteristic = commandCharacteristic?.uuid.uuidString ?? "missing"
       failHistoricalSync("Historical sync currently supports the Goose V5 fd4b command characteristic. Active command characteristic: \(characteristic).")
       return
@@ -78,7 +78,7 @@ extension GooseBLEClient {
       // Fire the Gen4 preamble, then kick off the transfer once it has drained.
       sendGen4HistoryPreamble()
       let kickoff = firstCommand
-      DispatchQueue.main.asyncAfter(deadline: .now() + 0.7) { [weak self] in
+      DispatchQueue.main.asyncAfter(deadline: .now() + Self.gen4HistoryKickoffDelay) { [weak self] in
         guard let self, self.isHistoricalSyncing else {
           return
         }
@@ -117,7 +117,7 @@ extension GooseBLEClient {
       (76, [0x00], "GEN4_GET_NAME"),
     ]
     for (index, step) in steps.enumerated() {
-      let delay = Double(index) * 0.2
+      let delay = Double(index) * Self.gen4HistoryPreambleStepDelay
       DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self, weak activePeripheral, weak commandCharacteristic] in
         guard let self,
               let activePeripheral,

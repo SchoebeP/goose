@@ -362,9 +362,18 @@ final class GooseBLEClient: NSObject, ObservableObject {
   static let hrvRMSSDAverageWindowSize = 12
   static let hrvEstimatePublishInterval: TimeInterval = 60
   static let historicalPacketCountPublishInterval: TimeInterval = 1
-  // Max historical packets to ingest in a single sync pass before completing, so a
-  // huge first-time backlog cannot run for many minutes or balloon on-device storage.
-  static let historicalSyncPacketCap = 6000
+  // Max historical packets to ingest in a single sync pass before completing. The
+  // band's full backlog observed in testing was ~13k packets (it reaches
+  // HistoryComplete), so 20k covers a full sync in one pass while still bounding a
+  // runaway; raw-payload compaction keeps the database bounded regardless.
+  static let historicalSyncPacketCap = 20000
+  // Gen4 history preamble timing. These are conservative fixed delays; the BLE
+  // connection interval is negotiated per-device (7.5 ms – 4 s), so on a device with a
+  // long interval these may need raising. Named here so they are tunable without hunting
+  // through the send path (a fully event-driven kickoff off the get_name response would
+  // be the more robust long-term fix).
+  static let gen4HistoryKickoffDelay: TimeInterval = 0.7
+  static let gen4HistoryPreambleStepDelay: TimeInterval = 0.2
   static let historicalProgressCallbackInterval: TimeInterval = 1
   static let strapClockAutoSyncThresholdSeconds: TimeInterval = 5
   static let diagnosticLogFormatter: ISO8601DateFormatter = {
@@ -879,11 +888,11 @@ final class GooseBLEClient: NSObject, ObservableObject {
   }
 
   var canSyncHistorical: Bool {
-    canSendHello && !isHistoricalSyncing && supportsV5HistoricalSync
+    canSendHello && !isHistoricalSyncing && supportsHistoricalSync
   }
 
   var canWriteHighFrequencyHistorySync: Bool {
-    canSendHello && !isHistoricalSyncing && supportsV5SensorCommands
+    canSendHello && !isHistoricalSyncing && supportsSensorCommands
   }
 
   var debugResearchCommands: [GooseDebugCommandDefinition] {
@@ -891,13 +900,13 @@ final class GooseBLEClient: NSObject, ObservableObject {
   }
 
   var canWriteAlarm: Bool {
-    canSendHello && !isHistoricalSyncing && supportsV5AlarmCommands && pendingAlarmCommand == nil
+    canSendHello && !isHistoricalSyncing && supportsAlarmCommands && pendingAlarmCommand == nil
   }
 
   var canSyncClock: Bool {
     canSendHello
       && !isHistoricalSyncing
-      && supportsV5ClockCommands
+      && supportsClockCommands
       && pendingClockCommand == nil
       && pendingAlarmCommand == nil
   }
@@ -928,7 +937,7 @@ final class GooseBLEClient: NSObject, ObservableObject {
     if pendingAlarmCommand != nil {
       return "Alarm command in flight"
     }
-    if !supportsV5AlarmCommands {
+    if !supportsAlarmCommands {
       return "Alarm writes need fd4b0002 V5 command framing; active \(commandCharacteristic.uuid.uuidString)"
     }
     if !canSendHello {

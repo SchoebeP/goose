@@ -173,19 +173,19 @@ extension GooseBLEClient {
     activeCommandGeneration != nil
   }
 
-  var supportsV5HistoricalSync: Bool {
+  var supportsHistoricalSync: Bool {
     supportsStrapCommands
   }
 
-  var supportsV5AlarmCommands: Bool {
+  var supportsAlarmCommands: Bool {
     supportsStrapCommands
   }
 
-  var supportsV5ClockCommands: Bool {
+  var supportsClockCommands: Bool {
     supportsStrapCommands
   }
 
-  var supportsV5SensorCommands: Bool {
+  var supportsSensorCommands: Bool {
     supportsStrapCommands
   }
 
@@ -239,7 +239,7 @@ extension GooseBLEClient {
       failClockCommand("Clock command needs ready connection; current state \(connectionState).")
       return
     }
-    guard supportsV5ClockCommands else {
+    guard supportsClockCommands else {
       failClockCommand("Clock command needs fd4b0002 V5 command framing. Active command characteristic: \(commandCharacteristic.uuid.uuidString).")
       return
     }
@@ -332,7 +332,7 @@ extension GooseBLEClient {
       record(level: .warn, source: "ble.alarm", title: "alarm.write.blocked", body: alarmCommandStatus)
       return
     }
-    guard supportsV5AlarmCommands else {
+    guard supportsAlarmCommands else {
       alarmCommandStatus = "Alarm writes need fd4b0002 V5 command framing"
       record(level: .warn, source: "ble.alarm", title: "alarm.write.blocked", body: commandCharacteristic.uuid.uuidString)
       return
@@ -423,7 +423,7 @@ extension GooseBLEClient {
       record(level: .warn, source: "ble.sensor", title: "sensor.write.blocked", body: "Needs ready connection; current state \(connectionState)")
       return
     }
-    guard supportsV5SensorCommands else {
+    guard supportsSensorCommands else {
       if updatePhysiologyStatus {
         physiologyCaptureStatus = "Needs fd4b0002 V5 command framing"
       }
@@ -973,7 +973,7 @@ extension GooseBLEClient {
           connectionState == "ready",
           activePeripheral != nil,
           commandCharacteristic != nil,
-          supportsV5SensorCommands else {
+          supportsSensorCommands else {
       return
     }
 
@@ -994,7 +994,7 @@ extension GooseBLEClient {
           connectionState == "ready",
           activePeripheral != nil,
           commandCharacteristic != nil,
-          supportsV5HistoricalSync,
+          supportsHistoricalSync,
           !isHistoricalSyncing else {
       return
     }
