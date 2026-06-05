@@ -108,6 +108,10 @@ extension GooseAppModel {
     // from the standard 180D/2A37 service. Packet capture remains available on demand
     // from the More tab (startHealthPacketCapture).
     scheduleAutoStartRespiratoryPacketWatchIfNeeded()
+    if ble.canSyncClock {
+      ble.writeClockCommand(.get, syncIfNeeded: true)
+      ble.record(source: "ble.clock", title: "clock.auto_sync.triggered", body: "state=ready")
+    }
   }
 
   func schedulePassiveActivityCapture(reason: String) {
