@@ -74,7 +74,7 @@ struct AppShellView: View {
         openHealthRoute: openHomeHealthRoute
       )
     case .trends:
-      TrendsPlaceholderView()
+      TrendsView(healthStore: healthStore)
     case .health:
       HealthView(store: healthStore)
     case .available:
@@ -231,18 +231,5 @@ private struct WhoopMetricRow: View {
       }
     }
     .padding(.vertical, 2)
-  }
-}
-
-/// Temporary placeholder for the Trends tab; replaced by TrendsView in Task 6.
-struct TrendsPlaceholderView: View {
-  var body: some View {
-    ContentUnavailableView(
-      "Trends",
-      systemImage: "chart.line.uptrend.xyaxis",
-      description: Text("Coming next.")
-    )
-    .navigationTitle("Trends")
-    .gooseScreenBackground()
   }
 }
