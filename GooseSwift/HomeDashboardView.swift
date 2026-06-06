@@ -304,24 +304,16 @@ private struct HomeLiveHeartRateContent: View {
           }
           HStack(alignment: .firstTextBaseline, spacing: 5) {
             Text(ble.liveHeartRateBPM.map(String.init) ?? "—")
-              .font(.system(size: 40, weight: .semibold, design: .rounded))
+              .font(.system(size: 64, weight: .bold, design: .rounded))
               .monospacedDigit()
+              .lineLimit(1)
+              .minimumScaleFactor(0.5)
             Text("bpm")
               .font(.subheadline)
               .foregroundStyle(.secondary)
           }
         }
         Spacer()
-        if let hrv = ble.liveHRVRMSSD {
-          VStack(alignment: .trailing, spacing: 2) {
-            Text("HRV")
-              .font(.caption)
-              .foregroundStyle(.secondary)
-            Text(String(format: "%.0f ms", hrv))
-              .font(.headline)
-              .monospacedDigit()
-          }
-        }
       }
 
       Divider().overlay(Color.white.opacity(0.08))
@@ -402,26 +394,55 @@ final class MinutelyHRFeed: ObservableObject {
   }
 }
 
-/// Today's heart rate, minute by minute — the VPS-computed recap, fetched + displayed.
+/// Hour key extracted from a minute string like "2026-06-05T14:32" -> "14"
+/// (defensive: works for "14:32" too). Returns "" if unparseable.
+private func hourKey(from minute: String) -> String {
+  let afterT = minute.split(separator: "T").last.map(String.init) ?? minute
+  let hour = afterT.split(separator: ":").first.map(String.init) ?? ""
+  return hour
+}
+
+/// Today's heart rate, grouped per hour — the VPS-computed recap, fetched + displayed.
 struct HomeMinutelyHRSection: View {
   @StateObject private var feed = MinutelyHRFeed()
   private let refresh = Timer.publish(every: 30, on: .main, in: .common).autoconnect()
 
+  /// Collapse the per-minute rows into one bucket per hour: lo = min of los,
+  /// hi = max of his, bpm = last bpm in the hour. Sorted by numeric hour.
+  private var hourlyBuckets: [HRMinute] {
+    var byHour: [String: [HRMinute]] = [:]
+    for m in feed.minutes {
+      byHour[hourKey(from: m.minute), default: []].append(m)
+    }
+    return byHour
+      .sorted { (Int($0.key) ?? 0) < (Int($1.key) ?? 0) }
+      .map { hour, rows in
+        HRMinute(
+          minute: hour,
+          bpm: rows.last?.bpm ?? 0,
+          lo: rows.map(\.lo).min() ?? 0,
+          hi: rows.map(\.hi).max() ?? 0,
+          n: rows.reduce(0) { $0 + $1.n }
+        )
+      }
+  }
+
   var body: some View {
+    let buckets = hourlyBuckets
     VStack(alignment: .leading, spacing: 10) {
       HStack {
         GooseMetricLabel(systemImage: "heart.fill", title: "HR Range Today", accent: GooseTheme.Accent.range)
         Spacer()
-        if !feed.minutes.isEmpty {
-          Text("\(feed.minutes.count) min").font(.caption).foregroundStyle(.secondary)
+        if !buckets.isEmpty {
+          Text("\(buckets.count) h").font(.caption).foregroundStyle(.secondary)
         }
       }
-      if feed.minutes.count > 1 {
-        MinutelyHRChart(minutes: feed.minutes).frame(height: 150)
-        if let last = feed.minutes.last {
-          Text("Range \(last.lo)–\(last.hi) bpm · latest \(last.bpm) · computed on our server")
-            .font(.caption).foregroundStyle(.secondary)
-        }
+      if buckets.count > 1 {
+        MinutelyHRChart(minutes: buckets).frame(height: 150)
+        let dayLo = feed.minutes.map(\.lo).min() ?? 0
+        let dayHi = feed.minutes.map(\.hi).max() ?? 0
+        Text("Range \(dayLo)–\(dayHi) bpm · computed on our server")
+          .font(.caption).foregroundStyle(.secondary)
       } else {
         Text("Waiting for today's data…")
           .font(.caption).foregroundStyle(.secondary)
@@ -434,9 +455,8 @@ struct HomeMinutelyHRSection: View {
   }
 }
 
-/// Candlestick chart: each minute is a candle. Wick = that minute's low→high HR
-/// range; body = the move from the previous minute's avg to this minute's avg —
-/// green when HR rose, red when it fell.
+/// Hourly HR range bars: each bar spans that hour's low→high HR range,
+/// rounded, in the range accent color. One bar per hour with small gaps.
 private struct MinutelyHRChart: View {
   let minutes: [HRMinute]
   var body: some View {
@@ -447,7 +467,7 @@ private struct MinutelyHRChart: View {
       let rng = max(hi - lo, 1)
       func y(_ v: Double) -> CGFloat { size.height * CGFloat(1 - (v - lo) / rng) }
       let slot = size.width / CGFloat(minutes.count)
-      let barW = max(1.5, min(slot * 0.62, 9))
+      let barW = max(4, min(slot * 0.78, 22))
       let accent = GooseTheme.Accent.range
       for (i, m) in minutes.enumerated() {
         let x = slot * (CGFloat(i) + 0.5)
@@ -497,15 +517,27 @@ struct HomeMinutelyStepsSection: View {
   @ObservedObject var feed: MinutelyStepsFeed
   private let refresh = Timer.publish(every: 30, on: .main, in: .common).autoconnect()
 
+  /// Sum steps into one bucket per hour, sorted by numeric hour.
+  private var hourlyBuckets: [StepMinute] {
+    var byHour: [String: Int] = [:]
+    for m in feed.minutes {
+      byHour[hourKey(from: m.minute), default: 0] += m.steps
+    }
+    return byHour
+      .sorted { (Int($0.key) ?? 0) < (Int($1.key) ?? 0) }
+      .map { StepMinute(minute: $0.key, steps: $0.value) }
+  }
+
   var body: some View {
+    let buckets = hourlyBuckets
     VStack(alignment: .leading, spacing: 10) {
       HStack {
         GooseMetricLabel(systemImage: "shoeprints.fill", title: "Steps Today", accent: GooseTheme.Accent.activity)
         Spacer()
         Text("\(feed.total)").font(.headline.weight(.bold)).foregroundStyle(GooseTheme.Accent.activity)
       }
-      if feed.minutes.count > 1 {
-        StepsBarChart(minutes: feed.minutes).frame(height: 120)
+      if buckets.count > 1 {
+        StepsBarChart(minutes: buckets).frame(height: 120)
         Text("Counted from the accelerometer while worn — our own number, not WHOOP's.")
           .font(.caption).foregroundStyle(.secondary)
       } else {
@@ -520,7 +552,7 @@ struct HomeMinutelyStepsSection: View {
   }
 }
 
-/// Per-minute step bars (consecutive active minutes; green).
+/// Hourly step bars (one bar per hour; activity accent).
 private struct StepsBarChart: View {
   let minutes: [StepMinute]
   var body: some View {
@@ -528,7 +560,7 @@ private struct StepsBarChart: View {
       guard !minutes.isEmpty else { return }
       let mx = Double(minutes.map { $0.steps }.max() ?? 1)
       let slot = size.width / CGFloat(minutes.count)
-      let bw = max(1.5, min(slot * 0.7, 10))
+      let bw = max(4, min(slot * 0.78, 22))
       for (i, m) in minutes.enumerated() {
         let x = slot * (CGFloat(i) + 0.5)
         let h = CGFloat(Double(m.steps) / max(mx, 1)) * (size.height - 4)
