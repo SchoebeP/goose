@@ -438,9 +438,24 @@ struct HomeMinutelyHRSection: View {
         }
       }
       if buckets.count > 1 {
-        MinutelyHRChart(minutes: buckets).frame(height: 150)
         let dayLo = feed.minutes.map(\.lo).min() ?? 0
         let dayHi = feed.minutes.map(\.hi).max() ?? 0
+        let dayAvg = feed.minutes.isEmpty
+          ? 0
+          : Int((Double(feed.minutes.map(\.bpm).reduce(0, +)) / Double(feed.minutes.count)).rounded())
+        HStack(alignment: .firstTextBaseline, spacing: 4) {
+          Text("Avg")
+            .font(.subheadline.weight(.semibold))
+            .foregroundStyle(GooseTheme.Accent.range)
+          Text("\(dayAvg)")
+            .font(.system(size: 26, weight: .bold, design: .rounded))
+            .monospacedDigit()
+            .foregroundStyle(GooseTheme.Accent.range)
+          Text("bpm")
+            .font(.subheadline)
+            .foregroundStyle(.secondary)
+        }
+        MinutelyHRChart(minutes: buckets).frame(height: 150)
         Text("Range \(dayLo)–\(dayHi) bpm · computed on our server")
           .font(.caption).foregroundStyle(.secondary)
       } else {
