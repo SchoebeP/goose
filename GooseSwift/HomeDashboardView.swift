@@ -396,7 +396,7 @@ final class MinutelyHRFeed: ObservableObject {
 
 /// Hour key extracted from a minute string like "2026-06-05T14:32" -> "14"
 /// (defensive: works for "14:32" too). Returns "" if unparseable.
-private func hourKey(from minute: String) -> String {
+func hourKey(from minute: String) -> String {
   let afterT = minute.split(separator: "T").last.map(String.init) ?? minute
   let hour = afterT.split(separator: ":").first.map(String.init) ?? ""
   return hour
@@ -429,6 +429,18 @@ struct HomeMinutelyHRSection: View {
 
   var body: some View {
     let buckets = hourlyBuckets
+    NavigationLink {
+      HRDayDetailView(minutes: feed.minutes)
+    } label: {
+      cardBody(buckets: buckets)
+    }
+    .buttonStyle(.plain)
+    .onAppear { feed.refresh() }
+    .onReceive(refresh) { _ in feed.refresh() }
+  }
+
+  @ViewBuilder
+  private func cardBody(buckets: [HRMinute]) -> some View {
     VStack(alignment: .leading, spacing: 10) {
       HStack {
         GooseMetricLabel(systemImage: "heart.fill", title: "HR Range Today", accent: GooseTheme.Accent.range)
@@ -436,6 +448,9 @@ struct HomeMinutelyHRSection: View {
         if !buckets.isEmpty {
           Text("\(buckets.count) h").font(.caption).foregroundStyle(.secondary)
         }
+        Image(systemName: "chevron.right")
+          .font(.caption.weight(.semibold))
+          .foregroundStyle(.tertiary)
       }
       if buckets.count > 1 {
         let dayLo = feed.minutes.map(\.lo).min() ?? 0
@@ -465,8 +480,6 @@ struct HomeMinutelyHRSection: View {
       }
     }
     .gooseCard()
-    .onAppear { feed.refresh() }
-    .onReceive(refresh) { _ in feed.refresh() }
   }
 }
 
@@ -545,11 +558,26 @@ struct HomeMinutelyStepsSection: View {
 
   var body: some View {
     let buckets = hourlyBuckets
+    NavigationLink {
+      StepsDayDetailView(minutes: feed.minutes)
+    } label: {
+      cardBody(buckets: buckets)
+    }
+    .buttonStyle(.plain)
+    .onAppear { feed.refresh() }
+    .onReceive(refresh) { _ in feed.refresh() }
+  }
+
+  @ViewBuilder
+  private func cardBody(buckets: [StepMinute]) -> some View {
     VStack(alignment: .leading, spacing: 10) {
       HStack {
         GooseMetricLabel(systemImage: "shoeprints.fill", title: "Steps Today", accent: GooseTheme.Accent.activity)
         Spacer()
         Text("\(feed.total)").font(.headline.weight(.bold)).foregroundStyle(GooseTheme.Accent.activity)
+        Image(systemName: "chevron.right")
+          .font(.caption.weight(.semibold))
+          .foregroundStyle(.tertiary)
       }
       if buckets.count > 1 {
         StepsBarChart(minutes: buckets).frame(height: 120)
@@ -562,8 +590,6 @@ struct HomeMinutelyStepsSection: View {
       }
     }
     .gooseCard()
-    .onAppear { feed.refresh() }
-    .onReceive(refresh) { _ in feed.refresh() }
   }
 }
 
