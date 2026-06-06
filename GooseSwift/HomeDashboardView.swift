@@ -51,10 +51,7 @@ struct HomeDashboardView: View {
         NavigationLink {
           DeviceView()
         } label: {
-          Image(systemName: "applewatch")
-            .font(.system(size: 17, weight: .semibold))
-            .symbolRenderingMode(.monochrome)
-            .foregroundStyle(deviceToolbarTint)
+          HomeDeviceChip()
         }
         .accessibilityLabel("Device")
         .accessibilityValue(deviceToolbarAccessibilityValue)
@@ -239,6 +236,43 @@ private struct HomeDecodedBandContent: View {
   }
 }
 
+/// Small capsule in the Today header: connection dot + battery % + charging bolt.
+struct HomeDeviceChip: View {
+  @EnvironmentObject private var model: GooseAppModel
+  var body: some View { HomeDeviceChipContent(ble: model.ble) }
+}
+
+private struct HomeDeviceChipContent: View {
+  @ObservedObject var ble: GooseBLEClient
+
+  private var connected: Bool {
+    let s = ble.connectionState.lowercased()
+    return s == "ready" || s == "connected"
+  }
+  private var charging: Bool { ble.batteryIsCharging == true }
+
+  var body: some View {
+    HStack(spacing: 6) {
+      Circle()
+        .fill(connected ? GooseTheme.Accent.activity : Color.red)
+        .frame(width: 7, height: 7)
+      Text(ble.batteryLevelPercent.map { "\($0)%" } ?? "—")
+        .font(.footnote.weight(.semibold))
+        .monospacedDigit()
+        .foregroundStyle(.primary)
+      if charging {
+        Image(systemName: "bolt.fill")
+          .font(.caption2.weight(.bold))
+          .foregroundStyle(GooseTheme.Accent.charging)
+      }
+    }
+    .padding(.horizontal, 10)
+    .padding(.vertical, 6)
+    .background(GooseTheme.cardBackground, in: Capsule(style: .continuous))
+    .onAppear { ble.refreshBatteryLevel() }
+  }
+}
+
 private struct HomeLiveHeartRateContent: View {
   @ObservedObject var ble: GooseBLEClient
 
@@ -254,14 +288,22 @@ private struct HomeLiveHeartRateContent: View {
       HStack(spacing: 16) {
         Image(systemName: "heart.fill")
           .font(.system(size: 28, weight: .bold))
-          .foregroundStyle(isLive ? .red : .secondary)
+          .foregroundStyle(isLive ? GooseTheme.Accent.heart : Color.secondary)
         VStack(alignment: .leading, spacing: 2) {
-          Text("Live heart rate")
-            .font(.subheadline)
-            .foregroundStyle(.secondary)
+          HStack(spacing: 6) {
+            GooseMetricLabel(systemImage: "heart.fill", title: "Heart Rate", accent: GooseTheme.Accent.heart)
+            if isLive {
+              Text("LIVE")
+                .font(.caption2.weight(.heavy))
+                .foregroundStyle(.white)
+                .padding(.horizontal, 6)
+                .padding(.vertical, 2)
+                .background(GooseTheme.Accent.heart, in: Capsule())
+            }
+          }
           HStack(alignment: .firstTextBaseline, spacing: 5) {
             Text(ble.liveHeartRateBPM.map(String.init) ?? "—")
-              .font(.system(size: 40, weight: .bold, design: .rounded))
+              .font(.system(size: 40, weight: .semibold, design: .rounded))
               .monospacedDigit()
             Text("bpm")
               .font(.subheadline)
@@ -291,22 +333,22 @@ private struct HomeLiveHeartRateContent: View {
             let i = Int(ctx.date.timeIntervalSinceReferenceDate / 0.55) % levels.count
             Image(systemName: levels[i])
               .font(.system(size: 18, weight: .semibold))
-              .foregroundStyle(.yellow)
+              .foregroundStyle(GooseTheme.Accent.charging)
               .contentTransition(.symbolEffect(.replace))
           }
           Image(systemName: "bolt.fill")
             .font(.caption.weight(.bold))
-            .foregroundStyle(.yellow)
+            .foregroundStyle(GooseTheme.Accent.charging)
             .symbolEffect(.pulse, options: .repeating)
         } else {
           Image(systemName: "battery.100")
             .font(.system(size: 18, weight: .semibold))
-            .foregroundStyle(.green)
+            .foregroundStyle(GooseTheme.Accent.battery)
         }
         VStack(alignment: .leading, spacing: 0) {
           Text(charging ? "Charging" : "Battery")
             .font(.subheadline.weight(charging ? .semibold : .regular))
-            .foregroundStyle(charging ? .yellow : .secondary)
+            .foregroundStyle(charging ? GooseTheme.Accent.charging : Color.secondary)
           if charging {
             Text("Plugged in — \(ble.batteryLevelPercent.map { $0 >= 95 ? "topping off" : "filling up" } ?? "on the charger")")
               .font(.caption2)
@@ -317,13 +359,11 @@ private struct HomeLiveHeartRateContent: View {
         Text(ble.batteryLevelPercent.map { "\($0)%" } ?? "—")
           .font(.title3.bold())
           .monospacedDigit()
-          .foregroundStyle(charging ? .yellow : .primary)
+          .foregroundStyle(charging ? GooseTheme.Accent.charging : Color.primary)
       }
       .animation(.easeInOut(duration: 0.3), value: charging)
     }
-    .padding(18)
-    .frame(maxWidth: .infinity, alignment: .leading)
-    .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+    .gooseCard()
     .onAppear { ble.refreshBatteryLevel() }
   }
 }
