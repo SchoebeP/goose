@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.2.0 — 2026-06-06
+
+Full UI redesign + a packet-analysis workbench on the VPS.
+
+### App (Apple-Health-clean redesign)
+- **3-tab structure** — Today / Trends / More (was Home / More).
+- **Today** — design-system cards (`GooseTheme` accents, flat `gooseCard` surfaces):
+  64pt live-BPM hero with LIVE badge, battery/connection chip in the header,
+  HRV + Steps stat cards (ours-labelled), hourly HR range bars with day average,
+  hourly steps bars. Tap the HR or Steps card for an **hour-by-hour drill-down**
+  (selectable bars, chevron stepping, per-hour list).
+- **Trends** (new) — W/M/6M switcher; resting-HR/HRV trend cards when history
+  exists; honest empty states for steps history and our own sleep estimate.
+- **More** — regrouped (Device / Band / Capture & Sync / Debug / Profile & Info),
+  decoded-band summary moved here from Today, link to the VPS Packet Inspector.
+- **Charts reset at local midnight** — the minutely feeds send the phone's
+  timezone and the server windows "today" from the user's midnight.
+
+### VPS (whoop-band repo)
+- **Packet Inspector** at `/inspector` — frame browser over `raw_frame` with
+  type/time filters, registry-annotated hex view (decoded vs unknown bytes),
+  byte-offset-over-time plotting with HR/accel overlays + Pearson r, server-side
+  auto-scan correlation ranking, CSV export. 27 unit tests on real captured frames.
+- Minutely HR/steps endpoints accept an IANA `tz` for local-midnight day windows.
+
 ## 0.1.0 — 2026-06-05
 
 First stable cut of the local-first WHOOP 4.0 companion: the band streams to the
