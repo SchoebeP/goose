@@ -42,23 +42,26 @@ struct MoreView: View {
       }
 
       Section("Device") {
-        routeRows(MoreRoute.deviceRoutes)
+        routeRows([.device, .connectionLab])
       }
 
-      Section("App") {
-        routeRows(MoreRoute.appRoutes)
+      Section("Band") {
+        MoreBandSummaryRow()
       }
 
-      Section("Settings") {
-        routeRows(MoreRoute.settingsRoutes)
+      Section("Capture & Sync") {
+        routeRows([.capture, .localStore, .healthSync, .rawExport])
       }
 
-      Section("Support") {
-        routeRows(MoreRoute.supportRoutes)
+      Section("Debug") {
+        routeRows([.algorithms, .debug, .developer])
       }
 
-      Section("Developer") {
-        routeRows(MoreRoute.developerRoutes)
+      Section("Profile & Info") {
+        Link(destination: URL(string: "https://latenightgames.fr/whoop/inspector")!) {
+          MorePacketInspectorRow()
+        }
+        routeRows([.privacy, .support, .about])
       }
     }
     .listStyle(.insetGrouped)
@@ -129,5 +132,61 @@ struct MoreView: View {
     let weight = MoreProfileFormatting.weightText(grams: profileWeightGrams, unitSystemRaw: profileUnitSystemRaw)
     let parts = [height, weight].filter { !$0.isEmpty }
     return parts.isEmpty ? "Update profile" : parts.joined(separator: " | ")
+  }
+}
+
+/// Decoded-channels summary that used to live on the Home tab (spec A5).
+struct MoreBandSummaryRow: View {
+  @EnvironmentObject private var model: GooseAppModel
+  var body: some View { MoreBandSummaryContent(ble: model.ble) }
+}
+
+private struct MoreBandSummaryContent: View {
+  @ObservedObject var ble: GooseBLEClient
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 10) {
+      bandRow("antenna.radiowaves.left.and.right", .blue, "Connection", ble.connectionState.capitalized)
+      bandRow("move.3d", GooseTheme.Accent.range, "Accelerometer", "validated · 1g")
+      bandRow("bell.fill", .gray, "Device events", "wrist · charging · battery")
+      Text("Heart rate, HRV and battery show on the Today tab. Sleep, recovery and strain are WHOOP-cloud only and intentionally absent — anything we derive is our own estimate.")
+        .font(.caption)
+        .foregroundStyle(.secondary)
+    }
+    .padding(.vertical, 4)
+    .onAppear { ble.refreshBatteryLevel() }
+  }
+
+  private func bandRow(_ icon: String, _ tint: Color, _ title: String, _ value: String) -> some View {
+    HStack(spacing: 12) {
+      Image(systemName: icon).foregroundStyle(tint).frame(width: 26)
+      Text(title)
+      Spacer()
+      Text(value).foregroundStyle(.secondary).fontWeight(.semibold)
+    }
+  }
+}
+
+/// Display-only convenience link to the VPS Packet Inspector (Branch B).
+struct MorePacketInspectorRow: View {
+  var body: some View {
+    HStack(spacing: 12) {
+      Image(systemName: "rectangle.and.text.magnifyingglass")
+        .foregroundStyle(GooseTheme.Accent.hrv)
+        .frame(width: 26)
+      VStack(alignment: .leading, spacing: 2) {
+        Text("Packet Inspector")
+          .foregroundStyle(.primary)
+        Text("On your dashboard")
+          .font(.caption)
+          .foregroundStyle(.secondary)
+      }
+      Spacer()
+      Image(systemName: "arrow.up.right")
+        .font(.caption.weight(.bold))
+        .foregroundStyle(.tertiary)
+    }
+    .padding(.vertical, 2)
+    .accessibilityLabel("Packet Inspector on your dashboard")
   }
 }
