@@ -381,7 +381,13 @@ private struct MinutelyResponse: Decodable {
 final class MinutelyHRFeed: ObservableObject {
   @Published var minutes: [HRMinute] = []
   // Token-only read path (auth-basic OFF on /whoop/ingest/) — same token the app uploads with.
-  private let url = URL(string: "https://latenightgames.fr/whoop/ingest/hr/minutely")!
+  // tz = our local zone so the server windows "today" from OUR midnight —
+  // charts reset at 00:00 local instead of showing a rolling 24 h.
+  private let url: URL = {
+    var components = URLComponents(string: "https://latenightgames.fr/whoop/ingest/hr/minutely")!
+    components.queryItems = [URLQueryItem(name: "tz", value: TimeZone.current.identifier)]
+    return components.url!
+  }()
   private let token = "c0067852565b4d0d46606172de35c6ba120112c447e1f25b"
 
   func refresh() {
@@ -526,7 +532,12 @@ private struct StepsResponse: Decodable {
 final class MinutelyStepsFeed: ObservableObject {
   @Published var minutes: [StepMinute] = []
   @Published var total: Int = 0
-  private let url = URL(string: "https://latenightgames.fr/whoop/ingest/steps/minutely")!
+  // Same local-midnight day window as the HR feed (see above).
+  private let url: URL = {
+    var components = URLComponents(string: "https://latenightgames.fr/whoop/ingest/steps/minutely")!
+    components.queryItems = [URLQueryItem(name: "tz", value: TimeZone.current.identifier)]
+    return components.url!
+  }()
   private let token = "c0067852565b4d0d46606172de35c6ba120112c447e1f25b"
 
   func refresh() {
