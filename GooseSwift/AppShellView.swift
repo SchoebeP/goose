@@ -6,6 +6,7 @@ struct AppShellView: View {
   @StateObject private var healthStore = HealthDataStore()
   @State private var homeHealthPath: [HealthRoute] = []
   @State private var homeSelectedDate = Date()
+  @State private var trendsPath: [HealthRoute] = []
 
   var body: some View {
     TabView(selection: tabSelection) {
@@ -41,6 +42,13 @@ struct AppShellView: View {
             HealthRouteDestinationView(route: route, store: healthStore, selectedDate: $homeSelectedDate)
           }
       }
+    } else if tab == .trends {
+      NavigationStack(path: $trendsPath) {
+        tabContent(for: tab)
+          .navigationDestination(for: HealthRoute.self) { route in
+            HealthRouteDestinationView(route: route, store: healthStore, selectedDate: $homeSelectedDate)
+          }
+      }
     } else if tab == .health {
       NavigationStack(path: $router.healthPath) {
         tabContent(for: tab)
@@ -65,6 +73,8 @@ struct AppShellView: View {
         selectedDate: $homeSelectedDate,
         openHealthRoute: openHomeHealthRoute
       )
+    case .trends:
+      TrendsPlaceholderView()
     case .health:
       HealthView(store: healthStore)
     case .available:
@@ -85,6 +95,7 @@ struct AppShellView: View {
 
 enum GooseAppTab: String, CaseIterable, Identifiable {
   case home
+  case trends
   case health
   case available
   case cloudOnly
@@ -95,13 +106,14 @@ enum GooseAppTab: String, CaseIterable, Identifiable {
   // pulse) and More (connect / capture / debug). Available is folded into Home;
   // Cloud (WHOOP's proprietary cloud metrics we can't get), Health (cloud
   // dashboards) and Coach are hidden — their views still exist, just untabbed.
-  static var allCases: [GooseAppTab] { [.home, .more] }
+  static var allCases: [GooseAppTab] { [.home, .trends, .more] }
 
   var id: String { rawValue }
 
   var title: String {
     switch self {
-    case .home: "Home"
+    case .home: "Today"
+    case .trends: "Trends"
     case .health: "Health"
     case .available: "Available"
     case .cloudOnly: "Cloud"
@@ -112,7 +124,8 @@ enum GooseAppTab: String, CaseIterable, Identifiable {
 
   var systemImage: String {
     switch self {
-    case .home: "house"
+    case .home: "heart.fill"
+    case .trends: "chart.line.uptrend.xyaxis"
     case .health: "heart.text.square"
     case .available: "waveform.path.ecg"
     case .cloudOnly: "cloud"
@@ -218,5 +231,18 @@ private struct WhoopMetricRow: View {
       }
     }
     .padding(.vertical, 2)
+  }
+}
+
+/// Temporary placeholder for the Trends tab; replaced by TrendsView in Task 6.
+struct TrendsPlaceholderView: View {
+  var body: some View {
+    ContentUnavailableView(
+      "Trends",
+      systemImage: "chart.line.uptrend.xyaxis",
+      description: Text("Coming next.")
+    )
+    .navigationTitle("Trends")
+    .gooseScreenBackground()
   }
 }
