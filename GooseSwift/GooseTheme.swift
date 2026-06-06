@@ -12,6 +12,29 @@ enum GooseTheme {
     traits.userInterfaceStyle == .dark ? deviceBackgroundUIColor : .systemBackground
   })
 
+  // MARK: - Apple-Health-clean design system (UI redesign)
+
+  /// Per-metric accent colors (Apple Health style).
+  enum Accent {
+    static let heart = Color(red: 1.0, green: 0.216, blue: 0.373)      // #FF375F
+    static let hrv = Color(red: 0.749, green: 0.353, blue: 0.949)      // #BF5AF2
+    static let activity = Color(red: 0.188, green: 0.820, blue: 0.345) // #30D158
+    static let battery = Color(red: 0.188, green: 0.820, blue: 0.345)  // #30D158
+    static let charging = Color(red: 1.0, green: 0.839, blue: 0.039)   // #FFD60A
+    static let sleep = Color(red: 0.392, green: 0.824, blue: 1.0)      // #64D2FF
+    static let range = Color(red: 1.0, green: 0.624, blue: 0.039)      // #FF9F0A
+  }
+
+  /// Card fill: #1C1C1E in dark, .secondarySystemGroupedBackground in light.
+  static let cardBackground = Color(uiColor: UIColor { traits in
+    traits.userInterfaceStyle == .dark
+      ? UIColor(red: 0.110, green: 0.110, blue: 0.118, alpha: 1)
+      : .secondarySystemGroupedBackground
+  })
+
+  static let cardCornerRadius: CGFloat = 14
+  static let cardPadding: CGFloat = 16
+
   static func configureAppearance() {
     UIWindow.appearance().backgroundColor = appBackgroundUIColor
     UITableView.appearance().backgroundColor = appBackgroundUIColor
@@ -63,5 +86,34 @@ extension View {
   func gooseListBackground() -> some View {
     scrollContentBackground(.hidden)
       .background(GooseTheme.appBackground.ignoresSafeArea())
+  }
+
+  /// Apple-Health-clean card surface: flat fill, rounded corners, no border/shadow.
+  func gooseCard(padding: CGFloat = GooseTheme.cardPadding) -> some View {
+    self
+      .padding(padding)
+      .frame(maxWidth: .infinity, alignment: .leading)
+      .background(
+        GooseTheme.cardBackground,
+        in: RoundedRectangle(cornerRadius: GooseTheme.cardCornerRadius, style: .continuous)
+      )
+  }
+}
+
+struct GooseMetricLabel: View {
+  let systemImage: String
+  let title: String
+  let accent: Color
+
+  var body: some View {
+    HStack(spacing: 5) {
+      Image(systemName: systemImage)
+        .font(.caption.weight(.bold))
+        .foregroundStyle(accent)
+      Text(title)
+        .font(.caption.weight(.semibold))
+        .foregroundStyle(accent)
+    }
+    .accessibilityElement(children: .combine)
   }
 }
