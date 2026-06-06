@@ -9,23 +9,23 @@ struct HomeDashboardView: View {
   @State private var showingScoreDatePicker = false
   @State private var showingCardioLoadSheet = false
   @State private var selectedHealthMonitorTrend: HealthMetricSnapshot?
+  @StateObject private var stepsFeed = MinutelyStepsFeed()
 
   var body: some View {
     ScrollView {
       LazyVStack(alignment: .leading, spacing: 18) {
         HomeLiveHeartRateWidget()
 
+        HomeStatCardRow(stepsFeed: stepsFeed)
+
         HomeMinutelyHRSection()
 
-        HomeMinutelyStepsSection()
+        HomeMinutelyStepsSection(feed: stepsFeed)
 
         HomeStressEnergySection(
           stress: landingSnapshot(for: .stress),
           openStress: { openHealth(.stress) }
         )
-
-        HomeDecodedBandSection()
-
       }
       .padding(.horizontal, 16)
       .padding(.vertical, 18)
@@ -63,6 +63,7 @@ struct HomeDashboardView: View {
     .task {
       healthStore.loadBridgeCatalogsIfNeeded()
       model.refreshActivityTimeline(for: selectedDate)
+      stepsFeed.refresh()
     }
     .onChange(of: selectedDate) { _, newValue in
       model.refreshActivityTimeline(for: newValue)
@@ -409,7 +410,7 @@ struct HomeMinutelyHRSection: View {
   var body: some View {
     VStack(alignment: .leading, spacing: 10) {
       HStack {
-        Text("Today · minute by minute").font(.headline)
+        GooseMetricLabel(systemImage: "heart.fill", title: "HR Range Today", accent: GooseTheme.Accent.range)
         Spacer()
         if !feed.minutes.isEmpty {
           Text("\(feed.minutes.count) min").font(.caption).foregroundStyle(.secondary)
@@ -418,7 +419,7 @@ struct HomeMinutelyHRSection: View {
       if feed.minutes.count > 1 {
         MinutelyHRChart(minutes: feed.minutes).frame(height: 150)
         if let last = feed.minutes.last {
-          Text("Latest \(last.bpm) bpm · range \(last.lo)–\(last.hi) bpm · computed on the server")
+          Text("Range \(last.lo)–\(last.hi) bpm · latest \(last.bpm) · computed on our server")
             .font(.caption).foregroundStyle(.secondary)
         }
       } else {
@@ -427,9 +428,7 @@ struct HomeMinutelyHRSection: View {
           .frame(maxWidth: .infinity, minHeight: 150, alignment: .center)
       }
     }
-    .padding(18)
-    .frame(maxWidth: .infinity, alignment: .leading)
-    .background(Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+    .gooseCard()
     .onAppear { feed.refresh() }
     .onReceive(refresh) { _ in feed.refresh() }
   }
@@ -442,28 +441,20 @@ private struct MinutelyHRChart: View {
   let minutes: [HRMinute]
   var body: some View {
     Canvas { ctx, size in
-      guard minutes.count > 1 else { return }
+      guard !minutes.isEmpty else { return }
       let lo = Double((minutes.map { $0.lo }.min() ?? 40) - 3)
       let hi = Double((minutes.map { $0.hi }.max() ?? 120) + 3)
       let rng = max(hi - lo, 1)
       func y(_ v: Double) -> CGFloat { size.height * CGFloat(1 - (v - lo) / rng) }
       let slot = size.width / CGFloat(minutes.count)
-      let bodyW = max(1.5, min(slot * 0.62, 9))
+      let barW = max(1.5, min(slot * 0.62, 9))
+      let accent = GooseTheme.Accent.range
       for (i, m) in minutes.enumerated() {
         let x = slot * (CGFloat(i) + 0.5)
-        let open = Double(i == 0 ? m.bpm : minutes[i - 1].bpm)
-        let close = Double(m.bpm)
-        let color: Color = close >= open ? .green : .red
-        // wick — intra-minute low/high
-        var wick = Path()
-        wick.move(to: CGPoint(x: x, y: y(Double(m.hi))))
-        wick.addLine(to: CGPoint(x: x, y: y(Double(m.lo))))
-        ctx.stroke(wick, with: .color(color.opacity(0.65)), lineWidth: 1)
-        // body — open(prev avg) to close(this avg)
-        let top = min(y(open), y(close))
-        let bot = max(y(open), y(close))
-        let rect = CGRect(x: x - bodyW / 2, y: top, width: bodyW, height: max(1.5, bot - top))
-        ctx.fill(Path(roundedRect: rect, cornerRadius: 1), with: .color(color))
+        let top = y(Double(m.hi))
+        let bot = y(Double(m.lo))
+        let rect = CGRect(x: x - barW / 2, y: top, width: barW, height: max(2, bot - top))
+        ctx.fill(Path(roundedRect: rect, cornerRadius: barW / 2), with: .color(accent))
       }
     }
   }
@@ -503,15 +494,15 @@ final class MinutelyStepsFeed: ObservableObject {
 /// Today's steps, minute by minute — our own count from the band's accelerometer,
 /// computed on the server. Steps only accrue while the band is worn + connected.
 struct HomeMinutelyStepsSection: View {
-  @StateObject private var feed = MinutelyStepsFeed()
+  @ObservedObject var feed: MinutelyStepsFeed
   private let refresh = Timer.publish(every: 30, on: .main, in: .common).autoconnect()
 
   var body: some View {
     VStack(alignment: .leading, spacing: 10) {
       HStack {
-        Text("Steps today").font(.headline)
+        GooseMetricLabel(systemImage: "shoeprints.fill", title: "Steps Today", accent: GooseTheme.Accent.activity)
         Spacer()
-        Text("\(feed.total)").font(.headline.weight(.bold)).foregroundStyle(.green)
+        Text("\(feed.total)").font(.headline.weight(.bold)).foregroundStyle(GooseTheme.Accent.activity)
       }
       if feed.minutes.count > 1 {
         StepsBarChart(minutes: feed.minutes).frame(height: 120)
@@ -523,9 +514,7 @@ struct HomeMinutelyStepsSection: View {
           .frame(maxWidth: .infinity, minHeight: 120, alignment: .center)
       }
     }
-    .padding(18)
-    .frame(maxWidth: .infinity, alignment: .leading)
-    .background(Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+    .gooseCard()
     .onAppear { feed.refresh() }
     .onReceive(refresh) { _ in feed.refresh() }
   }
@@ -544,8 +533,60 @@ private struct StepsBarChart: View {
         let x = slot * (CGFloat(i) + 0.5)
         let h = CGFloat(Double(m.steps) / max(mx, 1)) * (size.height - 4)
         let rect = CGRect(x: x - bw / 2, y: size.height - h, width: bw, height: max(1.5, h))
-        ctx.fill(Path(roundedRect: rect, cornerRadius: 1), with: .color(.green))
+        ctx.fill(Path(roundedRect: rect, cornerRadius: max(1, bw / 2)), with: .color(GooseTheme.Accent.activity))
       }
     }
+  }
+}
+
+/// Two side-by-side stat cards: HRV (rMSSD, ours) and today's step total (ours).
+struct HomeStatCardRow: View {
+  @EnvironmentObject private var model: GooseAppModel
+  @ObservedObject var stepsFeed: MinutelyStepsFeed
+  var body: some View { HomeStatCardRowContent(ble: model.ble, stepsFeed: stepsFeed) }
+}
+
+private struct HomeStatCardRowContent: View {
+  @ObservedObject var ble: GooseBLEClient
+  @ObservedObject var stepsFeed: MinutelyStepsFeed
+
+  var body: some View {
+    HStack(spacing: 12) {
+      statCard(
+        label: "HRV",
+        icon: "waveform.path.ecg",
+        accent: GooseTheme.Accent.hrv,
+        value: ble.liveHRVRMSSD.map { String(format: "%.0f", $0) } ?? "—",
+        unit: "ms",
+        caption: "rMSSD — our own number"
+      )
+      statCard(
+        label: "Steps",
+        icon: "shoeprints.fill",
+        accent: GooseTheme.Accent.activity,
+        value: "\(stepsFeed.total)",
+        unit: "",
+        caption: "From accel — our own count"
+      )
+    }
+  }
+
+  private func statCard(label: String, icon: String, accent: Color, value: String, unit: String, caption: String) -> some View {
+    VStack(alignment: .leading, spacing: 8) {
+      GooseMetricLabel(systemImage: icon, title: label, accent: accent)
+      HStack(alignment: .firstTextBaseline, spacing: 4) {
+        Text(value)
+          .font(.system(size: 30, weight: .semibold, design: .rounded))
+          .monospacedDigit()
+        if !unit.isEmpty {
+          Text(unit).font(.subheadline).foregroundStyle(.secondary)
+        }
+      }
+      Text(caption)
+        .font(.caption2)
+        .foregroundStyle(.secondary)
+        .lineLimit(2)
+    }
+    .gooseCard()
   }
 }
