@@ -21,16 +21,8 @@ final class AppRouter: ObservableObject {
   }
 
   func openCoach(prompt: String? = nil) {
-    selectedTab = .coach
-    guard let prompt else {
-      return
-    }
-    let trimmedPrompt = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
-    guard !trimmedPrompt.isEmpty else {
-      return
-    }
-    coachPromptDraft = trimmedPrompt
-    coachPromptRequestID += 1
+    // Coach removed from the UI — navigation disabled (no-op).
+    _ = prompt
   }
 
   func openMore(_ route: MoreRoute?) {

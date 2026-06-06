@@ -220,7 +220,9 @@ struct CoachTipCard: View {
   var actionTitle = "Ask Coach"
   let action: () -> Void
 
-  var body: some View {
+  var body: some View { EmptyView() }  // Coach removed from the UI
+
+  private var hiddenBody: some View {
     VStack(alignment: .leading, spacing: 12) {
       HStack(alignment: .top, spacing: 10) {
         Image(systemName: tip.systemImage)

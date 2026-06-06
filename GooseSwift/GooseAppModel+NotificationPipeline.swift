@@ -4,6 +4,9 @@ import UIKit
 
 extension GooseAppModel {
   func handleNotification(_ event: GooseNotificationEvent) {
+    // NOTE: do NOT skip GEN4 here — the Rust pipeline also produces the live HR
+    // for the 4.0 (recordLiveHeartRate source "rust.k10"). Skipping it blanked the
+    // live heart-rate display. (The overnight-spool gating is the real slim-down.)
     let (queueDepth, highWatermark) = incrementNotificationIngestQueueDepth()
     let captureImportActive = activeHealthPacketCapture != nil || activeActivityPersistence != nil
     let parseContext = notificationParseContext(for: event)

@@ -16,3 +16,11 @@ Rust/iphoneos/
 Rust/iphonesimulator/
 Vendor/CodexRust/codex-rs/target/
 tmp/
+
+# local-only
+.env
+.idea/
+build-device/
+build-release/
+.superpowers/
+imu.png

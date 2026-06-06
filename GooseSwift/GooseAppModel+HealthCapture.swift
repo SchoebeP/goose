@@ -388,6 +388,12 @@ extension GooseAppModel {
     guard activeHealthPacketCapture?.mode == .physiology else {
       return
     }
+    // 4.0 quiet mode: V5 physiology commands are rejected by the 4.0 and the
+    // retry loop hammers the link every 8 s (frames never count because the Rust
+    // parser can't read GEN4). The GEN4 pulse stream covers live data instead.
+    guard !ble.isGen4Band else {
+      return
+    }
 
     ble.record(source: "health.packet_capture", title: "physiology.stream.requested", body: reason)
     ble.startPhysiologySignalCapture()
@@ -420,6 +426,7 @@ extension GooseAppModel {
 
   func schedulePhysiologyStreamRetryIfNeeded() {
     healthPacketCaptureStreamRetryWorkItem?.cancel()
+    guard !ble.isGen4Band else { return }   // 4.0 quiet mode (see above)
     guard activeHealthPacketCapture?.mode == .physiology,
           healthPacketCaptureFrameCount == 0,
           healthPacketCaptureStreamRetryAttempt < 12 else {

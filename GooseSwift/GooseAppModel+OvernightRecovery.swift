@@ -4,6 +4,10 @@ import UIKit
 
 extension GooseAppModel {
   func recoverUncleanOvernightGuardSessionIfNeeded() {
+    // Slimmed app: local overnight spooling is off by default, so don't auto-
+    // resume + reprocess a leftover session on launch (that's what grew to
+    // hundreds of MB and thrashed the BLE link). See localOvernightCaptureEnabled.
+    guard Self.localOvernightCaptureEnabled else { return }
     guard !overnightGuardActive, overnightGuardSession == nil else {
       return
     }
@@ -128,6 +132,13 @@ extension GooseAppModel {
     guard overnightGuardActive, ble.connectionState == "ready" else {
       refreshOvernightReadiness(reason: "resume_waiting_for_ready")
       writeOvernightGuardStatus(reason: "resume_waiting_for_ready")
+      return
+    }
+    // 4.0 quiet mode: the overnight-guard streams (physiology capture + range
+    // polling) are V5-oriented and destabilise the 4.0 BLE link. Skip them; the
+    // GEN4 pulse stream carries the live data instead.
+    guard !ble.isGen4Band else {
+      ble.record(source: "overnight.guard", title: "resume.streams.skipped_gen4", body: reason)
       return
     }
     if !overnightGuardStartedHealthCapture {

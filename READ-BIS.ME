@@ -1,0 +1,56 @@
+# whoop-local
+
+A local-first companion for the **WHOOP 4.0**: read your band's data directly over Bluetooth LE, store it on your own machine, and view it in your own web dashboard — reachable over Tailscale, with nothing touching WHOOP's app or cloud.
+
+> Independent project. Not affiliated with WHOOP. Talks to the band over BLE using community-documented protocol facts; contains no WHOOP source. Intended for accessing **your own** data from a device you own.
+
+## What you get / don't get
+- **You get:** raw signals off the band — heart rate, R-R intervals, SpO2, skin temperature, accelerometer — plus your own dashboards, and (optional, later) your own computed HRV/stress/sleep-detection/strain-like estimates.
+- **You don't get:** WHOOP's exact Recovery %, Strain (0–21), sleep stages, Coach, or your long-term cloud archive. Those are proprietary / cloud-only. See `GOAL.md` non-goals.
+
+## Prerequisites
+- A machine with a **Bluetooth LE adapter** to run the collector, physically near the band (~10 m). (A headless Linux box works; if it has no onboard BT, add a USB BLE dongle.)
+- Python 3.11+.
+- The **WHOOP app must not be connected** to the band while the collector is (one BLE connection at a time).
+- Optional, for extending the protocol decode: an Android phone for BLE packet capture (HCI snoop log + Wireshark).
+
+## Quickstart
+```bash
+python -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
+cp .env.example .env        # then edit
+# (collector / api come online as the phases in GOAL.md are built)
+pytest -q
+```
+
+## Building it with Claude Code (the /goal workflow)
+This repo is set up to be built **incrementally and semi-autonomously** by Claude Code:
+
+- **`CLAUDE.md`** is read at the start of every session — it holds the hard constraints, architecture, conventions, protocol facts, and run/test commands.
+- **`GOAL.md`** is the phased roadmap with acceptance criteria and a progress log.
+- **`/goal`** (defined in `.claude/skills/goal/SKILL.md`) advances the project one tested increment at a time: it reads the roadmap, implements the next task, runs tests, ticks the box, logs progress, and commits.
+
+Typical use, from the project root:
+```bash
+npm install -g @anthropic-ai/claude-code   # if not installed
+claude
+# inside the session:
+/init        # (optional) let Claude refine CLAUDE.md against the repo
+/goal        # advance one increment; repeat. Or target a phase: /goal phase 2
+```
+
+### Making it run with less hand-holding
+- Run `/permissions` and pre-approve safe, routine tools (read files, run `pytest`/`ruff`, ordinary `git` add/commit) so it doesn't stop on every step. Keep prompts for things that actually matter.
+- Keep destructive actions gated. Don't pre-approve `push`, deploy, `rm`, or DB-deleting commands — the `/goal` skill already refuses these without confirmation.
+- **Reality check on autonomy:** Claude Code is agentic *within a session* — it plans, edits, runs, tests, and commits on its own — but it isn't a fire-and-forget daemon. Two natural stopping points are built in: any step needing the **physical band** (it can't put it on your wrist or capture real packets) is handed back to you with exact instructions, and real blockers are written to `GOAL.md` so you can pick up where it paused. Review its commits at milestones.
+
+## References (study, don't blindly copy — check each license)
+- `jogolden/whoomp` — protocol reference (GATT UUIDs, CRC, framing, packet types) + a live Web Bluetooth tool.
+- `christianmeurer/whoop-reader` — minimal Python real-time sensor reader (HR, R-R, SpO2, temp, accel).
+- `bWanShiTong/openwhoop` — local, no-subscription CLI that computes HRV / stress / sleep-detection / strain locally (reference for Phase 6).
+- `johnmiddleton12/my-whoop` — schema-driven 4.0 client (BLE → server → app); good architecture reference.
+
+> `b-nnett/goose` (the WHOOP 5.0 app) has **no license** — do not copy its code.
+
+## Legal
+Reverse-engineering a device you own for interoperability and accessing your own data is generally permitted, but you are responsible for complying with WHOOP's Terms and your local law. Keep it personal-use; don't redistribute others' data or proprietary material.

@@ -236,6 +236,12 @@ final class NotificationFrameParser: @unchecked Sendable {
     guard !frameHexes.isEmpty else {
       return ([], nil, nil)
     }
+    // 4.0 quiet mode: the Rust core can't parse GEN4 frames ("unsupported
+    // device_type: GEN4") and fails on every one, churning the notification
+    // pipeline. Skip it — GEN4 frames are captured raw and decoded server-side.
+    guard deviceType != "GEN4" else {
+      return ([], nil, nil)
+    }
 
     do {
       let response = try rust.request(

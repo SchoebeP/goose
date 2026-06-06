@@ -13,6 +13,8 @@ private struct ConnectionContentView: View {
   @EnvironmentObject private var model: GooseAppModel
   @EnvironmentObject private var messageStore: GooseMessageStore
   @ObservedObject var ble: GooseBLEClient
+  @State private var exportedLogURL: URL?
+  @State private var showingExportAlert = false
 
   var body: some View {
     List {
@@ -94,6 +96,16 @@ private struct ConnectionContentView: View {
       }
 
       Section("Event Log") {
+        Button("Export Event Log") {
+          exportEventLog()
+        }
+        if let exportedLogURL {
+          ShareLink("Share exported log", item: exportedLogURL)
+          Text(exportedLogURL.lastPathComponent)
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .textSelection(.enabled)
+        }
         ForEach(messageStore.messages) { message in
           VStack(alignment: .leading, spacing: 4) {
             HStack {
@@ -119,6 +131,36 @@ private struct ConnectionContentView: View {
     }
     .gooseListBackground()
     .navigationTitle("Connect")
+    .toolbar {
+      ToolbarItem(placement: .topBarTrailing) {
+        Button {
+          exportEventLog()
+          showingExportAlert = true
+        } label: {
+          Label("Export Log", systemImage: "square.and.arrow.up")
+        }
+      }
+    }
+    .alert("Event log exported", isPresented: $showingExportAlert) {
+      Button("OK", role: .cancel) {}
+    } message: {
+      Text("Saved \(messageStore.messages.count) lines. Tell Claude “exported” and it will pull the file.")
+    }
+  }
+
+  private func exportEventLog() {
+    let lines = messageStore.messages.map { message in
+      "\(message.timestamp.ISO8601Format()) [\(message.level.rawValue)] "
+        + "\(message.source) \(message.title) \(message.body)"
+    }
+    let text = lines.joined(separator: "\n")
+    let url = URL.documentsDirectory.appendingPathComponent("goose-eventlog.txt")
+    do {
+      try text.write(to: url, atomically: true, encoding: .utf8)
+      exportedLogURL = url
+    } catch {
+      exportedLogURL = nil
+    }
   }
 
   private var liveHeartRateValue: String {

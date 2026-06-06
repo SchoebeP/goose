@@ -92,6 +92,15 @@ final class GooseAppModel: ObservableObject {
   var activityRequestedHighFrequencyHistorySync = false
   var activeHealthPacketCapture: ActiveHealthPacketCapture?
   let overnightRawSpool = OvernightRawNotificationSpool()
+
+  /// Local overnight raw-notification spooling. OFF by default: this band can't
+  /// capture overnight (never activated via WHOOP + iOS suspends BLE in the
+  /// background) and we forward live data to the VPS — so the on-device spool
+  /// was pure overhead (it grew to hundreds of MB and got reprocessed on every
+  /// launch, starving the BLE link). Re-enable via UserDefaults "localOvernightCapture".
+  nonisolated static var localOvernightCaptureEnabled: Bool {
+    UserDefaults.standard.object(forKey: "localOvernightCapture") as? Bool ?? false
+  }
   var overnightGuardSession: OvernightGuardSession?
   var overnightGuardHeartbeatWorkItem: DispatchWorkItem?
   var overnightGuardRangePollWorkItem: DispatchWorkItem?

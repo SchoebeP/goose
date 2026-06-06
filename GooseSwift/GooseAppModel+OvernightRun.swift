@@ -378,6 +378,8 @@ extension GooseAppModel {
     guard overnightGuardActive, !overnightGuardFinalSyncPending else {
       return
     }
+    // 4.0 quiet mode: GET_DATA_RANGE / historical polling churns the 4.0 link.
+    guard !ble.isGen4Band else { return }
     let delay = delay ?? Self.overnightGuardRangePollInterval
     let workItem = DispatchWorkItem { [weak self] in
       Task { @MainActor in

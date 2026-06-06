@@ -84,7 +84,9 @@ struct SleepV2CoachingCard: View {
   let tip: CoachInlineTip
   let action: () -> Void
 
-  var body: some View {
+  var body: some View { EmptyView() }  // Coach removed from the UI
+
+  private var hiddenBody: some View {
     SleepV2Panel(palette: palette, padding: 14, radius: 14) {
       VStack(alignment: .leading, spacing: 12) {
         HStack(alignment: .top, spacing: 10) {

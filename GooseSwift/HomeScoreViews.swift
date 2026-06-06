@@ -139,12 +139,11 @@ struct HomeScoreDial: View {
 
 struct HomeStressEnergySection: View {
   let stress: HealthMetricSnapshot
-  let energy: HealthMetricSnapshot
   let openStress: () -> Void
 
   var body: some View {
     VStack(alignment: .leading, spacing: 12) {
-      HomeSectionHeader(title: "Stress & Energy")
+      HomeSectionHeader(title: "Stress (from heart rate)")
 
       Button {
         openStress()
@@ -199,8 +198,6 @@ struct HomeStressEnergySection: View {
         .cardSurface(tint: stress.tint, prominent: true)
       }
       .buttonStyle(.plain)
-
-      HomeEnergyBar(percent: Int(firstNumber(in: energy.displayValue) ?? 0), caption: energy.status)
     }
   }
 
