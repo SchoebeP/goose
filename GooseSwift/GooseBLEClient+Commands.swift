@@ -1183,14 +1183,35 @@ extension GooseBLEClient {
     Array(token.utf8) + [0]
   }
 
-  /// Send the enable sequence with the proven inter-command timing.
+  /// Send the enable sequence with the proven inter-command timing. On the
+  /// initial bond this first runs a historical sync (the raw stream blocks
+  /// normal_history) and the enable sequence follows via the sync's resume hook.
   func startGen4PulseStreamSequence(reason: String, bond: Bool) {
     record(source: "ble.gen4", title: "gen4.pulse.enable.start", body: "reason=\(reason) bond=\(bond)")
     // Always read battery via GET_BATTERY (the reliable uint16/10 source); this
     // also serves as the bond write on connect, and refreshes battery every
     // re-enable (~60 s). On the initial bond, wait for it to settle first.
     writeGen4Command(26, payload: [0x00], label: bond ? "GET_BATTERY(bond)" : "GET_BATTERY(refresh)")
-    let base = bond ? 1.2 : 0.3
+    if bond {
+      // Initial connect: pull the band's buffered history FIRST, before enabling
+      // the raw/pulse stream — the high-frequency raw stream blocks normal_history
+      // delivery on the 4.0, so enabling it first would starve the pull. The
+      // automatic-sync path (autoHistoricalSyncOnReady) is launch-arg gated and
+      // off by default, so this is what keeps the nightly backfill alive on Gen4.
+      // When the sync completes (or fails), completeHistoricalSync /
+      // failHistoricalSync resume us via
+      // resumeGen4PulseStreamAfterHistorySyncIfNeeded, which sends the full
+      // enable sequence with bond=false.
+      DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { [weak self] in
+        guard let self, self.connectionState == "ready" else { return }
+        guard !self.isHistoricalSyncing else { return }   // a sync beat us to it
+        self.record(source: "ble.gen4", title: "gen4.history.bond_pull",
+                    body: "pulling buffered history before enabling the raw/pulse stream")
+        self.beginHistoricalSync(trigger: "gen4_connect_backfill", automatic: true)
+      }
+      return
+    }
+    let base = 0.3
     let steps: [(UInt8, [UInt8], String)] = [
       (3, [0x01], "TOGGLE_REALTIME_HR"),
       (63, [0x01], "SEND_R10_R11_REALTIME"),
@@ -1207,10 +1228,10 @@ extension GooseBLEClient {
     // NOTE: the old one-shot raw backfill (requestGen4HistoricalBackfillIfNeeded:
     // GET_DATA_RANGE + SEND_HISTORICAL_DATA + a throttled cmd-23 ACK loop) was
     // removed when the po-sc Gen4 historical sync was ported: the proper sync
-    // state machine (beginHistoricalSync, generation-aware) now owns the
-    // band's history channel, and two drivers ACKing the same paged stream
-    // would skip pages. Raw type-47 frames are still forwarded to the VPS by
-    // ingestRawFrame during the sync.
+    // state machine (beginHistoricalSync, generation-aware) owns the band's
+    // history channel now — see the bond branch above — and two drivers ACKing
+    // the same paged stream would skip pages. Raw type-47 frames are still
+    // forwarded to the VPS by ingestRawFrame during the sync.
   }
 
   private func writeGen4Command(_ command: UInt8, payload: [UInt8], label: String) {
