@@ -22,8 +22,11 @@ struct HomeDashboardView: View {
 
         HomeMinutelyStepsSection(feed: stepsFeed)
 
+        // Cached, off-main computed snapshot: the full `landingSnapshot(for:)`
+        // chain recomputed every metric (incl. synchronous cardio-load bridge
+        // calls) on the main thread on every body pass — seconds of "loading".
         HomeStressEnergySection(
-          stress: landingSnapshot(for: .stress),
+          stress: healthStore.homeStressSnapshot(),
           openStress: { openHealth(.stress) }
         )
       }
@@ -62,6 +65,7 @@ struct HomeDashboardView: View {
     }
     .task {
       healthStore.loadBridgeCatalogsIfNeeded()
+      healthStore.refreshHomeStressSnapshotIfNeeded()
       model.refreshActivityTimeline(for: selectedDate)
       stepsFeed.refresh()
     }
