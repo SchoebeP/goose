@@ -1207,6 +1207,16 @@ final class WhoopCloudForwarder {
   }()
   private var outboxSeq = 0
   private let maxOutboxFiles = 4000   // ~hours of backlog; oldest dropped beyond this
+  /// True while a frames POST (live batch or outbox drain) is outstanding.
+  /// During a history sync the band produces batches faster than the uplink
+  /// can confirm them; without this gate every 30-frame batch spawned another
+  /// URLSession task and the in-flight request bodies grew without bound
+  /// (memory jetsam). With it, at most ONE frames POST is in flight and any
+  /// batch that arrives meanwhile is spilled to the disk outbox — durable,
+  /// bounded by maxOutboxFiles, drained in order once the uplink catches up.
+  private var framesPostInFlight = false
+  /// Count of batches spilled to disk because a POST was already in flight.
+  private var inFlightSpillCount = 0
 
   /// Build the POST body, tagging it with the capture time so frames that upload
   /// late (after an outage) are stamped at when they happened, not when they land.
@@ -1239,8 +1249,25 @@ final class WhoopCloudForwarder {
     lastFrameFlush = now
     if batch.isEmpty { drainOutbox(); return }
     guard let body = framesBody(batch) else { return }
+    guard !framesPostInFlight else {
+      // Uplink slower than the band (typical mid history-sync): never stack
+      // unbounded in-flight bodies — spill to disk, replayed in order by
+      // drainOutbox. Biometric frames are preserved, memory stays O(1 body).
+      persistFailedBody(body)
+      inFlightSpillCount += 1
+      if inFlightSpillCount == 1 || inFlightSpillCount.isMultiple(of: 100) {
+        self.ingestLog(
+          level: "info", source: "cloud.forward", title: "frames.spilled_to_outbox",
+          body: "in_flight_spills=\(inFlightSpillCount) (uplink slower than frame production; replayed from disk outbox)",
+          at: now
+        )
+      }
+      return
+    }
+    framesPostInFlight = true
     postFrames(body) { [weak self] ok in
       self?.queue.async {
+        self?.framesPostInFlight = false
         if ok { self?.drainOutbox() } else { self?.persistFailedBody(body) }
       }
     }
@@ -1256,14 +1283,19 @@ final class WhoopCloudForwarder {
 
   /// Send the oldest backlog file; on success delete it and continue draining,
   /// on failure stop (still offline) and leave it for the next attempt.
+  /// Shares the single-POST gate with the live path so a drain chain and a live
+  /// flush can never run concurrent uploads.
   private func drainOutbox() {
+    guard !framesPostInFlight else { return }
     let fm = FileManager.default
     guard let url = (try? fm.contentsOfDirectory(at: Self.outboxDir, includingPropertiesForKeys: nil))?
       .filter({ $0.pathExtension == "json" })
       .sorted(by: { $0.lastPathComponent < $1.lastPathComponent }).first else { return }
     guard let body = try? Data(contentsOf: url) else { try? fm.removeItem(at: url); return }
+    framesPostInFlight = true
     postFrames(body) { [weak self] ok in
       self?.queue.async {
+        self?.framesPostInFlight = false
         guard ok else { return }
         try? fm.removeItem(at: url)
         self?.drainOutbox()
