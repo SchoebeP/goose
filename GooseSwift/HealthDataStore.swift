@@ -21,6 +21,7 @@ final class HealthDataStore: ObservableObject {
   @Published var calibrationRunComplete = false
   @Published var heartRateHourlyRanges: [HeartRateHourlyRange] = []
   @Published var heartRateTimelineStatus = "No HR samples stored"
+  @Published var homeStressSnapshotCache: HealthMetricSnapshot?
 
   let bridge = GooseRustBridge()
   let heartRateSeriesStore = HeartRateSeriesStore.shared
@@ -36,9 +37,12 @@ final class HealthDataStore: ObservableObject {
   var packetScoreIsRunning = false
   var heartRateTimelineRefreshID: UUID?
   var heartRateSeriesUpdateObserver: NSObjectProtocol?
+  var homeStressRefreshID: UUID?
+  var homeStressRefreshedAt: Date?
   let packetInputQueue = DispatchQueue(label: "com.goose.swift.health.packet-inputs", qos: .utility)
   let packetScoreQueue = DispatchQueue(label: "com.goose.swift.health.packet-scores", qos: .utility)
   let heartRateTimelineQueue = DispatchQueue(label: "com.goose.swift.health.heart-rate-timeline", qos: .utility)
+  let stressSnapshotQueue = DispatchQueue(label: "com.goose.swift.health.stress-snapshot", qos: .userInitiated)
   lazy var databasePath = HealthDataStore.defaultDatabasePath()
 
   static let liveHRVRMSSDDefaultsKey = "goose.swift.liveHRVRMSSD"
@@ -64,6 +68,7 @@ final class HealthDataStore: ObservableObject {
     ) { [weak self] _ in
       Task { @MainActor in
         self?.refreshHeartRateTimeline()
+        self?.refreshHomeStressSnapshotIfNeeded()
       }
     }
   }
