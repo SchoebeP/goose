@@ -20,6 +20,7 @@ final class GooseBLEClient: NSObject, ObservableObject {
   @Published var liveHRVSource = "waiting"
   @Published var liveHRVUpdatedAt: Date?
   @Published var liveHRVRMSSDSampleCount = 0
+  @Published var latestBodyHistoryMetrics: BodyHistoryMetricsSample?
   @Published var reconnectState = "idle"
   @Published var rememberedDeviceDescription = "none"
   @Published var activeDeviceName = "WHOOP"

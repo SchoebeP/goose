@@ -26,6 +26,8 @@ struct HomeDashboardView: View {
           stress: landingSnapshot(for: .stress),
           openStress: { openHealth(.stress) }
         )
+
+        HomeBodySection()
       }
       .padding(.horizontal, 16)
       .padding(.vertical, 18)
@@ -662,6 +664,115 @@ private struct HomeStatCardRowContent: View {
         Text(value)
           .font(.system(size: 30, weight: .semibold, design: .rounded))
           .monospacedDigit()
+        if !unit.isEmpty {
+          Text(unit).font(.subheadline).foregroundStyle(.secondary)
+        }
+      }
+      Text(caption)
+        .font(.caption2)
+        .foregroundStyle(.secondary)
+        .lineLimit(2)
+    }
+    .gooseCard()
+  }
+}
+
+// MARK: - Body (respiratory rate, skin temp, SpO2 from the band's history records)
+
+/// "Body" section: the latest values our own decode pulls out of the band's
+/// normal-history records (see BodyHistoryMetrics.swift). Raw signals and rough
+/// estimates from the band — our numbers, not WHOOP's, and not medical readings.
+struct HomeBodySection: View {
+  @EnvironmentObject private var model: GooseAppModel
+  var body: some View { HomeBodySectionContent(ble: model.ble) }
+}
+
+private struct HomeBodySectionContent: View {
+  @ObservedObject var ble: GooseBLEClient
+
+  private var sample: BodyHistoryMetricsSample? { ble.latestBodyHistoryMetrics }
+
+  /// Raw u16 / 200 -> rpm; "—" unless a history record landed in the last 24 h.
+  private var respiratoryValue: String {
+    guard let sample, sample.isRecent, let rpm = sample.respiratoryRateRPM else {
+      return "—"
+    }
+    return String(format: "%.1f", rpm)
+  }
+
+  /// The raw skin-temperature word as decoded (real captures ~464–860).
+  /// Never converted to °C until calibration lands.
+  private var skinTempValue: String {
+    guard let raw = sample?.skinTempRaw else {
+      return "—"
+    }
+    return "raw \(raw)"
+  }
+
+  /// Red/IR optical channels carried signal within the last 24 h.
+  private var spo2HasRecentSignal: Bool {
+    guard let sample, sample.isRecent else {
+      return false
+    }
+    return sample.hasSpO2Signal
+  }
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 12) {
+      Text("Body")
+        .font(.title3.weight(.bold))
+
+      HStack(spacing: 12) {
+        bodyStatCard(
+          label: "Respiratory",
+          icon: "lungs.fill",
+          accent: GooseTheme.Accent.respiratory,
+          value: respiratoryValue,
+          unit: respiratoryValue == "—" ? "" : "rpm",
+          caption: "from band history — our own decode"
+        )
+        bodyStatCard(
+          label: "Skin Temp",
+          icon: "thermometer.medium",
+          accent: GooseTheme.Accent.range,
+          value: skinTempValue,
+          unit: "",
+          caption: "calibrating — reference readings logged; °C soon"
+        )
+      }
+
+      spo2Card
+    }
+  }
+
+  private var spo2Card: some View {
+    VStack(alignment: .leading, spacing: 8) {
+      HStack {
+        GooseMetricLabel(systemImage: "drop.fill", title: "SpO₂", accent: GooseTheme.Accent.sleep)
+        Spacer()
+        Text(spo2HasRecentSignal ? "signal ✓" : "no recent signal")
+          .font(.caption.weight(.semibold))
+          .foregroundStyle(spo2HasRecentSignal ? GooseTheme.Accent.activity : Color.secondary)
+      }
+      Text("needs oximeter calibration")
+        .font(.subheadline.weight(.semibold))
+        .foregroundStyle(.secondary)
+      Text("Red/IR optical channels decoded from band history; a percentage stays off until calibrated against a reference oximeter.")
+        .font(.caption2)
+        .foregroundStyle(.secondary)
+    }
+    .gooseCard()
+  }
+
+  private func bodyStatCard(label: String, icon: String, accent: Color, value: String, unit: String, caption: String) -> some View {
+    VStack(alignment: .leading, spacing: 8) {
+      GooseMetricLabel(systemImage: icon, title: label, accent: accent)
+      HStack(alignment: .firstTextBaseline, spacing: 4) {
+        Text(value)
+          .font(.system(size: 30, weight: .semibold, design: .rounded))
+          .monospacedDigit()
+          .lineLimit(1)
+          .minimumScaleFactor(0.55)
         if !unit.isEmpty {
           Text(unit).font(.subheadline).foregroundStyle(.secondary)
         }
