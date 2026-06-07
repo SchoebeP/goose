@@ -377,6 +377,22 @@ extension GooseAppModel {
     )
     notificationParseQueue.async {
       let frameHexes = frames.map(\.hex)
+      // WHOOP 4.0 body history: the Rust batch parser stays in GEN4 quiet mode
+      // (parseBatch skips GEN4), so decode the normal-history DSP fields
+      // (respiratory rate, raw skin temp, SpO2 red/IR) straight from the
+      // reassembled frames here and publish the latest values the same way
+      // liveHeartRateBPM is published. fromGen4FrameHex prefilters on the hex
+      // header bytes, so the ~100 Hz raw stream bails before any allocation.
+      if deviceType == "GEN4" {
+        for frameHex in frameHexes {
+          guard let bodyMetrics = BodyHistoryMetricsSample.fromGen4FrameHex(frameHex, capturedAt: event.capturedAt) else {
+            continue
+          }
+          DispatchQueue.main.async {
+            ble.recordBodyHistoryMetrics(bodyMetrics)
+          }
+        }
+      }
       let (parseResults, bridgeTiming, batchTiming) = parser.parseBatch(frameHexes: frameHexes, deviceType: deviceType)
       var mainResults: [ParsedNotificationFrameResult] = []
       var offMainDataSignalCount = 0

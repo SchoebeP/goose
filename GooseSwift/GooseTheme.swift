@@ -23,6 +23,7 @@ enum GooseTheme {
     static let charging = Color(red: 1.0, green: 0.839, blue: 0.039)   // #FFD60A
     static let sleep = Color(red: 0.392, green: 0.824, blue: 1.0)      // #64D2FF
     static let range = Color(red: 1.0, green: 0.624, blue: 0.039)      // #FF9F0A
+    static let respiratory = Color(red: 0.251, green: 0.784, blue: 0.878) // #40C8E0
   }
 
   /// Card fill: #1C1C1E in dark, .secondarySystemGroupedBackground in light.
