@@ -161,6 +161,23 @@ extension GooseBLEClient {
     if let current = latestBodyHistoryMetrics, current.recordedAt > sample.recordedAt {
       return
     }
-    latestBodyHistoryMetrics = sample
+    // Respiratory is sleep-derived: most daytime records carry 0 at offset 63
+    // (confirmed in our own captures). Don't let a newer zero clobber the last
+    // real overnight reading — keep the newest NONZERO respiratory value.
+    var merged = sample
+    if (sample.respiratoryRateRaw ?? 0) == 0,
+       let lastResp = latestBodyHistoryMetrics?.respiratoryRateRaw, lastResp > 0 {
+      merged = BodyHistoryMetricsSample(
+        packetK: sample.packetK,
+        recordedAt: sample.recordedAt,
+        capturedAt: sample.capturedAt,
+        spo2Red: sample.spo2Red,
+        spo2IR: sample.spo2IR,
+        skinTempRaw: sample.skinTempRaw,
+        respiratoryRateRaw: lastResp,
+        signalQuality: sample.signalQuality
+      )
+    }
+    latestBodyHistoryMetrics = merged
   }
 }
