@@ -39,6 +39,7 @@ final class GooseBLEClient: NSObject, ObservableObject {
   @Published var isHistoricalSyncing = false
   @Published var historicalSyncStatus = "idle"
   @Published var historicalPacketCount = 0
+  @Published var historySyncProgressSnapshot: GooseHistorySyncProgressSnapshot?
   @Published var lastHistoricalSyncCompletedAt: Date?
   @Published var lastHistoricalRangeCommandStatus = "No GET_DATA_RANGE response"
   @Published var alarmCommandStatus = "No alarm command sent"
@@ -271,6 +272,7 @@ final class GooseBLEClient: NSObject, ObservableObject {
   var pendingHistoricalCommand: PendingHistoricalCommand?
   var nextHistoricalCommandSequence: UInt8 = 57
   var historicalPacketsReceivedThisSync = 0
+  var historySyncProgressEstimator = HistorySyncProgressEstimator()
   var historicalRangePendingResponses = 0
   var historicalRangeRetryCount = 0
   var historicalTransferRequestAttemptCount = 0

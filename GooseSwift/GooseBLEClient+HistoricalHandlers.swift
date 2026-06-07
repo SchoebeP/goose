@@ -24,6 +24,20 @@ extension GooseBLEClient {
       handleHistoricalCommandResponse(payload)
     case V5PacketType.historicalData, V5PacketType.historicalIMUDataStream:
       historicalPacketsReceivedThisSync += 1
+      // Honest progress: every type-47 record carries its unix timestamp as a
+      // u32 LE at payload offset 7 (frame offset 11; matches the Rust parser's
+      // data_packet `timestamp_seconds`). Min epoch seen = oldest buffered
+      // record; running max = how far the drain has reached. Type-52 IMU
+      // packets are skipped — their body layout is undecoded.
+      if packetType == V5PacketType.historicalData, payload.count >= 11 {
+        let epoch = TimeInterval(
+          UInt32(payload[7])
+            | UInt32(payload[8]) << 8
+            | UInt32(payload[9]) << 16
+            | UInt32(payload[10]) << 24
+        )
+        historySyncProgressEstimator.noteRecordEpoch(epoch, at: Date())
+      }
       // Bound a single sync: a never-synced WHOOP can stream its entire multi-week
       // backlog (oldest-first), which never reaches HistoryComplete in one pass and
       // would balloon storage. Stop after a sane cap; the ACK'd read pointer persists,
@@ -67,6 +81,12 @@ extension GooseBLEClient {
 
     lastHistoricalPacketCountPublishedAt = date
     historicalPacketCount = historicalPacketsReceivedThisSync
+    if isHistoricalSyncing, historySyncProgressEstimator.startedAt != nil {
+      historySyncProgressSnapshot = historySyncProgressEstimator.makeSnapshot(
+        now: date,
+        packetCount: historicalPacketsReceivedThisSync
+      )
+    }
   }
 
   func handleAlarmValue(_ value: Data, characteristic: CBCharacteristic) {
@@ -552,6 +572,7 @@ extension GooseBLEClient {
       pendingHistoryEndAckPayload = nil
     case .historyEnd:
       historyEndReceived = true
+      historySyncProgressEstimator.notePage()
       guard !historyEndAckSentThisBurst else {
         record(
           level: .debug,
@@ -634,6 +655,8 @@ extension GooseBLEClient {
     isHistoricalSyncing = false
     historicalRangePollOnly = false
     publishHistoricalPacketCountIfNeeded(force: true, at: completedAt)
+    historySyncProgressEstimator.reset()
+    historySyncProgressSnapshot = nil
     historicalSyncStatus = "synced"
     lastHistoricalSyncCompletedAt = completedAt
     lastSyncAt = completedAt
@@ -669,6 +692,8 @@ extension GooseBLEClient {
     isHistoricalSyncing = false
     historicalRangePollOnly = false
     publishHistoricalPacketCountIfNeeded(force: true)
+    historySyncProgressEstimator.reset()
+    historySyncProgressSnapshot = nil
     historicalSyncStatus = "failed"
     let failure = GooseSyncFailure(title: "Sync Failed", message: message, occurredAt: Date())
     lastSyncFailure = failure

@@ -24,6 +24,7 @@
 		A1000000000000000000000F /* MapKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A20000000000000000000013 /* MapKit.framework */; };
 		A10000000000000000000010 /* HealthView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000014 /* HealthView.swift */; };
 		A10000000000000000000041 /* TrendsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000041 /* TrendsView.swift */; };
+		E10000000000000000000051 /* HistorySyncProgress.swift in Sources */ = {isa = PBXBuildFile; fileRef = E20000000000000000000051 /* HistorySyncProgress.swift */; };
 		A10000000000000000000042 /* ChartDetailViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000042 /* ChartDetailViews.swift */; };
 		A10000000000000000000011 /* AppRouter.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000015 /* AppRouter.swift */; };
 		A10000000000000000000012 /* HealthKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A20000000000000000000016 /* HealthKit.framework */; };
@@ -196,6 +197,7 @@
 		A20000000000000000000013 /* MapKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = MapKit.framework; path = System/Library/Frameworks/MapKit.framework; sourceTree = SDKROOT; };
 		A20000000000000000000014 /* HealthView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HealthView.swift; sourceTree = "<group>"; };
 		A20000000000000000000041 /* TrendsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrendsView.swift; sourceTree = "<group>"; };
+		E20000000000000000000051 /* HistorySyncProgress.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HistorySyncProgress.swift; sourceTree = "<group>"; };
 		A20000000000000000000042 /* ChartDetailViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChartDetailViews.swift; sourceTree = "<group>"; };
 		A20000000000000000000015 /* AppRouter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppRouter.swift; sourceTree = "<group>"; };
 		A20000000000000000000016 /* HealthKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = HealthKit.framework; path = System/Library/Frameworks/HealthKit.framework; sourceTree = SDKROOT; };
@@ -433,6 +435,7 @@
 				D20000000000000000000014 /* FitnessFormatting.swift */,
 				A20000000000000000000014 /* HealthView.swift */,
 				A20000000000000000000041 /* TrendsView.swift */,
+				E20000000000000000000051 /* HistorySyncProgress.swift */,
 				A20000000000000000000042 /* ChartDetailViews.swift */,
 				C20000000000000000000001 /* HealthModels.swift */,
 				C20000000000000000000002 /* HealthScoreDateViews.swift */,
@@ -718,6 +721,7 @@
 				D10000000000000000000014 /* FitnessFormatting.swift in Sources */,
 				A10000000000000000000010 /* HealthView.swift in Sources */,
 				A10000000000000000000041 /* TrendsView.swift in Sources */,
+				E10000000000000000000051 /* HistorySyncProgress.swift in Sources */,
 				A10000000000000000000042 /* ChartDetailViews.swift in Sources */,
 				C10000000000000000000001 /* HealthModels.swift in Sources */,
 				C10000000000000000000002 /* HealthScoreDateViews.swift in Sources */,
