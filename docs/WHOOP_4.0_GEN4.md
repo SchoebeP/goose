@@ -42,6 +42,16 @@ existing inbound parser.
   only `TOGGLE_REALTIME_HR` (cmd 3). It deliberately does **not** send
   `SEND_R10_R11_REALTIME` (cmd 63), whose raw K10/K11 motion firehose bloated
   on-device storage to hundreds of MB in minutes and is not needed for HR.
+  - *Note for this repo:* the above describes the manual realtime toggle. This
+    repo additionally keeps its own GEN4 pulse-stream module
+    (`scheduleGen4PulseStreamIfNeeded` in `GooseBLEClient+Commands.swift`), which
+    **does** enable cmd 63 + the `SET_RESEARCH_PACKET` payloads — the raw optical
+    (type 43) and IMU streams feed our own pulse/HRV and step estimates and are
+    forwarded to the self-hosted VPS rather than persisted at full rate on
+    device (passive full-rate capture-to-SQLite stays off by default, per the
+    fix below). Because that raw stream blocks `normal_history` delivery, the
+    pulse-stream writes are paused automatically while a Gen4 historical sync
+    is running and resumed when it completes.
 - **Gen4 historical sync** (`GooseBLEClient+HistoricalCommands.swift`): preamble
   `set_time` → `get_name` → `history_start` (Gen4 `[0x00]` data, skipping
   `GET_DATA_RANGE`). Gen4 history-start is **fire-and-forget** — the band returns no
