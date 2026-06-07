@@ -229,6 +229,14 @@ final class GooseBLEClient: NSObject, ObservableObject {
   var messages: [GooseMessage] {
     messageStore.messages
   }
+  /// Only mutated and read on the main thread — `activeCommandGeneration` (and
+  /// every generation-aware framing decision) derives from this property.
+  /// CoreBluetooth delegates land on `coreBluetoothQueue` but every entry point
+  /// that touches it bounces to main via
+  /// `dispatchCoreBluetoothDelegateToMainIfNeeded` first; the off-main
+  /// notification fast paths (`fanOutRawNotification` / standard-HR handling)
+  /// deliberately avoid this property. UI callers (SwiftUI buttons, @MainActor
+  /// app-model paths) are already on main.
   var commandCharacteristic: CBCharacteristic?
   var debugMenuCharacteristic: CBCharacteristic?
   var batteryLevelCharacteristic: CBCharacteristic?

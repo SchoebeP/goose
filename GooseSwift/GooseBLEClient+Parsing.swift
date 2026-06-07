@@ -997,6 +997,12 @@ extension GooseBLEClient {
   // len = payload.count + 4 and the payload is NOT zero-padded. Verified against
   // the openwhoop reference: buildGen4CommandFrame(0, 35, [0x00]) ==
   // aa0800a823002300ada86a2d.
+  //
+  // Gen4 frames are intentionally unpadded — unlike `buildV5CommandFrame`,
+  // which rounds the payload up to a 4-byte boundary. Confirmed from a
+  // PacketLogger capture of the official iOS app: it emits `cmd 120` with a
+  // 65-byte args field (not a multiple of 4), proving no padding is applied,
+  // and unpadded frames round-trip cleanly with the strap.
   static func buildGen4CommandFrame(sequence: UInt8, command: UInt8, data: [UInt8]) -> Data {
     var payload = [V5PacketType.command, sequence, command]
     payload.append(contentsOf: data)
