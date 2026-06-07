@@ -375,6 +375,13 @@ final class GooseBLEClient: NSObject, ObservableObject {
   // HistoryComplete), so 20k covers a full sync in one pass while still bounding a
   // runaway; raw-payload compaction keeps the database bounded regardless.
   static let historicalSyncPacketCap = 20000
+  // Per-packet diagnostics at sync rate (~95 packets/s for hours) fan out to the
+  // message store, OSLog, three fsync'd log files and the cloud log stream for
+  // EVERY type-47 packet — the recording pipeline backs up without bound and iOS
+  // jetsam-kills the app every couple of minutes. Diagnostics are droppable, so
+  // record only the first packet and every Nth (progress publishing is already
+  // throttled separately via historicalPacketCountPublishInterval).
+  static let historicalPacketRecordStride = 250
   // Gen4 history preamble timing. These are conservative fixed delays; the BLE
   // connection interval is negotiated per-device (7.5 ms – 4 s), so on a device with a
   // long interval these may need raising. Named here so they are tunable without hunting

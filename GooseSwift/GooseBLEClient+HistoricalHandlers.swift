@@ -60,12 +60,20 @@ extension GooseBLEClient {
         terminal: false,
         failed: false
       )
-      record(
-        level: .debug,
-        source: "ble.sync",
-        title: "historical_sync.packet",
-        body: "\(characteristic.uuid.uuidString) count=\(historicalPacketsReceivedThisSync)"
-      )
+      // "ble.sync" is on the always-record list, so this used to run the full
+      // record fan-out (message store + OSLog + 3 fsync'd files + cloud log
+      // POSTs) once per packet at ~95 packets/s for hours — unbounded backlog
+      // in the diagnostic pipeline and the jetsam kill loop during long syncs.
+      // The packet counter itself stays exact; only the log line is strided.
+      if historicalPacketsReceivedThisSync == 1
+        || historicalPacketsReceivedThisSync.isMultiple(of: Self.historicalPacketRecordStride) {
+        record(
+          level: .debug,
+          source: "ble.sync",
+          title: "historical_sync.packet",
+          body: "\(characteristic.uuid.uuidString) count=\(historicalPacketsReceivedThisSync) stride=\(Self.historicalPacketRecordStride)"
+        )
+      }
     case V5PacketType.metadata, V5PacketType.puffinMetadata:
       handleHistoricalMetadata(payload)
     default:
