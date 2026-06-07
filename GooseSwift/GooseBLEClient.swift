@@ -245,9 +245,6 @@ final class GooseBLEClient: NSObject, ObservableObject {
   // (CRC16/8-byte header) and the 4.0 ignores it, so these drive the 4.0's
   // optical/HR streams with the GEN4 frame format. See GooseBLEClient+Gen4Pulse.swift.
   var gen4StartedPulseStream = false
-  var gen4StartedHistoricalBackfill = false   // one-shot HR history pull per connection
-  var gen4LastHistoryAck = Date.distantPast   // throttle for HISTORICAL_DATA_RESULT acks
-  var gen4HistoryDeadline: Date?              // hard stop for the ack loop (write-pressure guard)
   var lastDeadLinkRecovery = Date.distantPast // throttle for zombie-connection recovery
   var lastDataFrameAt = Date.distantPast      // last raw notification — stall watchdog
   var gen4ReEnableTimer: Timer?

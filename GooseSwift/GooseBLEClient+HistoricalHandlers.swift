@@ -647,6 +647,7 @@ extension GooseBLEClient {
     publishSyncToast(phase: .synced, detail: detail, clearAfter: 2.2)
     notifyHistoricalSyncProgress(status: "synced", detail: detail, terminal: true, failed: false)
     record(source: "ble.sync", title: "historical_sync.completed", body: "reason=\(reason) \(detail)")
+    resumeGen4PulseStreamAfterHistorySyncIfNeeded(reason: "history_sync_completed")
   }
 
   func failHistoricalSync(_ message: String) {
@@ -675,6 +676,7 @@ extension GooseBLEClient {
     publishSyncToast(phase: .failed, detail: "Tap for details", clearAfter: 4.5)
     notifyHistoricalSyncProgress(status: "failed", detail: message, terminal: true, failed: true)
     record(level: .error, source: "ble.sync", title: "historical_sync.failed", body: message)
+    resumeGen4PulseStreamAfterHistorySyncIfNeeded(reason: "history_sync_failed")
   }
 
   func notifyHistoricalSyncProgress(status: String, detail: String, terminal: Bool, failed: Bool) {

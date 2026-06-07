@@ -727,10 +727,8 @@ extension GooseBLEClient {
     lastDeadLinkRecovery = Date()
     record(level: .warn, source: "ble", title: "connection.recover",
            body: "dead link (\(reason)) — tearing down for a fresh reconnect")
-    // Clear stale per-connection GEN4 state so the enable + history pull re-run.
+    // Clear stale per-connection GEN4 state so the enable sequence re-runs.
     gen4StartedPulseStream = false
-    gen4StartedHistoricalBackfill = false
-    gen4HistoryDeadline = nil
     gen4ReEnableTimer?.invalidate()
     gen4ReEnableTimer = nil
     // Cancel the zombie connection. didDisconnectPeripheral fires the normal
@@ -1121,6 +1119,16 @@ extension GooseBLEClient {
             self.isGen4CommandCharacteristic(ch) else {
         return
       }
+      // While a Gen4 history sync is running, do NOT re-enable the raw/pulse
+      // stream: the high-frequency raw-motion path (cmd 63 + research packets)
+      // blocks normal_history delivery on the 4.0, so re-sending the enable
+      // sequence mid-pull would starve the sync. The sync's completion path
+      // (completeHistoricalSync / failHistoricalSync) resumes the stream.
+      if self.isHistoricalSyncing {
+        self.record(level: .debug, source: "ble.gen4", title: "gen4.pulse.re_enable.skipped",
+                    body: "history sync active — raw/pulse stream paused")
+        return
+      }
       // Stall watchdog: if we're "ready" but no frame has arrived for >70 s, the
       // link is silently dead — re-enabling won't help, so force a reconnect.
       let stale = Date().timeIntervalSince(self.lastDataFrameAt)
@@ -1131,6 +1139,28 @@ extension GooseBLEClient {
       } else {
         self.startGen4PulseStreamSequence(reason: "re_enable", bond: false)
       }
+    }
+  }
+
+  /// Resume the 4.0 raw/pulse stream once a Gen4 history sync ends (success or
+  /// failure). The enable writes are paused while `isHistoricalSyncing` (the
+  /// high-frequency raw stream blocks normal_history delivery on the 4.0), so
+  /// after the pull finishes we re-send the enable sequence rather than waiting
+  /// up to 60 s for the next re-enable tick. No-op for 5.0 / never-enabled links
+  /// and on the disconnect-driven failure path (connection no longer ready).
+  func resumeGen4PulseStreamAfterHistorySyncIfNeeded(reason: String) {
+    guard gen4StartedPulseStream,
+          connectionState == "ready",
+          activePeripheral != nil,
+          let characteristic = commandCharacteristic,
+          isGen4CommandCharacteristic(characteristic) else {
+      return
+    }
+    record(source: "ble.gen4", title: "gen4.pulse.resume",
+           body: "history sync ended (\(reason)) — re-enabling raw/pulse stream")
+    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+      guard let self, self.connectionState == "ready", !self.isHistoricalSyncing else { return }
+      self.startGen4PulseStreamSequence(reason: reason, bond: false)
     }
   }
 
@@ -1174,38 +1204,26 @@ extension GooseBLEClient {
         self?.writeGen4Command(step.0, payload: step.1, label: step.2)
       }
     }
-    // After the initial bond enable settles, pull the band's buffered HR history
-    // once (backfills the gap since the last sync). Only on bond (first connect),
-    // never on the 60 s re-enable.
-    if bond {
-      let after = base + Double(steps.count) * 0.25 + 1.0
-      DispatchQueue.main.asyncAfter(deadline: .now() + after) { [weak self] in
-        self?.requestGen4HistoricalBackfillIfNeeded()
-      }
-    }
-  }
-
-  /// One-shot request for the band's onboard HR history. GET_DATA_RANGE(34) asks
-  /// what's buffered; SEND_HISTORICAL_DATA(22) starts the stream of type-47
-  /// frames, which we forward to the VPS (stamped at their own past time). The
-  /// band paginates: each type-47 frame is ACKed with HISTORICAL_DATA_RESULT(23)
-  /// in gen4ObserveRawNotification to pull the next chunk. UNVERIFIED against the
-  /// 4.0 firmware — logged at .warn so we can confirm it live via the log stream.
-  func requestGen4HistoricalBackfillIfNeeded() {
-    guard connectionState == "ready",
-          let ch = commandCharacteristic, isGen4CommandCharacteristic(ch) else { return }
-    guard !gen4StartedHistoricalBackfill else { return }
-    gen4StartedHistoricalBackfill = true
-    gen4HistoryDeadline = Date().addingTimeInterval(90)   // bound the ack loop
-    record(level: .warn, source: "ble.gen4", title: "gen4.history.request",
-           body: "pulling buffered HR history (GET_DATA_RANGE -> SEND_HISTORICAL_DATA), 90s window")
-    writeGen4Command(34, payload: [], label: "GET_DATA_RANGE")
-    DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in
-      self?.writeGen4Command(22, payload: [], label: "SEND_HISTORICAL_DATA")
-    }
+    // NOTE: the old one-shot raw backfill (requestGen4HistoricalBackfillIfNeeded:
+    // GET_DATA_RANGE + SEND_HISTORICAL_DATA + a throttled cmd-23 ACK loop) was
+    // removed when the po-sc Gen4 historical sync was ported: the proper sync
+    // state machine (beginHistoricalSync, generation-aware) now owns the
+    // band's history channel, and two drivers ACKing the same paged stream
+    // would skip pages. Raw type-47 frames are still forwarded to the VPS by
+    // ingestRawFrame during the sync.
   }
 
   private func writeGen4Command(_ command: UInt8, payload: [UInt8], label: String) {
+    // While a Gen4 history sync is active the band must stay in the
+    // normal-history mode: the raw/pulse enable writes (cmd 63 raw motion +
+    // research packets) switch it to the high-frequency stream and starve the
+    // history pull, so they are dropped here. The sync completion/failure path
+    // re-runs the enable sequence.
+    guard !isHistoricalSyncing else {
+      record(level: .debug, source: "ble.gen4", title: "gen4.command.deferred",
+             body: "\(label) — history sync active; raw/pulse writes paused")
+      return
+    }
     guard let peripheral = activePeripheral,
           let characteristic = commandCharacteristic,
           let writeType = writeType(for: characteristic) else {
@@ -1252,26 +1270,10 @@ extension GooseBLEClient {
       }
     }
 
-    // type-47 HISTORICAL_DATA: the band is streaming buffered history. ACK with
-    // HISTORICAL_DATA_RESULT(23) to pull the next chunk (throttled so a burst of
-    // frames doesn't flood the command channel). The frames themselves are
-    // forwarded to the VPS by ingestRawFrame above.
-    if type == 47 {
-      gen4ProbeLock.lock()
-      let now = Date()
-      // ACK only inside the bounded backfill window, throttled to ≤2/sec, so a
-      // long historical stream can't pressure the command channel into a timeout.
-      let withinWindow = (gen4HistoryDeadline.map { now < $0 }) ?? false
-      let due = withinWindow && now.timeIntervalSince(gen4LastHistoryAck) >= 0.5
-      if due { gen4LastHistoryAck = now }
-      gen4ProbeLock.unlock()
-      if due {
-        DispatchQueue.main.async { [weak self] in
-          self?.writeGen4Command(23, payload: [1, 0, 0, 0, 0, 0, 0, 0, 0],
-                                 label: "HISTORICAL_DATA_RESULT(ack)")
-        }
-      }
-    }
+    // type-47 HISTORICAL_DATA frames are forwarded to the VPS by ingestRawFrame
+    // above. The cmd-23 ACK loop that used to live here was removed: the ported
+    // po-sc historical sync state machine (GooseBLEClient+HistoricalHandlers)
+    // owns history paging/acking now, and a second ACK driver would skip pages.
 
     // type-48 EVENT: event id is frame[6]. Decode charging directly here — the
     // authoritative signal the VPS uses — instead of relying on the Rust parser,
