@@ -36,6 +36,15 @@ extension GooseBLEClient {
     historicalSyncStatus = "syncing"
     historicalPacketCount = 0
     historicalPacketsReceivedThisSync = 0
+    historySyncProgressEstimator.reset()
+    historySyncProgressSnapshot = nil
+    if !rangeOnly {
+      // Track honest transfer progress (record-epoch coverage) for real pulls;
+      // quick range-only polls keep the lightweight toast.
+      let syncStartedAt = Date()
+      historySyncProgressEstimator.begin(at: syncStartedAt)
+      historySyncProgressSnapshot = historySyncProgressEstimator.makeSnapshot(now: syncStartedAt, packetCount: 0)
+    }
     lastHistoricalPacketCountPublishedAt = Date.distantPast
     lastHistoricalSyncProgressCallbackAt = Date.distantPast
     lastHistoricalSyncProgressCallbackStatus = ""
