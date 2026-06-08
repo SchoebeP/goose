@@ -273,6 +273,9 @@ final class GooseBLEClient: NSObject, ObservableObject {
   var pendingHistoricalCommand: PendingHistoricalCommand?
   var nextHistoricalCommandSequence: UInt8 = 57
   var historicalPacketsReceivedThisSync = 0
+  /// Passes chained back-to-back because the band ended a history session
+  /// while its buffer was still hours behind (see completeHistoricalSync).
+  var chainedHistoricalSyncPassCount = 0
   var historySyncProgressEstimator = HistorySyncProgressEstimator()
   var historicalRangePendingResponses = 0
   var historicalRangeRetryCount = 0

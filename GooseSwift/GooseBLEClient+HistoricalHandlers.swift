@@ -663,11 +663,48 @@ extension GooseBLEClient {
     isHistoricalSyncing = false
     historicalRangePollOnly = false
     publishHistoricalPacketCountIfNeeded(force: true, at: completedAt)
+    // The band ends each history SESSION (pass) with a completion signal even
+    // when its buffer holds days more — field-verified: a pass "completed" while
+    // the newest delivered record was still ~30 h old. Before declaring the UI
+    // "synced", check how far behind the newest record of this pass is; if the
+    // gap is still large and this pass actually delivered packets, chain the
+    // next pass instead of lying.
+    let behindSeconds: TimeInterval? = historySyncProgressEstimator.newestRecordEpoch
+      .map { completedAt.timeIntervalSince1970 - $0 }
+    let shouldChainNextPass = !rangeOnly
+      && historicalPacketsReceivedThisSync > 0
+      && (behindSeconds ?? 0) > 3600
+      && chainedHistoricalSyncPassCount < 400
     historySyncProgressEstimator.reset()
     historySyncProgressSnapshot = nil
-    historicalSyncStatus = "synced"
     lastHistoricalSyncCompletedAt = completedAt
     lastSyncAt = completedAt
+    if shouldChainNextPass {
+      chainedHistoricalSyncPassCount += 1
+      let behindHours = (behindSeconds ?? 0) / 3600
+      let detail = String(
+        format: "Pass done — still %.1f h of band history to pull, continuing…",
+        behindHours
+      )
+      historicalSyncStatus = "syncing"
+      publishSyncToast(phase: .syncing, detail: detail, clearAfter: nil)
+      notifyHistoricalSyncProgress(status: "syncing", detail: detail, terminal: false, failed: false)
+      record(
+        source: "ble.sync",
+        title: "historical_sync.pass_chained",
+        body: String(
+          format: "reason=%@ pass=%d behind_h=%.1f packets=%d",
+          reason, chainedHistoricalSyncPassCount, behindHours, historicalPacketsReceivedThisSync
+        )
+      )
+      DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { [weak self] in
+        guard let self, !self.isHistoricalSyncing, self.activePeripheral != nil else { return }
+        self.beginHistoricalSync(trigger: "chain_pass_\(self.chainedHistoricalSyncPassCount)", automatic: true)
+      }
+      return
+    }
+    chainedHistoricalSyncPassCount = 0
+    historicalSyncStatus = "synced"
     let detail = rangeOnly
       ? "Historical range poll complete"
       : sawHistoricalMetadata && historicalPacketsReceivedThisSync == 0
