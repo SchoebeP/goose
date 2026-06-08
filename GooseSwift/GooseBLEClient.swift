@@ -21,6 +21,10 @@ final class GooseBLEClient: NSObject, ObservableObject {
   @Published var liveHRVUpdatedAt: Date?
   @Published var liveHRVRMSSDSampleCount = 0
   @Published var latestBodyHistoryMetrics: BodyHistoryMetricsSample?
+  /// 1-minute rolling average of skin_temp_raw (by arrival time) so the Body
+  /// card doesn't flicker while history records stream in every second.
+  @Published var skinTempRawSmoothed: Int?
+  var skinTempSmoothingWindow: [(arrivedAt: Date, raw: Int)] = []
   @Published var reconnectState = "idle"
   @Published var rememberedDeviceDescription = "none"
   @Published var activeDeviceName = "WHOOP"

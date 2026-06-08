@@ -749,10 +749,17 @@ private struct HomeBodySectionContent: View {
     return String(format: "%.1f", rpm)
   }
 
+  /// 1-minute smoothed raw value when available (records stream every second
+  /// during a sync — the average keeps the card steady); falls back to the
+  /// latest single record.
+  private var displayRaw: Int? {
+    ble.skinTempRawSmoothed ?? sample?.skinTempRaw
+  }
+
   /// The raw skin-temperature word as decoded (real captures ~464–860).
   /// Never converted to °C until calibration lands.
   private var skinTempValue: String {
-    guard let raw = sample?.skinTempRaw else {
+    guard let raw = displayRaw else {
       return "—"
     }
     return "raw \(raw)"
@@ -764,7 +771,7 @@ private struct HomeBodySectionContent: View {
   private var skinTempDisplay: (value: String, unit: String, caption: String) {
     if let cal = calibrationFeed.calibration, cal.ready,
        let slope = cal.slope, let intercept = cal.intercept,
-       let sample, sample.isRecent, let raw = sample.skinTempRaw {
+       let sample, sample.isRecent, let raw = displayRaw {
       let celsius = slope * Double(raw) + intercept
       // Sanity clamp: a linear fit built from only a few reference points can
       // go wild (wrong slope sign, axis mix-up, outlier reading). No human
@@ -776,7 +783,7 @@ private struct HomeBodySectionContent: View {
         return (
           String(format: "%.1f", celsius),
           "°C",
-          "our own calibration\(readings) · raw \(raw)"
+          "our own calibration\(readings) · 1-min avg · raw \(raw)"
         )
       }
     }

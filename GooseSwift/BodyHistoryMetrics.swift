@@ -179,5 +179,18 @@ extension GooseBLEClient {
       )
     }
     latestBodyHistoryMetrics = merged
+
+    // Feed the 1-minute display smoother (arrival-time window: during a
+    // history sync, records arrive ~every second — averaging stops the card
+    // from flickering).
+    if let raw = sample.skinTempRaw, raw > 0 {
+      let now = Date()
+      skinTempSmoothingWindow.append((arrivedAt: now, raw: raw))
+      skinTempSmoothingWindow.removeAll { now.timeIntervalSince($0.arrivedAt) > 60 }
+      if !skinTempSmoothingWindow.isEmpty {
+        let sum = skinTempSmoothingWindow.reduce(0) { $0 + $1.raw }
+        skinTempRawSmoothed = sum / skinTempSmoothingWindow.count
+      }
+    }
   }
 }
