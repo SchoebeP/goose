@@ -24,3 +24,4 @@ build-device/
 build-release/
 .superpowers/
 imu.png
+goose-raw-export-*/
