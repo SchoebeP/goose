@@ -149,3 +149,22 @@ struct GooseDebugCommandResponse: Identifiable, Equatable {
   }
 }
 
+/// X-Ingest-Token for the self-hosted VPS ingest API, shared by every caller.
+/// Overridable at runtime via the "whoopIngestToken" user default so a
+/// server-side rotation never requires committing a new value to the repo:
+///   defaults: Settings → set "whoopIngestToken", or
+///   `xcrun simctl spawn booted defaults write com.pschoebela.goosewhoop whoopIngestToken <new>`
+enum IngestCredentials {
+  static var token: String {
+    if let override = UserDefaults.standard.string(forKey: "whoopIngestToken"),
+       !override.isEmpty {
+      return override
+    }
+    return fallbackToken
+  }
+
+  /// COMPROMISED: this value shipped in a public repo. Rotate it on the VPS,
+  /// set the replacement via "whoopIngestToken", then delete this fallback.
+  private static let fallbackToken = "c0067852565b4d0d46606172de35c6ba120112c447e1f25b"
+}
+

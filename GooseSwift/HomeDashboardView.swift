@@ -388,7 +388,7 @@ final class MinutelyHRFeed: ObservableObject {
     components.queryItems = [URLQueryItem(name: "tz", value: TimeZone.current.identifier)]
     return components.url!
   }()
-  private let token = "c0067852565b4d0d46606172de35c6ba120112c447e1f25b"
+  private var token: String { IngestCredentials.token }
 
   func refresh() {
     var req = URLRequest(url: url, timeoutInterval: 15)
@@ -538,7 +538,7 @@ final class MinutelyStepsFeed: ObservableObject {
     components.queryItems = [URLQueryItem(name: "tz", value: TimeZone.current.identifier)]
     return components.url!
   }()
-  private let token = "c0067852565b4d0d46606172de35c6ba120112c447e1f25b"
+  private var token: String { IngestCredentials.token }
 
   func refresh() {
     var req = URLRequest(url: url, timeoutInterval: 15)
