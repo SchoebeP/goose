@@ -1,5 +1,54 @@
 # Changelog
 
+## 0.3.0 — 2026-06-10
+
+Security + hardening release: a 67-finding multi-agent audit, all remediated
+(64 fixed, 2 documented partials). Full detail in `docs/audit-2026-06-10.md`.
+
+### Security & privacy
+- **VPS ingest token no longer hardcoded** — resolved via `IngestCredentials`
+  with a `whoopIngestToken` runtime override. **Rotate the token on the VPS**
+  (the old value shipped in the public repo and is compromised).
+- Coach only uploads the local health summary when the question needs it
+  (`tool_choice` auto, was forced every turn); chat transcript moved from
+  plaintext UserDefaults to a file with complete file protection; consent
+  copy now tells the truth. Accidental 832K biometric export untracked.
+
+### Reliability (BLE & overnight)
+- Bluetooth toggle / bluetoothd reset no longer strands the app disconnected
+  until relaunch — full teardown + reconnect on every power-on.
+- Stale-link heal no longer tears down healthy 5.0 / standard-HR connections.
+- V5 historical backfills stop being retried-then-reported-failed (type-47/52
+  counter fix); preserve-unread mode can no longer trim the band's queue.
+- Cloud forwarder: CRC-validated frames (verified against real captures),
+  reassembly reset across connections, disk outbox for failed HR/R-R posts,
+  no more double-uploads, timed tail flush for logs/frames.
+- Overnight guard: final-sync wedge fixed (streams resume + retry), spool
+  writes off the CoreBluetooth queue, status writes throttled.
+- Workouts survive app kill/crash (5s recovery snapshots, finalized on next
+  launch); pause no longer teleports distance; elevation gain uses an
+  accuracy-aware deadband; summary metrics are honest (no +12s/+2kcal).
+
+### Correctness (our own metrics)
+- Sleep/recovery scored against **local midnight** (was UTC — wrong for
+  Europe/Paris); HRV/RHR daily buckets use the local-day window.
+- Metric windows use device sample time, not phone sync time (history
+  bursts no longer collapse durations to ~0).
+- Step estimator defaults to the field-verified 100 Hz accel rate.
+- SQLite: transactional migrations w/ stranded-rebuild recovery, atomic
+  algorithm-run inserts, busy timeout; exports snapshot via VACUUM INTO
+  (no more torn copies of the live DB).
+
+### Performance
+- Stress/energy summaries memoized (~18 full 100k-sample scans per render
+  → ~1 per update); score runs off the main thread; HR series persisted in
+  30s batches (was a multi-MB rewrite per second); Today cards' 30s refresh
+  survives re-renders and surfaces server errors.
+
+### Dev
+- `cargo test` runs green on this checkout: 711 passed, 0 failed (was: did
+  not compile; HealthKit privacy-boundary guard tests now actually run).
+
 ## 0.2.0 — 2026-06-06
 
 Full UI redesign + a packet-analysis workbench on the VPS.
