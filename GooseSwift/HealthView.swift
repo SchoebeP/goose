@@ -8,6 +8,9 @@ struct HealthView: View {
   @ObservedObject var store: HealthDataStore
 
   var body: some View {
+    // One evaluation per render: each landingSnapshots call re-runs the full
+    // stress/energy pipeline over the day's HR samples.
+    let snaps = landingSnapshots
     ScrollView {
       LazyVStack(alignment: .leading, spacing: 22) {
         HealthDashboardStatusHeader(
@@ -31,12 +34,12 @@ struct HealthView: View {
 
         HealthRouteShortcutSection(
           title: "Explore Health",
-          snapshots: snapshots(for: [.sleep, .recovery, .strain, .stress, .cardioLoad, .energyBank])
+          snapshots: snapshots(for: [.sleep, .recovery, .strain, .stress, .cardioLoad, .energyBank], in: snaps)
         )
 
         HealthRouteShortcutSection(
           title: "Data & Algorithms",
-          snapshots: snapshots(for: [.packetInputs, .algorithms, .calibration])
+          snapshots: snapshots(for: [.packetInputs, .algorithms, .calibration], in: snaps)
         )
       }
       .padding(.horizontal, 16)
@@ -99,7 +102,10 @@ struct HealthView: View {
       : .live(model.ble.liveHeartRateSource)
   }
 
-  private func snapshots(for routes: [HealthRoute]) -> [HealthMetricSnapshot] {
+  private func snapshots(
+    for routes: [HealthRoute],
+    in landingSnapshots: [HealthMetricSnapshot]
+  ) -> [HealthMetricSnapshot] {
     routes.compactMap { route in
       landingSnapshots.first { $0.route == route } ?? store.snapshot(for: route)
     }

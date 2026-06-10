@@ -180,7 +180,10 @@ extension GooseAppModel {
 
     let taskName = "Goose Overnight \(reason)"
     let taskID = UIApplication.shared.beginBackgroundTask(withName: taskName) { [weak self] in
-      Task { @MainActor [weak self] in
+      // Must end the task before the expiration handler returns (deferring to
+      // a later main-actor hop risks watchdog termination). UIKit invokes the
+      // handler on the main thread, so assumeIsolated is valid.
+      MainActor.assumeIsolated {
         self?.expireOvernightGuardCriticalBackgroundTask()
       }
     }

@@ -569,7 +569,13 @@ enum GooseLocalDataExporter {
         throw GooseLocalDataExportError.outputAlreadyExists(outputURL.path)
       }
       try fileManager.moveItem(at: temporaryURL, to: outputURL)
-      try applyExportProtection(to: outputURL)
+      do {
+        try applyExportProtection(to: outputURL)
+      } catch {
+        // The bundle already moved into place; remove it so a failed export never leaves an orphan.
+        try? fileManager.removeItem(at: outputURL)
+        throw error
+      }
     } catch {
       try? handle.close()
       try? fileManager.removeItem(at: temporaryURL)

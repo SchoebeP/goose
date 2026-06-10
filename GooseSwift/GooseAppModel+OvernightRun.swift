@@ -353,7 +353,7 @@ extension GooseAppModel {
       overnightGuardStatus = "Command write persisted: \(event.commandName) | writes \(snapshot.commandWriteCount)"
     }
     refreshOvernightReadiness(reason: "command_write", record: true)
-    writeOvernightGuardStatus(reason: "command_write_\(event.commandName)")
+    writeOvernightGuardStatusThrottled(reason: "command_write_\(event.commandName)")
   }
 
   func scheduleOvernightGuardHeartbeat() {
@@ -735,6 +735,37 @@ extension GooseAppModel {
     applyOvernightRawSpoolStatusSnapshot(snapshot, reason: reason)
   }
 
+  /// Coalesces high-frequency callers (per data packet during sync bursts) to
+  /// one status write per interval — each write is a full status-file rewrite,
+  /// SQLite enqueue, and battery poll on the main thread. A trailing write
+  /// ensures the final burst state still lands; lifecycle/warning transitions
+  /// keep calling writeOvernightGuardStatus directly for immediate writes.
+  func writeOvernightGuardStatusThrottled(reason: String, minimumInterval: TimeInterval = 10) {
+    let now = Date()
+    if now.timeIntervalSince(overnightGuardLastStatusWriteAt) >= minimumInterval {
+      overnightGuardLastStatusWriteAt = now
+      overnightGuardStatusWriteWorkItem?.cancel()
+      overnightGuardStatusWriteWorkItem = nil
+      writeOvernightGuardStatus(reason: reason)
+      return
+    }
+    guard overnightGuardStatusWriteWorkItem == nil else {
+      return
+    }
+    let workItem = DispatchWorkItem { [weak self] in
+      Task { @MainActor in
+        guard let self else {
+          return
+        }
+        self.overnightGuardStatusWriteWorkItem = nil
+        self.overnightGuardLastStatusWriteAt = Date()
+        self.writeOvernightGuardStatus(reason: reason)
+      }
+    }
+    overnightGuardStatusWriteWorkItem = workItem
+    DispatchQueue.main.asyncAfter(deadline: .now() + minimumInterval, execute: workItem)
+  }
+
   func recordOvernightDataSignalTarget(_ sample: WhoopDataSignalSample) {
     guard overnightGuardActive else {
       return
@@ -765,7 +796,7 @@ extension GooseAppModel {
         body: overnightGuardHistoricalOrder.summary
       )
     }
-    writeOvernightGuardStatus(reason: "target_data_packet")
+    writeOvernightGuardStatusThrottled(reason: "target_data_packet")
   }
 
   func recordOvernightPacketTypeTarget(_ packetType: Int?) {
@@ -787,7 +818,7 @@ extension GooseAppModel {
     overnightGuardWatchdogSummary = "Watchdog ok | target packet type received | \(overnightGuardTargetSummary)"
     updateOvernightGuardWarning()
     refreshOvernightReadiness(reason: "target_packet_type", record: true)
-    writeOvernightGuardStatus(reason: "target_packet_type")
+    writeOvernightGuardStatusThrottled(reason: "target_packet_type")
   }
 
   func recordOvernightEventTarget(_ sample: WhoopEventSample) {
@@ -811,7 +842,7 @@ extension GooseAppModel {
     overnightGuardWatchdogSummary = "Watchdog ok | target event received | \(overnightGuardTargetSummary)"
     updateOvernightGuardWarning()
     refreshOvernightReadiness(reason: "target_event", record: true)
-    writeOvernightGuardStatus(reason: "target_event")
+    writeOvernightGuardStatusThrottled(reason: "target_event")
   }
 
 }

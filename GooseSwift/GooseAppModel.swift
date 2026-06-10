@@ -121,6 +121,8 @@ final class GooseAppModel: ObservableObject {
   var overnightGuardLastRawStaleWarningAt = Date.distantPast
   var overnightGuardLastRangeSuccessWarningAt = Date.distantPast
   var overnightGuardLastTargetMissingWarningAt = Date.distantPast
+  var overnightGuardLastStatusWriteAt = Date.distantPast
+  var overnightGuardStatusWriteWorkItem: DispatchWorkItem?
   var activityDetectionIdleWorkItem: DispatchWorkItem?
   var movementPacketValidation = MovementPacketValidation()
   var movementPacketValidationTimeoutWorkItem: DispatchWorkItem?

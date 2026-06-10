@@ -210,6 +210,9 @@ struct StressV2OverviewPage: View {
 
   var body: some View {
     let palette = SleepV2Palette(colorScheme: colorScheme, theme: .stress)
+    // One evaluation per render: each summary access re-runs the stress
+    // algorithm over the whole day's HR samples on the main actor.
+    let summary = store.stressAlgorithmSummary(for: selectedDate)
     ZStack(alignment: .top) {
       palette.background
         .ignoresSafeArea()
@@ -228,7 +231,7 @@ struct StressV2OverviewPage: View {
             palette: palette,
             title: "Stress",
             dateLabel: dateLabel,
-            score: stressScore,
+            score: Int((summary.score ?? 0).rounded()),
             status: summary.status,
             onDateTap: { showingDatePicker = true }
           )
@@ -240,13 +243,13 @@ struct StressV2OverviewPage: View {
                 palette: palette,
                 systemImage: "checkmark.seal.fill",
                 label: "Confidence",
-                value: stressConfidenceText
+                value: stressConfidenceText(for: summary)
               )
               SleepV2StatCard(
                 palette: palette,
                 systemImage: "heart.fill",
                 label: "Average HR",
-                value: averageHeartRateText
+                value: averageHeartRateText(for: summary)
               )
             }
             .frame(height: 96)
@@ -317,14 +320,6 @@ struct StressV2OverviewPage: View {
     }
   }
 
-  private var summary: StressAlgorithmSummary {
-    store.stressAlgorithmSummary(for: selectedDate)
-  }
-
-  private var stressScore: Int {
-    Int((summary.score ?? 0).rounded())
-  }
-
   private var trendRows: [HealthMetricSnapshot] {
     Calendar.current.isDate(selectedDate, inSameDayAs: Date()) ? store.trendRows(for: .stress) : []
   }
@@ -333,7 +328,7 @@ struct StressV2OverviewPage: View {
     selectedDate.formatted(.dateTime.day().month(.wide).year())
   }
 
-  private var averageHeartRateText: String {
+  private func averageHeartRateText(for summary: StressAlgorithmSummary) -> String {
     guard let value = summary.averageHeartRate,
           let text = HealthDataStore.numberText(value, fractionDigits: 0) else {
       return "No data"
@@ -341,7 +336,7 @@ struct StressV2OverviewPage: View {
     return "\(text) bpm"
   }
 
-  private var stressConfidenceText: String {
+  private func stressConfidenceText(for summary: StressAlgorithmSummary) -> String {
     guard let confidence = summary.confidence,
           let text = HealthDataStore.numberText(confidence, fractionDigits: 2) else {
       return "No data"
