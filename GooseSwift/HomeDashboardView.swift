@@ -26,6 +26,8 @@ struct HomeDashboardView: View {
           stress: landingSnapshot(for: .stress),
           openStress: { openHealth(.stress) }
         )
+
+        HomeRecoveryVitalsSection(store: healthStore)
       }
       .padding(.horizontal, 16)
       .padding(.vertical, 18)
@@ -64,6 +66,7 @@ struct HomeDashboardView: View {
       healthStore.loadBridgeCatalogsIfNeeded()
       model.refreshActivityTimeline(for: selectedDate)
       stepsFeed.refresh()
+      healthStore.refreshBandVitalsDaily()
     }
     .onChange(of: selectedDate) { _, newValue in
       model.refreshActivityTimeline(for: newValue)
@@ -747,6 +750,67 @@ struct HomeStatCardRow: View {
   @EnvironmentObject private var model: GooseAppModel
   @ObservedObject var stepsFeed: MinutelyStepsFeed
   var body: some View { HomeStatCardRowContent(ble: model.ble, stepsFeed: stepsFeed) }
+}
+
+/// Last night's recovery vitals — overnight resting HRV / resting HR /
+/// respiratory rate / wrist temperature, computed server-side from the band's
+/// uploaded history (our own numbers). Shown on Today because the redesign
+/// untabbed the Recovery screen. SpO2 is intentionally absent — the band emits
+/// no raw red+IR PPG waveform, so a real value can't be computed.
+struct HomeRecoveryVitalsSection: View {
+  @ObservedObject var store: HealthDataStore
+
+  var body: some View {
+    let day = store.latestBandVitalDay()
+    VStack(alignment: .leading, spacing: 12) {
+      HStack(spacing: 8) {
+        GooseMetricLabel(systemImage: "bed.double.fill", title: "Recovery Vitals", accent: GooseTheme.Accent.hrv)
+        Spacer()
+        if let date = day?.date {
+          Text("last night · \(date)")
+            .font(.caption2)
+            .foregroundStyle(.secondary)
+        }
+      }
+      HStack(spacing: 12) {
+        tile("Resting HRV", "waveform.path.ecg", GooseTheme.Accent.hrv,
+             HealthDataStore.bandVitalText(day?.hrvRMSSDms, unit: "ms"), "overnight rMSSD — ours")
+        tile("Resting HR", "heart.fill", GooseTheme.Accent.heart,
+             HealthDataStore.bandVitalText(day?.restingHRbpm, unit: "bpm"), "overnight low — ours")
+      }
+      HStack(spacing: 12) {
+        tile("Respiratory", "lungs.fill", GooseTheme.Accent.sleep,
+             HealthDataStore.bandVitalText(day?.respiratoryRPM, unit: "rpm", fractionDigits: 1), "breaths/min — ours")
+        tile("Wrist Temp", "thermometer.medium", GooseTheme.Accent.range,
+             temperatureText(day), day?.skinTempCalibrated == true ? "calibrated °C — ours" : "raw thermistor — ours")
+      }
+    }
+  }
+
+  private func temperatureText(_ day: BandVitalDay?) -> String {
+    guard let value = day?.skinTempValue else { return "—" }
+    if day?.skinTempCalibrated == true {
+      return HealthDataStore.bandVitalText(value, unit: "°C", fractionDigits: 1)
+    }
+    return "\(Int(value.rounded())) raw"
+  }
+
+  private func tile(_ label: String, _ icon: String, _ accent: Color, _ value: String, _ caption: String) -> some View {
+    VStack(alignment: .leading, spacing: 8) {
+      GooseMetricLabel(systemImage: icon, title: label, accent: accent)
+      Text(value)
+        .font(.system(size: 26, weight: .semibold, design: .rounded))
+        .monospacedDigit()
+        .lineLimit(1)
+        .minimumScaleFactor(0.7)
+      Text(caption)
+        .font(.caption2)
+        .foregroundStyle(.secondary)
+        .lineLimit(2)
+    }
+    .frame(maxWidth: .infinity, alignment: .leading)
+    .gooseCard()
+  }
 }
 
 private struct HomeStatCardRowContent: View {

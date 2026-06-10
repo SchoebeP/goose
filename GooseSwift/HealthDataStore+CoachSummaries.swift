@@ -29,6 +29,23 @@ extension HealthDataStore {
     bandVitalsDaily[Self.bandVitalsDateKey(for: date, calendar: calendar)]
   }
 
+  /// The most recent day the VPS feed has any vitals for — used by the Today
+  /// recovery-vitals card so it always shows real numbers (last night's), not
+  /// "--" before tonight's overnight value is computed.
+  func latestBandVitalDay() -> BandVitalDay? {
+    bandVitalsDaily.values
+      .filter { $0.hrvRMSSDms != nil || $0.restingHRbpm != nil || $0.respiratoryRPM != nil || $0.skinTempValue != nil }
+      .max { $0.date < $1.date }
+  }
+
+  /// "49 ms" / "—" for an optional band value with a unit suffix.
+  static func bandVitalText(_ value: Double?, unit: String, fractionDigits: Int = 0) -> String {
+    guard let value, let text = numberText(value, fractionDigits: fractionDigits) else {
+      return "—"
+    }
+    return unit.isEmpty ? text : "\(text) \(unit)"
+  }
+
   /// Fetch the VPS-computed daily vitals (HRV/RHR/respiratory/skin-temp) so the
   /// recovery card can show real values even when no local capture session ran.
   /// Fire-and-forget; never blocks. Failures leave the existing values in place.
