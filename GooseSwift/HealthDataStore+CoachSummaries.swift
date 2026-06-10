@@ -691,10 +691,9 @@ extension HealthDataStore {
         return "\(text) rpm"
       }
     }
-    if let band = bandVitalDay(for: date, calendar: calendar)?.respiratoryRPM,
-       let text = Self.numberText(band, fractionDigits: 1) {
-      return "\(text) rpm"
-    }
+    // No band-feed fallback: the band's resp_raw is a near-constant placeholder
+    // (3073 in 99% of samples → a fixed 15.4 rpm), not a real measurement, so
+    // it must never be shown as one.
     return "--"
   }
 
@@ -713,13 +712,10 @@ extension HealthDataStore {
       }
       return .bridgeDeviceSensor("packet-derived recovery vitals")
     }
-    if bandVitalDay(for: date, calendar: calendar)?.respiratoryRPM != nil {
-      return .bridge("VPS history · respiratory rate")
-    }
     if let detail = recoveryUnavailableSourceDetail(metricID: "respiratory_rate_rpm", for: date, calendar: calendar) {
       return .unavailable(detail)
     }
-    return .unavailable("selected date has no stored respiratory-rate metric")
+    return .unavailable("respiratory rate not measured on this band (resp_raw is a constant placeholder)")
   }
 
   func recoveryWristTemperatureDisplayText(

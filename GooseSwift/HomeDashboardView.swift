@@ -772,18 +772,17 @@ struct HomeRecoveryVitalsSection: View {
             .foregroundStyle(.secondary)
         }
       }
+      // Respiratory + SpO2 are intentionally absent — neither is a real
+      // measurement on this band (resp_raw is a constant; the optical channel
+      // is DC-only). Showing them would fabricate values.
       HStack(spacing: 12) {
         tile("Resting HRV", "waveform.path.ecg", GooseTheme.Accent.hrv,
              HealthDataStore.bandVitalText(day?.hrvRMSSDms, unit: "ms"), "overnight rMSSD — ours")
         tile("Resting HR", "heart.fill", GooseTheme.Accent.heart,
              HealthDataStore.bandVitalText(day?.restingHRbpm, unit: "bpm"), "overnight low — ours")
       }
-      HStack(spacing: 12) {
-        tile("Respiratory", "lungs.fill", GooseTheme.Accent.sleep,
-             HealthDataStore.bandVitalText(day?.respiratoryRPM, unit: "rpm", fractionDigits: 1), "breaths/min — ours")
-        tile("Wrist Temp", "thermometer.medium", GooseTheme.Accent.range,
-             temperatureText(day), day?.skinTempCalibrated == true ? "calibrated °C — ours" : "raw thermistor — ours")
-      }
+      tile("Wrist Temp", "thermometer.medium", GooseTheme.Accent.range,
+           temperatureText(day), day?.skinTempCalibrated == true ? "calibrated °C — ours" : "raw thermistor — ours")
     }
   }
 
