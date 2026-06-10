@@ -55,7 +55,7 @@ struct CoachSignInScreen: View {
           }
           .buttonStyle(.borderedProminent)
 
-          Text("After sign-in, Coach automatically sends each question plus a bounded summary of local health data (scores, vitals, activity, capture status) to your OpenAI account. Tokens are stored in Keychain.")
+          Text("After sign-in, Coach sends each question to your OpenAI account. When Coach decides a question needs local data, it also automatically sends a bounded summary of local health data (scores, vitals, activity, capture status). Tokens are stored in Keychain.")
             .font(.footnote)
             .foregroundStyle(.secondary)
             .fixedSize(horizontal: false, vertical: true)

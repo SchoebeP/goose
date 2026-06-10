@@ -48,11 +48,21 @@ final class OpenAICoachChatModel: ObservableObject {
           self?.loginStatus = "Not signed in"
         }
       } catch {
-        self?.auth = nil
-        self?.isSignedIn = false
-        self?.deviceCode = nil
-        self?.loginStatus = "Auth check failed"
-        self?.errorMessage = self?.describe(error) ?? String(describing: error)
+        // A transient refresh failure must not sign the user out while a stored
+        // session still exists; the next send retries the refresh.
+        if let fallbackAuth = try? await authClient.storedAuth(refreshIfNeeded: false) {
+          self?.auth = fallbackAuth
+          self?.isSignedIn = true
+          self?.deviceCode = nil
+          self?.loginStatus = "Signed in"
+          self?.seedAssistantPromptIfNeeded()
+        } else {
+          self?.auth = nil
+          self?.isSignedIn = false
+          self?.deviceCode = nil
+          self?.loginStatus = "Auth check failed"
+          self?.errorMessage = self?.describe(error) ?? String(describing: error)
+        }
       }
     }
   }
@@ -198,7 +208,9 @@ final class OpenAICoachChatModel: ObservableObject {
     let activeModelPreset = modelPreset
     var conversationInput = OpenAICoachRequestFactory.userInput(contextualPrompt)
     var input: Any = conversationInput
-    var toolMode: OpenAICoachRequestFactory.ToolMode = .required
+    // .auto (not .required): health-data tool output should only leave the device
+    // when the model actually needs it for the question.
+    var toolMode: OpenAICoachRequestFactory.ToolMode = .auto
 
     for _ in 0..<2 {
       var completedToolCalls: [OpenAICoachToolCall] = []

@@ -91,11 +91,12 @@ enum CoachModelPreset: String, CaseIterable, Identifiable {
 }
 
 enum CoachConversationStore {
-  private static let defaultsKey = "goose.coach.conversation.v1"
+  private static let legacyDefaultsKey = "goose.coach.conversation.v1"
   private static let maxPersistedMessages = 80
 
   static func load() -> [CoachChatMessage] {
-    guard let data = UserDefaults.standard.data(forKey: defaultsKey) else {
+    migrateLegacyDefaultsIfNeeded()
+    guard let data = try? Data(contentsOf: fileURL()) else {
       return []
     }
     let decoder = JSONDecoder()
@@ -110,10 +111,41 @@ enum CoachConversationStore {
     guard let data = try? encoder.encode(persisted) else {
       return
     }
-    UserDefaults.standard.set(data, forKey: defaultsKey)
+    write(data)
   }
 
   static func clear() {
-    UserDefaults.standard.removeObject(forKey: defaultsKey)
+    UserDefaults.standard.removeObject(forKey: legacyDefaultsKey)
+    try? FileManager.default.removeItem(at: fileURL())
+  }
+
+  private static func fileURL() -> URL {
+    let baseDirectory = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+      ?? FileManager.default.temporaryDirectory
+    let directory = baseDirectory.appendingPathComponent("GooseSwift", isDirectory: true)
+    try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    return directory.appendingPathComponent("coach-conversation.json")
+  }
+
+  private static func write(_ data: Data) {
+    var url = fileURL()
+    // Transcript carries biometric tool output: keep it encrypted at rest and
+    // out of device backups (Keychain tokens are similarly device-only).
+    guard (try? data.write(to: url, options: [.atomic, .completeFileProtection])) != nil else {
+      return
+    }
+    var values = URLResourceValues()
+    values.isExcludedFromBackup = true
+    try? url.setResourceValues(values)
+  }
+
+  private static func migrateLegacyDefaultsIfNeeded() {
+    guard let data = UserDefaults.standard.data(forKey: legacyDefaultsKey) else {
+      return
+    }
+    if !FileManager.default.fileExists(atPath: fileURL().path) {
+      write(data)
+    }
+    UserDefaults.standard.removeObject(forKey: legacyDefaultsKey)
   }
 }
