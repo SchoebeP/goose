@@ -833,6 +833,146 @@ fn step_counter_daily_rollup_handles_counter_reset_without_negative_steps() {
 }
 
 #[test]
+fn step_counter_daily_rollup_blocks_interleaved_counter_sources_without_writing() {
+    let store = GooseStore::open_in_memory().unwrap();
+    // Two distinct counter sources interleaved at distinct timestamps: deltas
+    // across sources would otherwise fabricate steps and phantom resets.
+    insert_step_sample_from_source(
+        &store,
+        "a1",
+        1_780_387_200_000,
+        5_000,
+        "K10/raw_stream",
+        "$.body_summary.step_count",
+    );
+    insert_step_sample_from_source(
+        &store,
+        "b1",
+        1_780_387_230_000,
+        10_000,
+        "K11/raw_stream_counted",
+        "$.body_summary.step_goal",
+    );
+    insert_step_sample_from_source(
+        &store,
+        "a2",
+        1_780_387_260_000,
+        5_050,
+        "K10/raw_stream",
+        "$.body_summary.step_count",
+    );
+    insert_step_sample_from_source(
+        &store,
+        "b2",
+        1_780_387_290_000,
+        10_000,
+        "K11/raw_stream_counted",
+        "$.body_summary.step_goal",
+    );
+
+    let report = rollup_device_step_counter_day(
+        &store,
+        StepCounterDailyRollupOptions {
+            date_key: "2026-06-02",
+            timezone: "Europe/London",
+            start_time_unix_ms: 1_780_355_200_000,
+            end_time_unix_ms: 1_780_441_600_000,
+            min_sample_count: 2,
+            write_metric: true,
+        },
+    )
+    .unwrap();
+
+    assert!(!report.pass);
+    assert!(
+        report
+            .issues
+            .contains(&"multiple_step_counter_sources".to_string())
+    );
+    assert_eq!(report.steps, None);
+    assert_eq!(report.reset_count, 0, "no phantom cross-source resets");
+    assert_eq!(report.first_counter_value, None);
+    assert_eq!(report.last_counter_value, None);
+    assert!(
+        report
+            .quality_flags
+            .contains(&"multiple_counter_sources".to_string())
+    );
+    assert_eq!(
+        report
+            .per_source_step_totals
+            .get("K10/raw_stream:$.body_summary.step_count"),
+        Some(&50)
+    );
+    assert_eq!(
+        report
+            .per_source_step_totals
+            .get("K11/raw_stream_counted:$.body_summary.step_goal"),
+        Some(&0)
+    );
+    assert!(
+        report
+            .next_actions
+            .iter()
+            .any(|action| action.reason == "multiple_counter_sources")
+    );
+    assert!(!report.daily_metric_written);
+    assert_eq!(store.table_count("daily_activity_metrics").unwrap(), 0);
+}
+
+#[test]
+fn step_counter_hourly_rollup_blocks_interleaved_counter_sources_without_writing() {
+    let store = GooseStore::open_in_memory().unwrap();
+    insert_step_sample_from_source(
+        &store,
+        "a1",
+        1_780_387_200_000,
+        5_000,
+        "K10/raw_stream",
+        "$.body_summary.step_count",
+    );
+    insert_step_sample_from_source(
+        &store,
+        "b1",
+        1_780_387_230_000,
+        10_000,
+        "K11/raw_stream_counted",
+        "$.body_summary.step_goal",
+    );
+    insert_step_sample_from_source(
+        &store,
+        "a2",
+        1_780_387_260_000,
+        5_050,
+        "K10/raw_stream",
+        "$.body_summary.step_count",
+    );
+
+    let report = rollup_device_step_counter_hour(
+        &store,
+        StepCounterHourlyRollupOptions {
+            date_key: "2026-06-02",
+            timezone: "Europe/London",
+            start_time_unix_ms: 1_780_387_200_000,
+            end_time_unix_ms: 1_780_390_800_000,
+            min_sample_count: 2,
+            write_metric: true,
+        },
+    )
+    .unwrap();
+
+    assert!(!report.pass);
+    assert!(
+        report
+            .issues
+            .contains(&"multiple_step_counter_sources".to_string())
+    );
+    assert_eq!(report.steps, None);
+    assert!(!report.hourly_metric_written);
+    assert_eq!(store.table_count("hourly_activity_metrics").unwrap(), 0);
+}
+
+#[test]
 fn step_counter_daily_rollup_blocks_without_two_samples() {
     let store = GooseStore::open_in_memory().unwrap();
     insert_step_sample(&store, "s1", 1_780_387_200_000, 990, None, None);
@@ -993,6 +1133,33 @@ fn insert_step_sample(
             source_kind: "device_counter",
             packet_family: "K11/raw_stream_counted",
             json_path: "$.body_summary.step_count",
+            frame_id: None,
+            evidence_id: None,
+            capture_session_id: None,
+            quality_flags_json: "[]",
+            provenance_json: r#"{"owner":"user","test":true}"#,
+        })
+        .unwrap();
+}
+
+fn insert_step_sample_from_source(
+    store: &GooseStore,
+    sample_id: &str,
+    sample_time_unix_ms: i64,
+    value: i64,
+    packet_family: &str,
+    json_path: &str,
+) {
+    store
+        .insert_step_counter_sample(StepCounterSampleInput {
+            sample_id,
+            sample_time_unix_ms,
+            counter_value: value,
+            cadence_spm: None,
+            activity_state: None,
+            source_kind: "device_counter",
+            packet_family,
+            json_path,
             frame_id: None,
             evidence_id: None,
             capture_session_id: None,

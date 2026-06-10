@@ -850,6 +850,140 @@ fn emulator_log_evidence_can_validate_after_explicit_byte_match_replay_gate() {
 }
 
 #[test]
+fn emulator_log_evidence_accepts_colon_separated_hex_for_writes_and_responses() {
+    let get_hello_frame = hex::encode(build_v5_command_frame(1, COMMAND_GET_HELLO, &[1]));
+    let response = command_response_frame_hex(COMMAND_GET_HELLO);
+    let raw = format!(
+        "[1.000s] Write 16 bytes to command_to_strap: {}\n\
+         [1.010s] Notify command_from_strap queued=true: {}\n",
+        colon_separated_hex(&get_hello_frame),
+        colon_separated_hex(&response)
+    );
+
+    let evidence_report = command_evidence_from_emulator_log_text(
+        "colon-separated-emulator.log",
+        &raw,
+        &CommandEmulatorLogEvidenceOptions::default(),
+    )
+    .unwrap();
+
+    assert!(evidence_report.pass, "{:?}", evidence_report.issues);
+    assert!(evidence_report.responses_paired);
+    assert_eq!(evidence_report.evidence_count, 1);
+    let row = &evidence_report.evidence[0];
+    assert_eq!(row.command, "get_hello");
+    assert_eq!(
+        row.official_frame_hex.as_deref(),
+        Some(get_hello_frame.as_str())
+    );
+    assert_eq!(
+        row.official_response_frame_hex.as_deref(),
+        Some(response.as_str())
+    );
+}
+
+#[test]
+fn emulator_log_evidence_rejects_frames_with_invalid_crc() {
+    let mut write_bytes = build_v5_command_frame(1, COMMAND_GET_HELLO, &[1]);
+    *write_bytes.last_mut().unwrap() ^= 0xff;
+    let corrupt_write = hex::encode(&write_bytes);
+    let mut response_bytes = hex::decode(command_response_frame_hex(COMMAND_GET_HELLO)).unwrap();
+    *response_bytes.last_mut().unwrap() ^= 0xff;
+    let corrupt_response = hex::encode(&response_bytes);
+    let raw = format!(
+        "[1.000s] Write 16 bytes to command_to_strap: {corrupt_write}\n\
+         [1.010s] Notify command_from_strap queued=true: {corrupt_response}\n"
+    );
+
+    let evidence_report = command_evidence_from_emulator_log_text(
+        "corrupt-emulator.log",
+        &raw,
+        &CommandEmulatorLogEvidenceOptions::default(),
+    )
+    .unwrap();
+
+    assert!(!evidence_report.pass);
+    assert_eq!(evidence_report.evidence_count, 0);
+    assert!(
+        evidence_report
+            .issues
+            .iter()
+            .any(|issue| issue == "emulator_write_crc_invalid:1"),
+        "{:?}",
+        evidence_report.issues
+    );
+    assert!(
+        evidence_report
+            .issues
+            .iter()
+            .any(|issue| issue == "emulator_response_crc_invalid:2"),
+        "{:?}",
+        evidence_report.issues
+    );
+    assert!(
+        evidence_report
+            .next_actions
+            .iter()
+            .any(|action| action.requirement == "official_frame_crc_valid")
+    );
+    assert!(
+        evidence_report
+            .next_actions
+            .iter()
+            .any(|action| action.requirement == "official_response_frame_crc_valid")
+    );
+}
+
+#[test]
+fn emulator_log_evidence_pairs_retried_identical_responses_and_skips_duplicate_log_lines() {
+    let get_hello_frame = hex::encode(build_v5_command_frame(1, COMMAND_GET_HELLO, &[1]));
+    let response = command_response_frame_hex(COMMAND_GET_HELLO);
+
+    let retried = format!(
+        "[1.000s] Write 16 bytes to command_to_strap: {get_hello_frame}\n\
+         [1.500s] Write 16 bytes to command_to_strap: {get_hello_frame}\n\
+         [1.510s] Notify command_from_strap queued=true: {response}\n\
+         [1.520s] Notify command_from_strap queued=true: {response}\n"
+    );
+    let retried_report = command_evidence_from_emulator_log_text(
+        "retried-emulator.log",
+        &retried,
+        &CommandEmulatorLogEvidenceOptions::default(),
+    )
+    .unwrap();
+    assert!(retried_report.pass, "{:?}", retried_report.issues);
+    assert!(retried_report.responses_paired);
+    assert!(
+        retried_report.issues.is_empty(),
+        "{:?}",
+        retried_report.issues
+    );
+    assert_eq!(retried_report.evidence[0].official_capture_count, 2);
+
+    let double_logged = format!(
+        "[1.000s] Write 16 bytes to command_to_strap: {get_hello_frame}\n\
+         [1.010s] Notify command_from_strap queued=true: {response}\n\
+         [1.011s] Notify command_from_strap queued=true: {response}\n"
+    );
+    let double_logged_report = command_evidence_from_emulator_log_text(
+        "double-logged-emulator.log",
+        &double_logged,
+        &CommandEmulatorLogEvidenceOptions::default(),
+    )
+    .unwrap();
+    assert!(
+        double_logged_report.pass,
+        "{:?}",
+        double_logged_report.issues
+    );
+    assert!(
+        double_logged_report.issues.is_empty(),
+        "{:?}",
+        double_logged_report.issues
+    );
+}
+
+#[test]
 fn emulator_log_evidence_reports_next_action_when_no_command_writes_are_found() {
     let evidence_report = command_evidence_from_emulator_log_text(
         "empty-emulator.log",
@@ -2226,6 +2360,14 @@ fn historical_sync_direct_writes_stay_behind_validation_and_runtime_preflight_ga
             .missing_requirements
             .contains(&"command_validation_record".to_string())
     );
+}
+
+fn colon_separated_hex(hex: &str) -> String {
+    hex.as_bytes()
+        .chunks(2)
+        .map(|pair| std::str::from_utf8(pair).unwrap())
+        .collect::<Vec<_>>()
+        .join(":")
 }
 
 fn command_response_frame_hex(command: u8) -> String {

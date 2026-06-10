@@ -359,6 +359,89 @@ fn reports_next_actions_for_insufficient_calibration_rows() {
     );
 }
 
+#[test]
+fn splits_by_chronology_not_lexicographic_order() {
+    let mut dataset: CalibrationDataset = serde_json::from_str(FIXTURE).unwrap();
+    // Half a second AFTER the split instant, but lexicographically BEFORE
+    // "2026-05-04T00:00:00Z" because '.' sorts before 'Z'.
+    dataset.records[2].captured_at = "2026-05-04T00:00:00.500Z".to_string();
+    let report = evaluate_linear_calibration(&dataset, &default_options());
+
+    assert!(report.pass, "{:?}", report.issues);
+    assert_eq!(report.train_count, 2);
+    assert_eq!(report.holdout_count, 3);
+    assert!(report.leakage_checks.train_rows_before_split);
+    assert!(report.leakage_checks.holdout_rows_at_or_after_split);
+}
+
+#[test]
+fn flags_non_utc_captured_at_instead_of_silently_mis_splitting() {
+    let mut dataset: CalibrationDataset = serde_json::from_str(FIXTURE).unwrap();
+    dataset.records[0].captured_at = "2026-05-04T23:00:00+02:00".to_string();
+    let report = evaluate_linear_calibration(&dataset, &default_options());
+
+    assert!(!report.pass);
+    assert!(!report.dataset_valid);
+    assert!(!report.split_valid);
+    assert!(!report.leakage_checks.holdout_rows_at_or_after_split);
+    assert!(
+        report.issues.iter().any(|issue| issue
+            == "synthetic.recovery.train.1 captured_at is not a UTC RFC3339 timestamp")
+    );
+    assert!(
+        report
+            .next_actions
+            .iter()
+            .any(|action| action.reason == "timestamp_not_utc_rfc3339")
+    );
+}
+
+#[test]
+fn flags_non_utc_split_at() {
+    let dataset: CalibrationDataset = serde_json::from_str(FIXTURE).unwrap();
+    let mut options = default_options();
+    options.split_at = "2026-05-04T02:00:00+02:00".to_string();
+    let report = evaluate_linear_calibration(&dataset, &options);
+
+    assert!(!report.pass);
+    assert!(!report.dataset_valid);
+    assert_eq!(report.train_count, 0);
+    assert!(
+        report
+            .issues
+            .iter()
+            .any(|issue| issue == "split_at is not a UTC RFC3339 timestamp")
+    );
+}
+
+#[test]
+fn holdout_bias_label_bands_cover_fractional_and_out_of_range_labels() {
+    let mut dataset: CalibrationDataset = serde_json::from_str(FIXTURE).unwrap();
+    dataset.records[3].label = 33.5;
+    dataset.records[4].label = 66.4;
+    let mut out_of_range = dataset.records[4].clone();
+    out_of_range.record_id = "synthetic.recovery.holdout.3".to_string();
+    out_of_range.captured_at = "2026-05-06T00:00:00Z".to_string();
+    out_of_range.session_id = Some("holdout-2026-05-06".to_string());
+    out_of_range.label = 120.0;
+    dataset.records.push(out_of_range);
+    let report = evaluate_linear_calibration(&dataset, &default_options());
+
+    assert_eq!(report.holdout_count, 3);
+    let band_total: usize = report
+        .holdout_bias_by_label_band
+        .iter()
+        .map(|band| band.count)
+        .sum();
+    assert_eq!(band_total, report.holdout_count);
+    let bands: Vec<&str> = report
+        .holdout_bias_by_label_band
+        .iter()
+        .map(|band| band.band.as_str())
+        .collect();
+    assert_eq!(bands, vec!["0-33", "34-66", "out-of-range"]);
+}
+
 fn default_options() -> CalibrationOptions {
     CalibrationOptions {
         metric_family: "recovery".to_string(),

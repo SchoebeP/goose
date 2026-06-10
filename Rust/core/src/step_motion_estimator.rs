@@ -44,9 +44,11 @@ impl Default for RawMotionStepEstimateOptions {
         Self {
             min_owned_captures_per_summary: DEFAULT_MIN_OWNED_CAPTURES_PER_SUMMARY,
             require_trusted_evidence: false,
-            sample_rate_hz: 50.0,
+            // Field-verified on this band: type-43 sub==41 accelerometer
+            // streams at ~100 Hz. The spacing keeps a 0.2 s peak debounce.
+            sample_rate_hz: 100.0,
             peak_threshold_i16: 1_200.0,
-            min_peak_spacing_samples: 10,
+            min_peak_spacing_samples: 20,
             manual_step_delta: None,
             official_whoop_step_delta: None,
             tolerance_steps: 10,
