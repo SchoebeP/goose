@@ -971,9 +971,32 @@ final class WhoopCloudForwarder {
   private let queue = DispatchQueue(label: "com.goose.swift.cloud-forward", qos: .utility)
   private let iso = ISO8601DateFormatter()
   private var lastSent = Date.distantPast
+  private var pendingRRMs: [Double] = []              // R-R from throttled samples, sent with the next post
   private var frameBuffers: [String: [UInt8]] = [:]   // per-characteristic frame reassembly
   private var pendingFrames: [String] = []            // complete-frame hex awaiting POST
   private var lastFrameFlush = Date.distantPast
+  private var flushTimer: DispatchSourceTimer?
+
+  private init() {
+    // Periodic flush so tail batches (the last logs before a crash, the last
+    // frames before going out of range) upload even when no new data arrives.
+    let timer = DispatchSource.makeTimerSource(queue: queue)
+    timer.schedule(deadline: .now() + 3, repeating: 3)
+    timer.setEventHandler { [weak self] in self?.timedFlushOnQueue() }
+    timer.resume()
+    flushTimer = timer
+  }
+
+  private func timedFlushOnQueue() {
+    let now = Date()
+    if !pendingFrames.isEmpty, now.timeIntervalSince(lastFrameFlush) >= 3 {
+      flushFramesOnQueue(now)
+    }
+    if !pendingLogs.isEmpty, now.timeIntervalSince(lastLogFlush) >= 5 {
+      flushLogsOnQueue(now)
+    }
+    drainOutbox()
+  }
 
   /// Enable/disable the cloud feed (defaults on; flip via UserDefaults "whoopCloudForwarding").
   var isEnabled: Bool {
@@ -983,20 +1006,30 @@ final class WhoopCloudForwarder {
   func forward(bpm: Int, rrMs: [Double], at date: Date) {
     guard isEnabled, bpm > 0 else { return }
     queue.async {
-      // throttle to at most ~1 post/sec to keep it light
+      // Throttle to ~1 post/sec, but carry throttled samples' R-R intervals
+      // into the next post so HRV data is never dropped (≤1 s timestamp skew).
+      self.pendingRRMs.append(contentsOf: rrMs)
+      if self.pendingRRMs.count > 300 {
+        self.pendingRRMs.removeFirst(self.pendingRRMs.count - 300)
+      }
       guard date.timeIntervalSince(self.lastSent) >= 0.9 else { return }
       self.lastSent = date
-      var req = URLRequest(url: self.endpoint)
-      req.httpMethod = "POST"
-      req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-      req.setValue(self.token, forHTTPHeaderField: "X-Ingest-Token")
       let body: [String: Any] = [
         "bpm": bpm,
-        "rr_intervals_ms": rrMs,
+        "rr_intervals_ms": self.pendingRRMs,
         "wall_ts": self.iso.string(from: date),
       ]
-      req.httpBody = try? JSONSerialization.data(withJSONObject: body)
-      URLSession.shared.dataTask(with: req).resume()  // fire-and-forget
+      self.pendingRRMs = []
+      guard let data = try? JSONSerialization.data(withJSONObject: body) else { return }
+      self.post(data, to: self.endpoint) { [weak self] ok in
+        self?.queue.async {
+          if ok {
+            self?.drainOutbox()
+          } else {
+            self?.persistFailedBody(data, kind: "samples")
+          }
+        }
+      }
     }
   }
 
@@ -1054,6 +1087,7 @@ final class WhoopCloudForwarder {
   }()
   private var outboxSeq = 0
   private let maxOutboxFiles = 4000   // ~hours of backlog; oldest dropped beyond this
+  private var isDraining = false      // at most one outbox POST in flight; queue-confined
 
   /// Build the POST body, tagging it with the capture time so frames that upload
   /// late (after an outage) are stamped at when they happened, not when they land.
@@ -1064,8 +1098,8 @@ final class WhoopCloudForwarder {
     ])
   }
 
-  private func postFrames(_ body: Data, completion: @escaping (Bool) -> Void) {
-    var req = URLRequest(url: Self.framesEndpoint)
+  private func post(_ body: Data, to url: URL, completion: @escaping (Bool) -> Void) {
+    var req = URLRequest(url: url)
     req.httpMethod = "POST"
     req.setValue("application/json", forHTTPHeaderField: "Content-Type")
     req.setValue(token, forHTTPHeaderField: "X-Ingest-Token")
@@ -1086,31 +1120,39 @@ final class WhoopCloudForwarder {
     lastFrameFlush = now
     if batch.isEmpty { drainOutbox(); return }
     guard let body = framesBody(batch) else { return }
-    postFrames(body) { [weak self] ok in
+    post(body, to: Self.framesEndpoint) { [weak self] ok in
       self?.queue.async {
-        if ok { self?.drainOutbox() } else { self?.persistFailedBody(body) }
+        if ok { self?.drainOutbox() } else { self?.persistFailedBody(body, kind: "frames") }
       }
     }
   }
 
   /// Persist a body that failed to upload, ordered by time for in-order replay.
-  private func persistFailedBody(_ body: Data) {
+  /// `kind` selects the replay endpoint ("frames" or "samples").
+  private func persistFailedBody(_ body: Data, kind: String) {
     outboxSeq += 1
-    let name = String(format: "%015.0f-%05d.json", Date().timeIntervalSince1970 * 1000, outboxSeq)
+    let name = String(format: "%@-%015.0f-%05d.json", kind, Date().timeIntervalSince1970 * 1000, outboxSeq)
     try? body.write(to: Self.outboxDir.appendingPathComponent(name))
     trimOutboxIfNeeded()
   }
 
   /// Send the oldest backlog file; on success delete it and continue draining,
   /// on failure stop (still offline) and leave it for the next attempt.
+  /// At most one drain chain runs at a time (isDraining), so a flush landing
+  /// mid-drain can never double-upload the same file. Call on `queue` only.
   private func drainOutbox() {
+    guard !isDraining else { return }
     let fm = FileManager.default
     guard let url = (try? fm.contentsOfDirectory(at: Self.outboxDir, includingPropertiesForKeys: nil))?
       .filter({ $0.pathExtension == "json" })
       .sorted(by: { $0.lastPathComponent < $1.lastPathComponent }).first else { return }
     guard let body = try? Data(contentsOf: url) else { try? fm.removeItem(at: url); return }
-    postFrames(body) { [weak self] ok in
+    // Legacy un-prefixed outbox files predate the samples outbox: all frames.
+    let target = url.lastPathComponent.hasPrefix("samples-") ? self.endpoint : Self.framesEndpoint
+    isDraining = true
+    post(body, to: target) { [weak self] ok in
       self?.queue.async {
+        self?.isDraining = false
         guard ok else { return }
         try? fm.removeItem(at: url)
         self?.drainOutbox()
@@ -1160,17 +1202,24 @@ final class WhoopCloudForwarder {
     }
   }
 
-  /// POST the batched log lines to /ingest/logs. Call on `queue` only.
+  /// POST the batched log lines to /ingest/logs. A failed batch is re-queued
+  /// (capped) so transient outages don't lose the tail of the log — exactly the
+  /// lines needed when debugging a dead link. Call on `queue` only.
   private func flushLogsOnQueue(_ now: Date) {
     let batch = pendingLogs
     pendingLogs = []
     lastLogFlush = now
-    guard !batch.isEmpty else { return }
-    var req = URLRequest(url: Self.logsEndpoint)
-    req.httpMethod = "POST"
-    req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-    req.setValue(token, forHTTPHeaderField: "X-Ingest-Token")
-    req.httpBody = try? JSONSerialization.data(withJSONObject: ["logs": batch])
-    URLSession.shared.dataTask(with: req).resume()
+    guard !batch.isEmpty,
+          let body = try? JSONSerialization.data(withJSONObject: ["logs": batch]) else { return }
+    post(body, to: Self.logsEndpoint) { [weak self] ok in
+      guard !ok else { return }
+      self?.queue.async {
+        guard let self else { return }
+        self.pendingLogs.insert(contentsOf: batch, at: 0)
+        if self.pendingLogs.count > 500 {
+          self.pendingLogs.removeFirst(self.pendingLogs.count - 250)
+        }
+      }
+    }
   }
 }
