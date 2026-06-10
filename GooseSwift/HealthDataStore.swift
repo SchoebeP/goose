@@ -32,6 +32,10 @@ final class HealthDataStore: ObservableObject {
   var packetInputRefreshWorkItem: DispatchWorkItem?
   var packetInputRunID: UUID?
   var packetInputIsRunning = false
+  var packetScoreRunID: UUID?
+  var packetScoreIsRunning = false
+  var stressSummaryCache: [String: (generatedAt: Date, summary: StressAlgorithmSummary)] = [:]
+  var energyBankSummaryCache: [String: (generatedAt: Date, summary: EnergyBankAlgorithmSummary)] = [:]
   var heartRateTimelineRefreshID: UUID?
   var heartRateSeriesUpdateObserver: NSObjectProtocol?
   let packetInputQueue = DispatchQueue(label: "com.goose.swift.health.packet-inputs", qos: .utility)
@@ -60,6 +64,7 @@ final class HealthDataStore: ObservableObject {
       queue: .main
     ) { [weak self] _ in
       Task { @MainActor in
+        self?.invalidateStressEnergySummaryCaches()
         self?.refreshHeartRateTimeline()
       }
     }
@@ -251,8 +256,12 @@ final class HealthDataStore: ObservableObject {
       guard let self else {
         return
       }
-      self.runSleepScore()
-      self.bandSleepImportStatus = "Band sync captured \(packetCount) packets | \(self.packetScoreStatus)"
+      self.runSleepScore { [weak self] in
+        guard let self else {
+          return
+        }
+        self.bandSleepImportStatus = "Band sync captured \(packetCount) packets | \(self.packetScoreStatus)"
+      }
     }
   }
 }

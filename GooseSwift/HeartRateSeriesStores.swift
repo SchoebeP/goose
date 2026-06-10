@@ -63,20 +63,47 @@ final class HeartRateSeriesStore {
 
   private static let retention: TimeInterval = 7 * 24 * 60 * 60
   private static let maxSamples = 100_000
-  private static let persistDelay: TimeInterval = 1.0
+  private static let persistDelay: TimeInterval = 30.0
+  private static let maxUnpersistedSamples = 500
   private static let updateNotificationInterval: TimeInterval = 2.0
+  private static let capEvictionLogInterval: TimeInterval = 3600
 
   private let url: URL
   private let stateLock = NSLock()
   private let writeQueue = DispatchQueue(label: "com.goose.swift.heart-rate-series", qos: .utility)
   private var samples: [HeartRateSamplePoint]
   private var pendingWrite: DispatchWorkItem?
+  private var unpersistedSampleCount = 0
   private var lastNotificationAt = Date.distantPast
+  private var lastCapEvictionLogAt = Date.distantPast
+  private var flushObservers: [NSObjectProtocol] = []
 
   init(url: URL = HeartRateSeriesStore.defaultURL()) {
     self.url = url
     self.samples = Self.loadSamples(from: url)
     prune(relativeTo: Date())
+    flushObservers = [
+      NotificationCenter.default.addObserver(
+        forName: UIApplication.didEnterBackgroundNotification,
+        object: nil,
+        queue: nil
+      ) { [weak self] _ in
+        self?.flushPendingWrites()
+      },
+      NotificationCenter.default.addObserver(
+        forName: UIApplication.willTerminateNotification,
+        object: nil,
+        queue: nil
+      ) { [weak self] _ in
+        self?.flushPendingWrites()
+      },
+    ]
+  }
+
+  deinit {
+    for observer in flushObservers {
+      NotificationCenter.default.removeObserver(observer)
+    }
   }
 
   func append(bpm: Int, source: String, capturedAt: Date) -> Bool {
@@ -92,7 +119,14 @@ final class HeartRateSeriesStore {
       return false
     }
 
-    samples.append(HeartRateSamplePoint(bpm: bpm, source: source, capturedAt: capturedAt))
+    let sample = HeartRateSamplePoint(bpm: bpm, source: source, capturedAt: capturedAt)
+    if let last = samples.last, last.capturedAt > capturedAt {
+      let insertionIndex = samples.firstIndex { $0.capturedAt > capturedAt } ?? samples.count
+      samples.insert(sample, at: insertionIndex)
+    } else {
+      samples.append(sample)
+    }
+    unpersistedSampleCount += 1
     prune(relativeTo: capturedAt)
     schedulePersist()
     let shouldPostUpdate = markUpdateNotificationIfNeeded()
@@ -157,12 +191,12 @@ final class HeartRateSeriesStore {
     return samples(from: dayStart, to: dayEnd)
   }
 
+  // `samples` is kept sorted by capturedAt (sorted on load, ordered insert on append),
+  // so filtering preserves chronological order without re-sorting.
   func samples(from start: Date, to end: Date) -> [HeartRateSamplePoint] {
     stateLock.lock()
     defer { stateLock.unlock() }
-    return samples
-      .filter { $0.capturedAt >= start && $0.capturedAt < end }
-      .sorted { $0.capturedAt < $1.capturedAt }
+    return samples.filter { $0.capturedAt >= start && $0.capturedAt < end }
   }
 
   func summary(forDayContaining date: Date = Date(), calendar: Calendar = .current) -> String {
@@ -260,28 +294,63 @@ final class HeartRateSeriesStore {
       samples.removeAll()
     }
     if samples.count > Self.maxSamples {
-      samples.removeFirst(samples.count - Self.maxSamples)
+      let overflow = samples.count - Self.maxSamples
+      samples.removeFirst(overflow)
+      // Retention pruning already ran, so cap overflow always drops in-retention samples.
+      let now = Date()
+      if now.timeIntervalSince(lastCapEvictionLogAt) >= Self.capEvictionLogInterval {
+        lastCapEvictionLogAt = now
+        NSLog("GooseSwift heart-rate series store dropped \(overflow) in-retention samples: maxSamples=\(Self.maxSamples) reached before the \(Int(Self.retention / 86_400))-day retention window")
+      }
     }
   }
 
   private func schedulePersist() {
+    if unpersistedSampleCount >= Self.maxUnpersistedSamples {
+      pendingWrite?.cancel()
+      pendingWrite = nil
+      enqueuePersist(after: 0)
+      return
+    }
     guard pendingWrite == nil else {
       return
     }
+    enqueuePersist(after: Self.persistDelay)
+  }
 
+  private func enqueuePersist(after delay: TimeInterval) {
     let workItem = DispatchWorkItem { [weak self] in
       guard let self else {
         return
       }
       self.stateLock.lock()
       self.pendingWrite = nil
+      self.unpersistedSampleCount = 0
       let url = self.url
       let payload = HeartRateSeriesFile(version: 1, samples: self.samples)
       self.stateLock.unlock()
       Self.persist(payload: payload, to: url)
     }
     pendingWrite = workItem
-    writeQueue.asyncAfter(deadline: .now() + Self.persistDelay, execute: workItem)
+    writeQueue.asyncAfter(deadline: .now() + delay, execute: workItem)
+  }
+
+  func flushPendingWrites() {
+    stateLock.lock()
+    let hasPendingWork = pendingWrite != nil || unpersistedSampleCount > 0
+    pendingWrite?.cancel()
+    pendingWrite = nil
+    unpersistedSampleCount = 0
+    guard hasPendingWork else {
+      stateLock.unlock()
+      return
+    }
+    let url = self.url
+    let payload = HeartRateSeriesFile(version: 1, samples: samples)
+    stateLock.unlock()
+    writeQueue.sync {
+      Self.persist(payload: payload, to: url)
+    }
   }
 
   private static func persist(payload: HeartRateSeriesFile, to url: URL) {
@@ -343,24 +412,52 @@ final class HRVSeriesStore {
 
   private static let retention: TimeInterval = 14 * 24 * 60 * 60
   private static let maxSamples = 20_000
-  private static let persistDelay: TimeInterval = 1.0
+  private static let persistDelay: TimeInterval = 30.0
+  private static let maxUnpersistedSamples = 500
   private static let updateNotificationInterval: TimeInterval = 2.0
+  private static let capEvictionLogInterval: TimeInterval = 3600
 
   private let url: URL
   private let stateLock = NSLock()
   private let writeQueue = DispatchQueue(label: "com.goose.swift.hrv-series", qos: .utility)
   private var samples: [HRVSamplePoint]
   private var pendingWrite: DispatchWorkItem?
+  private var unpersistedSampleCount = 0
   private var lastNotificationAt = Date.distantPast
+  private var lastCapEvictionLogAt = Date.distantPast
+  private var flushObservers: [NSObjectProtocol] = []
 
   init(url: URL = HRVSeriesStore.defaultURL()) {
     self.url = url
     self.samples = Self.loadSamples(from: url)
     if samples.isEmpty, let migratedSample = Self.loadPersistedLiveSample() {
       samples = [migratedSample]
+      unpersistedSampleCount += 1
       schedulePersist()
     }
     prune(relativeTo: Date())
+    flushObservers = [
+      NotificationCenter.default.addObserver(
+        forName: UIApplication.didEnterBackgroundNotification,
+        object: nil,
+        queue: nil
+      ) { [weak self] _ in
+        self?.flushPendingWrites()
+      },
+      NotificationCenter.default.addObserver(
+        forName: UIApplication.willTerminateNotification,
+        object: nil,
+        queue: nil
+      ) { [weak self] _ in
+        self?.flushPendingWrites()
+      },
+    ]
+  }
+
+  deinit {
+    for observer in flushObservers {
+      NotificationCenter.default.removeObserver(observer)
+    }
   }
 
   func append(rmssdMS: Double, rrIntervalCount: Int, source: String, capturedAt: Date) -> Bool {
@@ -378,6 +475,7 @@ final class HRVSeriesStore {
     }
 
     samples.append(HRVSamplePoint(rmssdMS: rmssdMS, rrIntervalCount: rrIntervalCount, source: source, capturedAt: capturedAt))
+    unpersistedSampleCount += 1
     prune(relativeTo: capturedAt)
     schedulePersist()
     let shouldPostUpdate = markUpdateNotificationIfNeeded()
@@ -483,28 +581,63 @@ final class HRVSeriesStore {
       samples.removeAll()
     }
     if samples.count > Self.maxSamples {
-      samples.removeFirst(samples.count - Self.maxSamples)
+      let overflow = samples.count - Self.maxSamples
+      samples.removeFirst(overflow)
+      // Retention pruning already ran, so cap overflow always drops in-retention samples.
+      let now = Date()
+      if now.timeIntervalSince(lastCapEvictionLogAt) >= Self.capEvictionLogInterval {
+        lastCapEvictionLogAt = now
+        NSLog("GooseSwift HRV series store dropped \(overflow) in-retention samples: maxSamples=\(Self.maxSamples) reached before the \(Int(Self.retention / 86_400))-day retention window")
+      }
     }
   }
 
   private func schedulePersist() {
+    if unpersistedSampleCount >= Self.maxUnpersistedSamples {
+      pendingWrite?.cancel()
+      pendingWrite = nil
+      enqueuePersist(after: 0)
+      return
+    }
     guard pendingWrite == nil else {
       return
     }
+    enqueuePersist(after: Self.persistDelay)
+  }
 
+  private func enqueuePersist(after delay: TimeInterval) {
     let workItem = DispatchWorkItem { [weak self] in
       guard let self else {
         return
       }
       self.stateLock.lock()
       self.pendingWrite = nil
+      self.unpersistedSampleCount = 0
       let url = self.url
       let payload = HRVSeriesFile(version: 1, samples: self.samples)
       self.stateLock.unlock()
       Self.persist(payload: payload, to: url)
     }
     pendingWrite = workItem
-    writeQueue.asyncAfter(deadline: .now() + Self.persistDelay, execute: workItem)
+    writeQueue.asyncAfter(deadline: .now() + delay, execute: workItem)
+  }
+
+  func flushPendingWrites() {
+    stateLock.lock()
+    let hasPendingWork = pendingWrite != nil || unpersistedSampleCount > 0
+    pendingWrite?.cancel()
+    pendingWrite = nil
+    unpersistedSampleCount = 0
+    guard hasPendingWork else {
+      stateLock.unlock()
+      return
+    }
+    let url = self.url
+    let payload = HRVSeriesFile(version: 1, samples: samples)
+    stateLock.unlock()
+    writeQueue.sync {
+      Self.persist(payload: payload, to: url)
+    }
   }
 
   private static func persist(payload: HRVSeriesFile, to url: URL) {

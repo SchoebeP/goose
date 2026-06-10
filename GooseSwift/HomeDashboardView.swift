@@ -380,6 +380,8 @@ private struct MinutelyResponse: Decodable {
 @MainActor
 final class MinutelyHRFeed: ObservableObject {
   @Published var minutes: [HRMinute] = []
+  @Published var lastSuccess: Date?
+  @Published var lastError: String?
   // Token-only read path (auth-basic OFF on /whoop/ingest/) — same token the app uploads with.
   // tz = our local zone so the server windows "today" from OUR midnight —
   // charts reset at 00:00 local instead of showing a rolling 24 h.
@@ -389,13 +391,63 @@ final class MinutelyHRFeed: ObservableObject {
     return components.url!
   }()
   private var token: String { IngestCredentials.token }
+  private var refreshTask: Task<Void, Never>?
+
+  deinit { refreshTask?.cancel() }
+
+  /// Periodic refresh owned by the feed (not the view) so parent re-renders
+  /// can't reset the countdown — a Timer.publish stored in the view struct was
+  /// re-created every <=5 s while the band streamed and never fired.
+  func startAutoRefresh() {
+    guard refreshTask == nil else { return }
+    refreshTask = Task { [weak self] in
+      while !Task.isCancelled {
+        try? await Task.sleep(for: .seconds(30))
+        guard let self else { return }
+        self.refresh()
+      }
+    }
+  }
+
+  func stopAutoRefresh() {
+    refreshTask?.cancel()
+    refreshTask = nil
+  }
 
   func refresh() {
     var req = URLRequest(url: url, timeoutInterval: 15)
     req.setValue(token, forHTTPHeaderField: "X-Ingest-Token")
-    URLSession.shared.dataTask(with: req) { [weak self] data, _, _ in
-      guard let data, let r = try? JSONDecoder().decode(MinutelyResponse.self, from: data) else { return }
-      Task { @MainActor in self?.minutes = r.minutes }
+    URLSession.shared.dataTask(with: req) { [weak self] data, resp, err in
+      let status = (resp as? HTTPURLResponse)?.statusCode
+      let decoded: MinutelyResponse? = {
+        guard err == nil, let status, (200..<300).contains(status), let data else { return nil }
+        return try? JSONDecoder().decode(MinutelyResponse.self, from: data)
+      }()
+      let failure: String?
+      if decoded != nil {
+        failure = nil
+      } else if let err {
+        failure = err.localizedDescription
+      } else if let status, !(200..<300).contains(status) {
+        failure = "HTTP \(status)"
+      } else {
+        failure = "Unreadable response"
+      }
+      if let failure {
+        WhoopCloudForwarder.shared.ingestLog(
+          level: "warn", source: "cloud.feed",
+          title: "hr_minutely.fetch_failed", body: failure, at: Date())
+      }
+      Task { @MainActor in
+        guard let self else { return }
+        if let decoded {
+          self.minutes = decoded.minutes
+          self.lastSuccess = Date()
+          self.lastError = nil
+        } else {
+          self.lastError = failure
+        }
+      }
     }.resume()
   }
 }
@@ -411,7 +463,6 @@ func hourKey(from minute: String) -> String {
 /// Today's heart rate, grouped per hour — the VPS-computed recap, fetched + displayed.
 struct HomeMinutelyHRSection: View {
   @StateObject private var feed = MinutelyHRFeed()
-  private let refresh = Timer.publish(every: 30, on: .main, in: .common).autoconnect()
 
   /// Collapse the per-minute rows into one bucket per hour: lo = min of los,
   /// hi = max of his, bpm = last bpm in the hour. Sorted by numeric hour.
@@ -441,8 +492,17 @@ struct HomeMinutelyHRSection: View {
       cardBody(buckets: buckets)
     }
     .buttonStyle(.plain)
-    .onAppear { feed.refresh() }
-    .onReceive(refresh) { _ in feed.refresh() }
+    .onAppear {
+      feed.refresh()
+      feed.startAutoRefresh()
+    }
+    .onDisappear { feed.stopAutoRefresh() }
+  }
+
+  /// " · as of HH:mm" when the latest fetch failed but older data is shown.
+  private var staleSuffix: String {
+    guard feed.lastError != nil, let at = feed.lastSuccess else { return "" }
+    return " · as of \(at.formatted(date: .omitted, time: .shortened))"
   }
 
   @ViewBuilder
@@ -477,10 +537,10 @@ struct HomeMinutelyHRSection: View {
             .foregroundStyle(.secondary)
         }
         MinutelyHRChart(minutes: buckets).frame(height: 150)
-        Text("Range \(dayLo)–\(dayHi) bpm · computed on our server")
+        Text("Range \(dayLo)–\(dayHi) bpm · computed on our server\(staleSuffix)")
           .font(.caption).foregroundStyle(.secondary)
       } else {
-        Text("Waiting for today's data…")
+        Text(feed.lastError == nil ? "Waiting for today's data…" : "Couldn't reach the server — retrying…")
           .font(.caption).foregroundStyle(.secondary)
           .frame(maxWidth: .infinity, minHeight: 150, alignment: .center)
       }
@@ -532,6 +592,8 @@ private struct StepsResponse: Decodable {
 final class MinutelyStepsFeed: ObservableObject {
   @Published var minutes: [StepMinute] = []
   @Published var total: Int = 0
+  @Published var lastSuccess: Date?
+  @Published var lastError: String?
   // Same local-midnight day window as the HR feed (see above).
   private let url: URL = {
     var components = URLComponents(string: "https://latenightgames.fr/whoop/ingest/steps/minutely")!
@@ -539,13 +601,62 @@ final class MinutelyStepsFeed: ObservableObject {
     return components.url!
   }()
   private var token: String { IngestCredentials.token }
+  private var refreshTask: Task<Void, Never>?
+
+  deinit { refreshTask?.cancel() }
+
+  /// Feed-owned periodic refresh — see MinutelyHRFeed.startAutoRefresh.
+  func startAutoRefresh() {
+    guard refreshTask == nil else { return }
+    refreshTask = Task { [weak self] in
+      while !Task.isCancelled {
+        try? await Task.sleep(for: .seconds(30))
+        guard let self else { return }
+        self.refresh()
+      }
+    }
+  }
+
+  func stopAutoRefresh() {
+    refreshTask?.cancel()
+    refreshTask = nil
+  }
 
   func refresh() {
     var req = URLRequest(url: url, timeoutInterval: 15)
     req.setValue(token, forHTTPHeaderField: "X-Ingest-Token")
-    URLSession.shared.dataTask(with: req) { [weak self] data, _, _ in
-      guard let data, let r = try? JSONDecoder().decode(StepsResponse.self, from: data) else { return }
-      Task { @MainActor in self?.minutes = r.minutes; self?.total = r.total }
+    URLSession.shared.dataTask(with: req) { [weak self] data, resp, err in
+      let status = (resp as? HTTPURLResponse)?.statusCode
+      let decoded: StepsResponse? = {
+        guard err == nil, let status, (200..<300).contains(status), let data else { return nil }
+        return try? JSONDecoder().decode(StepsResponse.self, from: data)
+      }()
+      let failure: String?
+      if decoded != nil {
+        failure = nil
+      } else if let err {
+        failure = err.localizedDescription
+      } else if let status, !(200..<300).contains(status) {
+        failure = "HTTP \(status)"
+      } else {
+        failure = "Unreadable response"
+      }
+      if let failure {
+        WhoopCloudForwarder.shared.ingestLog(
+          level: "warn", source: "cloud.feed",
+          title: "steps_minutely.fetch_failed", body: failure, at: Date())
+      }
+      Task { @MainActor in
+        guard let self else { return }
+        if let decoded {
+          self.minutes = decoded.minutes
+          self.total = decoded.total
+          self.lastSuccess = Date()
+          self.lastError = nil
+        } else {
+          self.lastError = failure
+        }
+      }
     }.resume()
   }
 }
@@ -554,7 +665,6 @@ final class MinutelyStepsFeed: ObservableObject {
 /// computed on the server. Steps only accrue while the band is worn + connected.
 struct HomeMinutelyStepsSection: View {
   @ObservedObject var feed: MinutelyStepsFeed
-  private let refresh = Timer.publish(every: 30, on: .main, in: .common).autoconnect()
 
   /// Sum steps into one bucket per hour, sorted by numeric hour.
   private var hourlyBuckets: [StepMinute] {
@@ -575,8 +685,17 @@ struct HomeMinutelyStepsSection: View {
       cardBody(buckets: buckets)
     }
     .buttonStyle(.plain)
-    .onAppear { feed.refresh() }
-    .onReceive(refresh) { _ in feed.refresh() }
+    .onAppear {
+      feed.refresh()
+      feed.startAutoRefresh()
+    }
+    .onDisappear { feed.stopAutoRefresh() }
+  }
+
+  /// " · as of HH:mm" when the latest fetch failed but older data is shown.
+  private var staleSuffix: String {
+    guard feed.lastError != nil, let at = feed.lastSuccess else { return "" }
+    return " · as of \(at.formatted(date: .omitted, time: .shortened))"
   }
 
   @ViewBuilder
@@ -592,10 +711,10 @@ struct HomeMinutelyStepsSection: View {
       }
       if buckets.count > 1 {
         StepsBarChart(minutes: buckets).frame(height: 120)
-        Text("Counted from the accelerometer while worn — our own number, not WHOOP's.")
+        Text("Counted from the accelerometer while worn — our own number, not WHOOP's.\(staleSuffix)")
           .font(.caption).foregroundStyle(.secondary)
       } else {
-        Text("Walk around with the band connected to see steps…")
+        Text(feed.lastError == nil ? "Walk around with the band connected to see steps…" : "Couldn't reach the server — retrying…")
           .font(.caption).foregroundStyle(.secondary)
           .frame(maxWidth: .infinity, minHeight: 120, alignment: .center)
       }

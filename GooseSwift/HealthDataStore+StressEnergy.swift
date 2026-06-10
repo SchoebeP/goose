@@ -4,10 +4,45 @@ import SwiftUI
 import UIKit
 
 extension HealthDataStore {
+  static let stressEnergySummaryCacheMaxAge: TimeInterval = 60
+  static let stressEnergySummaryCacheMaxEntries = 16
+
+  func invalidateStressEnergySummaryCaches() {
+    stressSummaryCache.removeAll(keepingCapacity: true)
+    energyBankSummaryCache.removeAll(keepingCapacity: true)
+  }
+
+  static func stressEnergySummaryCacheKey(
+    for date: Date,
+    calendar: Calendar,
+    allowLiveFallbacks: Bool
+  ) -> String {
+    let dayStart = calendar.startOfDay(for: date)
+    return "\(Int64(dayStart.timeIntervalSince1970)).\(allowLiveFallbacks)"
+  }
+
   func stressAlgorithmSummary(
     for date: Date = Date(),
     calendar: Calendar = .current,
     allowLiveFallbacks: Bool = true
+  ) -> StressAlgorithmSummary {
+    let cacheKey = Self.stressEnergySummaryCacheKey(for: date, calendar: calendar, allowLiveFallbacks: allowLiveFallbacks)
+    if let cached = stressSummaryCache[cacheKey],
+       Date().timeIntervalSince(cached.generatedAt) < Self.stressEnergySummaryCacheMaxAge {
+      return cached.summary
+    }
+    let summary = computeStressAlgorithmSummary(for: date, calendar: calendar, allowLiveFallbacks: allowLiveFallbacks)
+    if stressSummaryCache.count >= Self.stressEnergySummaryCacheMaxEntries {
+      stressSummaryCache.removeAll(keepingCapacity: true)
+    }
+    stressSummaryCache[cacheKey] = (generatedAt: Date(), summary: summary)
+    return summary
+  }
+
+  private func computeStressAlgorithmSummary(
+    for date: Date,
+    calendar: Calendar,
+    allowLiveFallbacks: Bool
   ) -> StressAlgorithmSummary {
     guard !previewMissingData else {
       return emptyStressSummary(
@@ -130,6 +165,24 @@ extension HealthDataStore {
     for date: Date = Date(),
     calendar: Calendar = .current,
     allowLiveFallbacks: Bool = true
+  ) -> EnergyBankAlgorithmSummary {
+    let cacheKey = Self.stressEnergySummaryCacheKey(for: date, calendar: calendar, allowLiveFallbacks: allowLiveFallbacks)
+    if let cached = energyBankSummaryCache[cacheKey],
+       Date().timeIntervalSince(cached.generatedAt) < Self.stressEnergySummaryCacheMaxAge {
+      return cached.summary
+    }
+    let summary = computeEnergyBankAlgorithmSummary(for: date, calendar: calendar, allowLiveFallbacks: allowLiveFallbacks)
+    if energyBankSummaryCache.count >= Self.stressEnergySummaryCacheMaxEntries {
+      energyBankSummaryCache.removeAll(keepingCapacity: true)
+    }
+    energyBankSummaryCache[cacheKey] = (generatedAt: Date(), summary: summary)
+    return summary
+  }
+
+  private func computeEnergyBankAlgorithmSummary(
+    for date: Date,
+    calendar: Calendar,
+    allowLiveFallbacks: Bool
   ) -> EnergyBankAlgorithmSummary {
     let stress = stressAlgorithmSummary(for: date, calendar: calendar, allowLiveFallbacks: allowLiveFallbacks)
     guard stress.hasData else {

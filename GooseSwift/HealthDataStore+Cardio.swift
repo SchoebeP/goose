@@ -235,18 +235,6 @@ extension HealthDataStore {
     }
   }
 
-  func energyStressChartPoints() -> [EnergyStressPoint] {
-    guard !previewMissingData else {
-      return []
-    }
-    let summary = energyBankAlgorithmSummary()
-    return summary.hasData ? summary.points : []
-  }
-
-  func energyStressSelectedPoint() -> EnergyStressPoint? {
-    energyStressChartPoints().first { $0.id == "2130" } ?? energyStressChartPoints().last
-  }
-
   func healthMonitorExportRows() -> [HealthSummaryRow] {
     guard localDataSupportsExport else {
       return []
@@ -258,6 +246,7 @@ extension HealthDataStore {
 
   func applyPreviewState(_ state: HealthPreviewState) {
     attemptedCatalogLoad = true
+    invalidateStressEnergySummaryCaches()
     switch state {
     case .populated:
       previewMissingData = false

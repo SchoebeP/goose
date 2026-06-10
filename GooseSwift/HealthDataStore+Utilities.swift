@@ -105,7 +105,7 @@ extension HealthDataStore {
     return hour < 7 || hour >= 23
   }
 
-  func bridgeBaseArgs(requireTrustedEvidence: Bool) -> [String: Any] {
+  nonisolated static func bridgeBaseArgs(databasePath: String, requireTrustedEvidence: Bool) -> [String: Any] {
     [
       "database_path": databasePath,
       "start": "0000",
@@ -115,7 +115,14 @@ extension HealthDataStore {
     ]
   }
 
-  func sleepScoreReport(baseArgs: [String: Any]) throws -> [String: Any] {
+  /// The 3:00 AM target sleep midpoint is minutes since LOCAL midnight; the
+  /// bridge shifts the observed (UTC-epoch) midpoint by this offset so a
+  /// Paris user isn't scored against UTC midnight.
+  nonisolated static func currentUTCOffsetMinutes() -> Double {
+    Double(TimeZone.current.secondsFromGMT(for: Date())) / 60.0
+  }
+
+  nonisolated static func sleepScoreReport(bridge: GooseRustBridge, baseArgs: [String: Any]) throws -> [String: Any] {
     try bridge.request(
       method: "metrics.sleep_score_from_features",
       args: baseArgs.merging([
@@ -123,13 +130,14 @@ extension HealthDataStore {
         "low_motion_threshold_0_to_1": 0.05,
         "disturbance_motion_threshold_0_to_1": 0.20,
         "target_midpoint_minutes_since_midnight": 180.0,
+        "utc_offset_minutes": currentUTCOffsetMinutes(),
         "history_import_in_progress": false,
         "algorithm_id": "goose.sleep.v1",
       ]) { _, new in new }
     )
   }
 
-  func recoveryScoreBridgeArgs() -> [String: Any] {
+  nonisolated static func recoveryScoreBridgeArgs() -> [String: Any] {
     [
       "hrv_start": "0000",
       "hrv_end": "9999",
@@ -148,6 +156,7 @@ extension HealthDataStore {
       "low_motion_threshold_0_to_1": 0.05,
       "disturbance_motion_threshold_0_to_1": 0.20,
       "target_midpoint_minutes_since_midnight": 180.0,
+      "utc_offset_minutes": currentUTCOffsetMinutes(),
       "prior_strain_resting_baseline_min_days": 3,
     ]
   }
