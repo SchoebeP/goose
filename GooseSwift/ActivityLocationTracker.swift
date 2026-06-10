@@ -17,6 +17,7 @@ final class ActivityLocationTracker: NSObject, ObservableObject, CLLocationManag
   private static let maximumPublishedRoutePoints = 360
   private var lastAcceptedLocation: CLLocation?
   private var recentLocations: [CLLocation] = []
+  private var elevationBaselineAltitude: CLLocationDistance?
   private var wantsUpdates = false
 
   override init() {
@@ -82,6 +83,7 @@ final class ActivityLocationTracker: NSObject, ObservableObject, CLLocationManag
     // covered while paused to distance/pace/elevation.
     lastAcceptedLocation = nil
     recentLocations = []
+    elevationBaselineAltitude = nil
     currentPaceSecondsPerKilometer = nil
     gpsStatus = routePointCount == 0 ? "GPS idle" : "GPS paused"
   }
@@ -91,6 +93,7 @@ final class ActivityLocationTracker: NSObject, ObservableObject, CLLocationManag
     routePointCount = 0
     recentLocations = []
     lastAcceptedLocation = nil
+    elevationBaselineAltitude = nil
     distanceMeters = 0
     currentPaceSecondsPerKilometer = nil
     elevationMeters = 0
@@ -152,9 +155,23 @@ final class ActivityLocationTracker: NSObject, ObservableObject, CLLocationManag
       }
       if lastAcceptedLocation.verticalAccuracy >= 0,
          location.verticalAccuracy >= 0,
-         lastAcceptedLocation.verticalAccuracy <= 50,
-         location.verticalAccuracy <= 50 {
-        elevationGainMeters += max(0, location.altitude - lastAcceptedLocation.altitude)
+         lastAcceptedLocation.verticalAccuracy <= 15,
+         location.verticalAccuracy <= 15 {
+        // Deadband against a baseline altitude: only commit climbs larger than
+        // the fix's own vertical uncertainty, so per-fix GPS altitude jitter
+        // can't rectify into phantom elevation gain on flat routes.
+        let baseline = elevationBaselineAltitude ?? lastAcceptedLocation.altitude
+        if elevationBaselineAltitude == nil {
+          elevationBaselineAltitude = baseline
+        }
+        let threshold = max(3.0, location.verticalAccuracy)
+        if location.altitude - baseline >= threshold {
+          elevationGainMeters += location.altitude - baseline
+          elevationBaselineAltitude = location.altitude
+        } else if baseline - location.altitude >= threshold {
+          // Sustained descent: rebase without subtracting (gain-only metric).
+          elevationBaselineAltitude = location.altitude
+        }
       }
     }
 

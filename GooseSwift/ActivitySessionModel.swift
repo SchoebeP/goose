@@ -19,6 +19,31 @@ final class ActivitySessionModel: ObservableObject {
   private var heartRateMeasuredSeconds: TimeInterval = 0
   private var timer: Timer?
   private var heartRateProvider: (() -> Int?)?
+  private var recoveryContextProvider: (() -> ActivityRecoveryContext?)?
+  private var lastRecoverySnapshotWrittenAt = Date.distantPast
+  private static let recoverySnapshotInterval: TimeInterval = 5
+
+  static var recoverySnapshotURL: URL {
+    FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+      .appendingPathComponent("active-workout-recovery.json")
+  }
+
+  /// Reads and removes the crash-recovery snapshot left behind when the app
+  /// died mid-workout. The file is deleted before decoding so a corrupt
+  /// snapshot can never crash-loop the launch path.
+  static func consumeRecoverySnapshot() -> ActiveWorkoutRecoverySnapshot? {
+    let url = recoverySnapshotURL
+    guard let data = try? Data(contentsOf: url) else {
+      return nil
+    }
+    try? FileManager.default.removeItem(at: url)
+    return try? JSONDecoder().decode(ActiveWorkoutRecoverySnapshot.self, from: data)
+  }
+
+  func attachRecoveryContextProvider(_ provider: @escaping () -> ActivityRecoveryContext?) {
+    recoveryContextProvider = provider
+    lastRecoverySnapshotWrittenAt = .distantPast
+  }
 
   deinit {
     timer?.invalidate()
@@ -75,6 +100,7 @@ final class ActivitySessionModel: ObservableObject {
     lastTick = nil
     timer?.invalidate()
     timer = nil
+    writeRecoverySnapshot(now: now)
   }
 
   func end(now: Date = Date(), heartRate: Int?) {
@@ -89,6 +115,7 @@ final class ActivitySessionModel: ObservableObject {
     timer?.invalidate()
     timer = nil
     heartRateProvider = nil
+    clearRecoverySnapshot()
   }
 
   func tick(now: Date, heartRate: Int?) {
@@ -99,6 +126,7 @@ final class ActivitySessionModel: ObservableObject {
     let delta = max(0, now.timeIntervalSince(previousTick))
     elapsed += delta
     lastTick = now
+    writeRecoverySnapshotIfDue(now: now)
 
     guard delta > 0, let heartRate else {
       return
@@ -127,6 +155,50 @@ final class ActivitySessionModel: ObservableObject {
     timer = newTimer
   }
 
+  private func writeRecoverySnapshotIfDue(now: Date) {
+    guard now.timeIntervalSince(lastRecoverySnapshotWrittenAt) >= Self.recoverySnapshotInterval else {
+      return
+    }
+    writeRecoverySnapshot(now: now)
+  }
+
+  private func writeRecoverySnapshot(now: Date) {
+    guard isActive, let startedAt, let context = recoveryContextProvider?() else {
+      return
+    }
+    let snapshot = ActiveWorkoutRecoverySnapshot(
+      activitySessionID: context.activitySessionID,
+      captureSessionID: context.captureSessionID,
+      ownsCaptureSession: context.ownsCaptureSession,
+      source: context.source,
+      detectionMethod: context.detectionMethod,
+      syncStatus: context.syncStatus,
+      importedFrameCount: context.importedFrameCount,
+      lastImportedFrameAt: context.lastImportedFrameAt,
+      activityRawValue: selectedActivity.rawValue,
+      startedAt: startedAt,
+      elapsed: elapsed,
+      averageHeartRate: averageHeartRate,
+      maxHeartRate: maxHeartRate,
+      zoneDurations: zoneDurations,
+      distanceMeters: context.distanceMeters,
+      elevationGainMeters: context.elevationGainMeters,
+      routePointCount: context.routePointCount,
+      lastUpdatedAt: now
+    )
+    guard let data = try? JSONEncoder().encode(snapshot) else {
+      return
+    }
+    try? data.write(to: Self.recoverySnapshotURL, options: .atomic)
+    lastRecoverySnapshotWrittenAt = now
+  }
+
+  private func clearRecoverySnapshot() {
+    recoveryContextProvider = nil
+    lastRecoverySnapshotWrittenAt = .distantPast
+    try? FileManager.default.removeItem(at: Self.recoverySnapshotURL)
+  }
+
   private func resetMetrics(keepingSelection: Bool) {
     timer?.invalidate()
     timer = nil
@@ -145,6 +217,7 @@ final class ActivitySessionModel: ObservableObject {
     isActive = false
     isPaused = false
     heartRateProvider = nil
+    clearRecoverySnapshot()
   }
 }
 

@@ -8,8 +8,12 @@ extension GooseAppModel {
     // for the 4.0 (recordLiveHeartRate source "rust.k10"). Skipping it blanked the
     // live heart-rate display. (The overnight-spool gating is the real slim-down.)
     let (queueDepth, highWatermark) = incrementNotificationIngestQueueDepth()
-    let captureImportActive = activeHealthPacketCapture != nil || activeActivityPersistence != nil
-    let parseContext = notificationParseContext(for: event)
+    // Runs on the CoreBluetooth queue: routing state must come from the
+    // lock-guarded mirror, never from the main-actor storage (data race under
+    // Swift 5 mode, which performs no actor enforcement here).
+    let routing = notificationRoutingFlags.snapshot
+    let captureImportActive = routing.captureImportActive
+    let parseContext = notificationParseContext(for: event, routing: routing)
     publishPipelinePerformanceStatus(
       "ingest queued notification bytes=\(event.value.count) | ingestQ \(queueDepth) hwm \(highWatermark)"
     )
@@ -501,16 +505,33 @@ extension GooseAppModel {
   }
 
   func notificationParseContext(for event: GooseNotificationEvent) -> NotificationParseContext {
+    notificationParseContext(for: event, routing: notificationRoutingFlags.snapshot)
+  }
+
+  func notificationParseContext(
+    for event: GooseNotificationEvent,
+    routing: NotificationRoutingFlags
+  ) -> NotificationParseContext {
     NotificationParseContext(
       deviceType: event.rustDeviceType,
-      healthCaptureActive: activeHealthPacketCapture != nil,
-      overnightGuardActive: overnightGuardActive,
-      respiratoryPacketWatchActive: respiratoryPacketWatchActive,
-      fallbackHeartRate: recentLiveHeartRate(around: event.capturedAt),
+      healthCaptureActive: routing.healthCaptureActive,
+      overnightGuardActive: routing.overnightGuardActive,
+      respiratoryPacketWatchActive: routing.respiratoryPacketWatchActive,
+      fallbackHeartRate: routing.recentFallbackHeartRate(around: event.capturedAt),
       ble: ble,
       packetUIStateAggregator: packetUIStateAggregator,
       whoopDataSignalPipeline: whoopDataSignalPipeline
     )
+  }
+
+  /// Called from GooseBLEClient's realtime-vitals queue (see init wiring); the
+  /// box keeps the fallback HR readable from the CoreBluetooth queue without
+  /// touching the @Published live-HR mirror that is written on main.
+  nonisolated func recordRoutingFallbackHeartRate(_ bpm: Int, at date: Date) {
+    notificationRoutingFlags.update {
+      $0.fallbackHeartRateBPM = bpm
+      $0.fallbackHeartRateUpdatedAt = date
+    }
   }
 
   static func interpretNotificationFrame(

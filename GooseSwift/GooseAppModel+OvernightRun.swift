@@ -138,9 +138,25 @@ extension GooseAppModel {
         return
       }
       guard self.ble.canSyncHistorical else {
+        // Without this cleanup the guard wedges: the pending flag blocks every
+        // retry and range poll, streams stay paused, and the critical
+        // background task leaks until iOS force-expires it.
+        self.overnightGuardFinalSyncPending = false
+        self.endOvernightGuardCriticalBackgroundTask(reason: "final_sync_blocked_after_live_stream_pause")
         self.overnightGuardStatus = "Final sync blocked after live-stream pause: \(self.ble.historicalSyncStatus)"
         self.ble.record(level: .warn, source: "overnight.guard", title: "final_sync.blocked_after_live_stream_pause", body: self.overnightGuardStatus)
         self.writeOvernightGuardStatus(reason: "final_sync_blocked_after_live_stream_pause")
+        self.resumeOvernightGuardStreamsIfReady(reason: "final_sync_blocked_after_live_stream_pause")
+        let retrySessionID = self.overnightGuardSession?.id
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.overnightGuardRangeBlockedRetryInterval) { [weak self] in
+          guard let self,
+                self.overnightGuardActive,
+                !self.overnightGuardFinalSyncPending,
+                self.overnightGuardSession?.id == retrySessionID else {
+            return
+          }
+          self.requestOvernightGuardFinalSync()
+        }
         return
       }
       self.overnightGuardStatus = "Running final historical sync before export"
@@ -183,6 +199,11 @@ extension GooseAppModel {
     exportOvernightGuardBundle(sessionID: sessionID, reason: "last_session_export")
   }
 
+  // The persistOvernight* handlers run on the CoreBluetooth/diagnostic queues.
+  // The spool's blocking JSONL + SHA-256 + fsync appends must never run there
+  // (they starve the BLE link — see localOvernightCaptureEnabled history), so
+  // each handler hops to the serial ingest queue, which preserves arrival order.
+
   nonisolated func persistOvernightRawNotificationBeforeInterpretation(
     _ event: GooseNotificationEvent,
     activeDeviceName: String,
@@ -191,27 +212,58 @@ extension GooseAppModel {
     guard overnightRawSpool.isActive else {
       return
     }
-    let snapshot = overnightRawSpool.append(
-      event: event,
-      activeDeviceName: activeDeviceName,
-      connectionState: connectionState
-    )
-    overnightSQLiteMirror.enqueueRawNotification(
-      sessionID: snapshot.sessionID,
-      event: event,
-      activeDeviceName: activeDeviceName,
-      connectionState: connectionState
-    ) { [weak self] snapshot in
-      self?.applyOvernightSQLiteMirrorSnapshot(
-        snapshot,
-        reason: "sqlite_mirror_raw",
-        writeSidecars: true
-      )
+    guard admitOvernightSpoolIngest(label: "raw_notification") else {
+      return
     }
-    if Self.shouldPublishOvernightRawSpoolSnapshot(snapshot) {
-      Task { @MainActor [weak self] in
-        self?.applyOvernightRawNotificationSnapshot(snapshot, event: event)
+    overnightSpoolIngestQueue.async { [weak self] in
+      guard let self else {
+        return
       }
+      defer {
+        self.overnightSpoolIngestGate.finish()
+      }
+      let snapshot = self.overnightRawSpool.append(
+        event: event,
+        activeDeviceName: activeDeviceName,
+        connectionState: connectionState
+      )
+      self.overnightSQLiteMirror.enqueueRawNotification(
+        sessionID: snapshot.sessionID,
+        event: event,
+        activeDeviceName: activeDeviceName,
+        connectionState: connectionState
+      ) { [weak self] snapshot in
+        self?.applyOvernightSQLiteMirrorSnapshot(
+          snapshot,
+          reason: "sqlite_mirror_raw",
+          writeSidecars: true
+        )
+      }
+      if Self.shouldPublishOvernightRawSpoolSnapshot(snapshot) {
+        Task { @MainActor [weak self] in
+          self?.applyOvernightRawNotificationSnapshot(snapshot, event: event)
+        }
+      }
+    }
+  }
+
+  nonisolated func admitOvernightSpoolIngest(label: String) -> Bool {
+    switch overnightSpoolIngestGate.admit() {
+    case .admitted:
+      return true
+    case .dropped(let totalDropped):
+      if totalDropped == 1 || totalDropped.isMultiple(of: 100) {
+        let maxDepth = overnightSpoolIngestGate.maxDepth
+        Task { @MainActor [weak self] in
+          self?.ble.record(
+            level: .warn,
+            source: "overnight.guard",
+            title: "spool_ingest.dropped",
+            body: "label=\(label) dropped_total=\(totalDropped) max_in_flight=\(maxDepth)"
+          )
+        }
+      }
+      return false
     }
   }
 
@@ -219,20 +271,31 @@ extension GooseAppModel {
     guard overnightRawSpool.isActive else {
       return
     }
-    let snapshot = overnightRawSpool.appendHistoricalRangeTelemetry(telemetry)
-    overnightSQLiteMirror.enqueueHistoricalRangePoll(
-      sessionID: snapshot.sessionID,
-      telemetry: telemetry
-    ) { [weak self] snapshot in
-      self?.applyOvernightSQLiteMirrorSnapshot(
-        snapshot,
-        reason: "sqlite_mirror_range",
-        writeSidecars: true,
-        forceSidecarsAfterFlush: true
-      )
+    guard admitOvernightSpoolIngest(label: "historical_range") else {
+      return
     }
-    Task { @MainActor [weak self] in
-      self?.applyOvernightHistoricalRangeTelemetrySnapshot(snapshot, telemetry: telemetry)
+    overnightSpoolIngestQueue.async { [weak self] in
+      guard let self else {
+        return
+      }
+      defer {
+        self.overnightSpoolIngestGate.finish()
+      }
+      let snapshot = self.overnightRawSpool.appendHistoricalRangeTelemetry(telemetry)
+      self.overnightSQLiteMirror.enqueueHistoricalRangePoll(
+        sessionID: snapshot.sessionID,
+        telemetry: telemetry
+      ) { [weak self] snapshot in
+        self?.applyOvernightSQLiteMirrorSnapshot(
+          snapshot,
+          reason: "sqlite_mirror_range",
+          writeSidecars: true,
+          forceSidecarsAfterFlush: true
+        )
+      }
+      Task { @MainActor [weak self] in
+        self?.applyOvernightHistoricalRangeTelemetrySnapshot(snapshot, telemetry: telemetry)
+      }
     }
   }
 
@@ -244,13 +307,24 @@ extension GooseAppModel {
     guard overnightRawSpool.isActive else {
       return
     }
-    let snapshot = overnightRawSpool.appendCommandWrite(
-      event,
-      activeDeviceName: activeDeviceName,
-      connectionState: connectionState
-    )
-    Task { @MainActor [weak self] in
-      self?.applyOvernightCommandWriteSnapshot(snapshot, event: event)
+    guard admitOvernightSpoolIngest(label: "command_write") else {
+      return
+    }
+    overnightSpoolIngestQueue.async { [weak self] in
+      guard let self else {
+        return
+      }
+      defer {
+        self.overnightSpoolIngestGate.finish()
+      }
+      let snapshot = self.overnightRawSpool.appendCommandWrite(
+        event,
+        activeDeviceName: activeDeviceName,
+        connectionState: connectionState
+      )
+      Task { @MainActor [weak self] in
+        self?.applyOvernightCommandWriteSnapshot(snapshot, event: event)
+      }
     }
   }
 
@@ -258,8 +332,20 @@ extension GooseAppModel {
     guard overnightRawSpool.isActive else {
       return
     }
-    let snapshot = overnightRawSpool.appendEventLog(message)
-    if Self.shouldPublishOvernightEventLogSnapshot(snapshot) {
+    guard admitOvernightSpoolIngest(label: "event_log") else {
+      return
+    }
+    overnightSpoolIngestQueue.async { [weak self] in
+      guard let self else {
+        return
+      }
+      defer {
+        self.overnightSpoolIngestGate.finish()
+      }
+      let snapshot = self.overnightRawSpool.appendEventLog(message)
+      guard Self.shouldPublishOvernightEventLogSnapshot(snapshot) else {
+        return
+      }
       Task { @MainActor [weak self] in
         guard let self, self.overnightGuardActive else {
           return
@@ -505,6 +591,9 @@ extension GooseAppModel {
     }
 
     let endedAt = Date()
+    // Drain handed-off spool appends (see persistOvernight*) so the terminal
+    // manifest/status counts include every record that arrived before the stop.
+    overnightSpoolIngestQueue.sync {}
     let snapshot = overnightRawSpool.finish(status: reason, summary: overnightGuardManifestSummary(reason: reason))
     overnightGuardActive = false
     overnightGuardRawNotificationCount = snapshot.notificationCount
@@ -550,6 +639,11 @@ extension GooseAppModel {
     ble.record(source: "overnight.guard", title: "stopped", body: overnightGuardStatus)
     if reason.hasPrefix("final_sync") {
       exportOvernightGuardBundle(sessionID: snapshot.sessionID, reason: reason)
+    } else {
+      // A final-sync critical background task may still be active if the guard
+      // was stopped mid-sync; with no export to end it, it would burn
+      // background time until iOS force-expires it.
+      endOvernightGuardCriticalBackgroundTask(reason: "guard_complete_\(reason)")
     }
   }
 
