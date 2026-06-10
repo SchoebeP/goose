@@ -29,12 +29,20 @@ extension HealthDataStore {
     bandVitalsDaily[Self.bandVitalsDateKey(for: date, calendar: calendar)]
   }
 
-  /// The most recent day the VPS feed has any vitals for — used by the Today
-  /// recovery-vitals card so it always shows real numbers (last night's), not
-  /// "--" before tonight's overnight value is computed.
+  /// The most recent COMPLETE night the VPS feed has vitals for. Today's
+  /// in-progress point often carries only resting HR (a partial-day minimum),
+  /// while HRV / respiratory / skin temp aren't computed until the night is
+  /// processed — so anchoring on "latest date overall" showed RHR with the rest
+  /// blank. Anchor on the latest date that has HRV (the overnight signal that
+  /// implies a full night), and only fall back to a partial day if no night has
+  /// HRV yet.
   func latestBandVitalDay() -> BandVitalDay? {
-    bandVitalsDaily.values
-      .filter { $0.hrvRMSSDms != nil || $0.restingHRbpm != nil || $0.respiratoryRPM != nil || $0.skinTempValue != nil }
+    let withHRV = bandVitalsDaily.values.filter { $0.hrvRMSSDms != nil }
+    if let night = withHRV.max(by: { $0.date < $1.date }) {
+      return night
+    }
+    return bandVitalsDaily.values
+      .filter { $0.restingHRbpm != nil || $0.respiratoryRPM != nil || $0.skinTempValue != nil }
       .max { $0.date < $1.date }
   }
 
