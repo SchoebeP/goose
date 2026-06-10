@@ -116,10 +116,10 @@ final class WorkoutLiveActivityController {
     guard let lastState else {
       return true
     }
+    // Only genuine transitions bypass minimumUpdateInterval; HR/distance churn
+    // rides the regular cadence (pause/resume/end already force-update).
     return lastState.status != state.status
       || lastState.isPaused != state.isPaused
-      || lastState.currentHeartRate != state.currentHeartRate
-      || lastState.distanceMeters != state.distanceMeters
   }
 
   private func makeState(

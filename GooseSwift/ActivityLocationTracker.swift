@@ -77,6 +77,12 @@ final class ActivityLocationTracker: NSObject, ObservableObject, CLLocationManag
   func stop() {
     wantsUpdates = false
     manager.stopUpdatingLocation()
+    // Drop segment-bridging state (keep cumulative totals) so the first fix
+    // after a resume starts a fresh segment instead of adding the displacement
+    // covered while paused to distance/pace/elevation.
+    lastAcceptedLocation = nil
+    recentLocations = []
+    currentPaceSecondsPerKilometer = nil
     gpsStatus = routePointCount == 0 ? "GPS idle" : "GPS paused"
   }
 

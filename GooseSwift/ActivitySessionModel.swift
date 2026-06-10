@@ -103,10 +103,13 @@ final class ActivitySessionModel: ObservableObject {
     guard delta > 0, let heartRate else {
       return
     }
+    // Clamp HR attribution so a background-suspension gap is never credited
+    // to one stale sample (elapsed above keeps the full wall-clock delta).
+    let hrDelta = min(delta, 15)
     let zoneID = HeartRateZone.zoneID(for: heartRate)
-    zoneDurations[zoneID, default: 0] += delta
-    heartRateWeightedTotal += Double(heartRate) * delta
-    heartRateMeasuredSeconds += delta
+    zoneDurations[zoneID, default: 0] += hrDelta
+    heartRateWeightedTotal += Double(heartRate) * hrDelta
+    heartRateMeasuredSeconds += hrDelta
     averageHeartRate = Int((heartRateWeightedTotal / max(heartRateMeasuredSeconds, 1)).rounded())
     maxHeartRate = max(maxHeartRate ?? heartRate, heartRate)
   }
