@@ -44,14 +44,7 @@ extension GooseAppModel {
     )
 
     let event = result.event
-    if result.droppedBytes > 0 {
-      ble.record(
-        level: .warn,
-        source: "rust",
-        title: "notification.frame.reassembly.dropped",
-        body: "\(event.characteristicUUID) dropped=\(result.droppedBytes) buffered=\(result.bufferedBytes)"
-      )
-    }
+    recordFrameReassemblyDropIfNeeded(result)
     if result.usedBufferedData && !result.frames.isEmpty {
       ble.record(
         source: "rust",
@@ -103,14 +96,7 @@ extension GooseAppModel {
     )
 
     let event = result.event
-    if result.droppedBytes > 0 {
-      ble.record(
-        level: .warn,
-        source: "rust",
-        title: "notification.frame.reassembly.dropped",
-        body: "\(event.characteristicUUID) dropped=\(result.droppedBytes) buffered=\(result.bufferedBytes)"
-      )
-    }
+    recordFrameReassemblyDropIfNeeded(result)
     if result.usedBufferedData && !result.frames.isEmpty {
       ble.record(
         source: "rust",
@@ -134,12 +120,7 @@ extension GooseAppModel {
 
     let event = result.event
     if result.droppedBytes > 0 {
-      ble.record(
-        level: .warn,
-        source: "rust",
-        title: "notification.frame.reassembly.dropped",
-        body: "\(event.characteristicUUID) dropped=\(result.droppedBytes) buffered=\(result.bufferedBytes)"
-      )
+      recordFrameReassemblyDropIfNeeded(result)
       if result.bufferedBytes == 0 {
         return
       }
@@ -722,6 +703,32 @@ extension GooseAppModel {
       expectedBytes: reassembly.expectedBytes,
       droppedBytes: reassembly.droppedBytes,
       usedBufferedData: reassembly.usedBufferedData
+    )
+  }
+
+  /// 61080005 streams small non-0xAA messages continuously, so per-notification
+  /// drop warnings flooded the log pipeline (~100k+/day uploaded to the VPS).
+  /// The aggregator reports the first drop per characteristic immediately, then
+  /// one summary per minute with a hex sample of the undecoded payload.
+  func recordFrameReassemblyDropIfNeeded(_ result: NotificationIngestResult) {
+    guard result.droppedBytes > 0 else {
+      return
+    }
+    let event = result.event
+    guard let summary = frameReassemblyDrops.record(
+      characteristicUUID: event.characteristicUUID,
+      droppedBytes: result.droppedBytes,
+      sampleHex: String(event.value.hexString.prefix(48))
+    ) else {
+      return
+    }
+    ble.record(
+      level: .warn,
+      source: "rust",
+      title: "notification.frame.reassembly.dropped",
+      body: summary.seconds == 0
+        ? "\(event.characteristicUUID) dropped=\(summary.bytes) buffered=\(result.bufferedBytes) sample=\(summary.sample)"
+        : "\(event.characteristicUUID) dropped \(summary.count)x (\(summary.bytes) bytes) in \(summary.seconds)s sample=\(summary.sample)"
     )
   }
 

@@ -85,6 +85,55 @@ final class OvernightSpoolIngestGate: @unchecked Sendable {
   }
 }
 
+/// Collapses the per-notification frame-reassembly drop warnings into one
+/// summary per characteristic per minute. The band streams small non-0xAA
+/// messages on 61080005 continuously (~100k+ drops/day before this), and each
+/// warn was uploaded to the VPS log table. A hex sample is kept so the
+/// undecoded channel stays inspectable. Called from both the main thread and
+/// the notification-ingest queue, hence the lock.
+final class FrameReassemblyDropAggregator: @unchecked Sendable {
+  struct Summary {
+    let count: Int
+    let bytes: Int
+    let sample: String
+    let seconds: Int
+  }
+
+  private let lock = NSLock()
+  private var windows: [String: (count: Int, bytes: Int, sample: String, windowStart: Date)] = [:]
+
+  /// First drop on a characteristic reports immediately (a new channel is
+  /// never silent); afterwards drops accumulate and a summary is returned
+  /// once per 60s window.
+  func record(
+    characteristicUUID: String,
+    droppedBytes: Int,
+    sampleHex: String,
+    at now: Date = Date()
+  ) -> Summary? {
+    lock.lock()
+    defer {
+      lock.unlock()
+    }
+    guard var window = windows[characteristicUUID] else {
+      windows[characteristicUUID] = (0, 0, "", now)
+      return Summary(count: 1, bytes: droppedBytes, sample: sampleHex, seconds: 0)
+    }
+    window.count += 1
+    window.bytes += droppedBytes
+    if window.sample.isEmpty {
+      window.sample = sampleHex
+    }
+    let elapsed = now.timeIntervalSince(window.windowStart)
+    guard elapsed >= 60 else {
+      windows[characteristicUUID] = window
+      return nil
+    }
+    windows[characteristicUUID] = (0, 0, "", now)
+    return Summary(count: window.count, bytes: window.bytes, sample: window.sample, seconds: Int(elapsed))
+  }
+}
+
 @MainActor
 final class GooseAppModel: ObservableObject {
   @Published var onboardingComplete = false
@@ -178,6 +227,7 @@ final class GooseAppModel: ObservableObject {
   let captureFrameEnqueueAggregator = CaptureFrameEnqueueAggregator(
     publishInterval: GooseAppModel.packetUIStatePublishInterval
   )
+  let frameReassemblyDrops = FrameReassemblyDropAggregator()
   let overnightSQLiteMirror = OvernightSQLiteMirrorQueue(databasePath: HealthDataStore.defaultDatabasePath())
   let passiveActivityDetectionPipeline = PassiveActivityDetectionPipeline()
   var activeActivityPersistence: ActiveActivityPersistence? {
