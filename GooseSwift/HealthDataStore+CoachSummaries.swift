@@ -3,7 +3,87 @@ import Foundation
 import SwiftUI
 import UIKit
 
+/// One day's band-history vitals as computed server-side by the VPS
+/// `/ingest/vitals/daily` feed.
+struct BandVitalDay {
+  let date: String          // "yyyy-MM-dd" local
+  let hrvRMSSDms: Double?
+  let restingHRbpm: Double?
+  let respiratoryRPM: Double?
+  let skinTempValue: Double?
+  let skinTempCalibrated: Bool
+}
+
 extension HealthDataStore {
+  /// Format a date as the local "yyyy-MM-dd" key the VPS feed uses.
+  static func bandVitalsDateKey(for date: Date, calendar: Calendar = .current) -> String {
+    let f = DateFormatter()
+    f.calendar = calendar
+    f.locale = Locale(identifier: "en_US_POSIX")
+    f.timeZone = calendar.timeZone
+    f.dateFormat = "yyyy-MM-dd"
+    return f.string(from: date)
+  }
+
+  func bandVitalDay(for date: Date, calendar: Calendar = .current) -> BandVitalDay? {
+    bandVitalsDaily[Self.bandVitalsDateKey(for: date, calendar: calendar)]
+  }
+
+  /// Fetch the VPS-computed daily vitals (HRV/RHR/respiratory/skin-temp) so the
+  /// recovery card can show real values even when no local capture session ran.
+  /// Fire-and-forget; never blocks. Failures leave the existing values in place.
+  func refreshBandVitalsDaily() {
+    guard !usesPreviewPacketData else { return }
+    var components = URLComponents(string: "https://latenightgames.fr/whoop/ingest/vitals/daily")!
+    components.queryItems = [
+      URLQueryItem(name: "days", value: "14"),
+      URLQueryItem(name: "tz", value: TimeZone.current.identifier),
+    ]
+    guard let url = components.url else { return }
+    var req = URLRequest(url: url, timeoutInterval: 15)
+    req.setValue(IngestCredentials.token, forHTTPHeaderField: "X-Ingest-Token")
+    URLSession.shared.dataTask(with: req) { data, resp, _ in
+      guard let data,
+            let status = (resp as? HTTPURLResponse)?.statusCode, (200..<300).contains(status),
+            let parsed = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+            let signals = parsed["signals"] as? [String: Any] else {
+        return
+      }
+      // Build a per-date map by zipping each signal's series on the date key.
+      func series(_ key: String) -> [String: Double] {
+        guard let sig = signals[key] as? [String: Any],
+              let rows = sig["series"] as? [[String: Any]] else { return [:] }
+        var out: [String: Double] = [:]
+        for row in rows {
+          if let d = row["date"] as? String, let v = (row["value"] as? NSNumber)?.doubleValue {
+            out[d] = v
+          }
+        }
+        return out
+      }
+      let hrv = series("hrv_rmssd")
+      let rhr = series("resting_hr")
+      let resp = series("respiratory_rpm")
+      let skin = series("skin_temp_c")
+      let skinCalibrated = ((signals["skin_temp_c"] as? [String: Any])?["calibrated"] as? Bool) ?? false
+      let dates = Set(hrv.keys).union(rhr.keys).union(resp.keys).union(skin.keys)
+      var map: [String: BandVitalDay] = [:]
+      for d in dates {
+        map[d] = BandVitalDay(
+          date: d,
+          hrvRMSSDms: hrv[d],
+          restingHRbpm: rhr[d],
+          respiratoryRPM: resp[d],
+          skinTempValue: skin[d],
+          skinTempCalibrated: skinCalibrated
+        )
+      }
+      Task { @MainActor [weak self] in
+        self?.bandVitalsDaily = map
+      }
+    }.resume()
+  }
+
   func metricInputReadinessSummary() -> String {
     guard let report = packetInputReports["readiness"] else {
       return packetInputStatus == "No run" ? "No run | bridge extract available" : packetInputStatus
@@ -444,23 +524,23 @@ extension HealthDataStore {
        let text = Self.numberText(metric["hrv_rmssd_ms"], fractionDigits: 0) {
       return "\(text) ms"
     }
-    guard calendar.isDate(calendar.startOfDay(for: date), inSameDayAs: calendar.startOfDay(for: Date())) else {
-      return "--"
+    // Today's local packet-scorer value takes priority when present, but the
+    // scorer only sees explicit-capture frames; the VPS band-history feed is
+    // the fallback for any date in its window.
+    if calendar.isDate(calendar.startOfDay(for: date), inSameDayAs: calendar.startOfDay(for: Date())),
+       let report = packetInputReports["hrv"], Self.boolValue(report["pass"]) == true {
+      let output = Self.map(report, "score_result", "output")
+      let value = Self.doubleValue(output?["rmssd_ms"])
+        ?? Self.array(report["daily"]).last.flatMap { Self.doubleValue($0["rmssd_ms"]) }
+      if let value, let text = Self.numberText(value, fractionDigits: 0) {
+        return "\(text) ms"
+      }
     }
-    guard let report = packetInputReports["hrv"] else {
-      return "--"
+    if let band = bandVitalDay(for: date, calendar: calendar)?.hrvRMSSDms,
+       let text = Self.numberText(band, fractionDigits: 0) {
+      return "\(text) ms"
     }
-    guard Self.boolValue(report["pass"]) == true else {
-      return "--"
-    }
-    let output = Self.map(report, "score_result", "output")
-    let value = Self.doubleValue(output?["rmssd_ms"])
-      ?? Self.array(report["daily"]).last.flatMap { Self.doubleValue($0["rmssd_ms"]) }
-    guard let value,
-          let text = Self.numberText(value, fractionDigits: 0) else {
-      return "--"
-    }
-    return "\(text) ms"
+    return "--"
   }
 
   func recoveryHRVSource(for date: Date = Date(), calendar: Calendar = .current) -> HealthDataSource {
@@ -471,8 +551,13 @@ extension HealthDataStore {
       return dailyRecoveryMetricSource(metric, metricName: "HRV")
     }
     if calendar.isDate(calendar.startOfDay(for: date), inSameDayAs: calendar.startOfDay(for: Date())),
-       recoveryHRVDisplayText(for: date, calendar: calendar) != "--" {
+       let report = packetInputReports["hrv"], Self.boolValue(report["pass"]) == true,
+       (Self.doubleValue(Self.map(report, "score_result", "output")?["rmssd_ms"])
+        ?? Self.array(report["daily"]).last.flatMap { Self.doubleValue($0["rmssd_ms"]) }) != nil {
       return .bridgeDeviceSensor("metrics.hrv_features")
+    }
+    if bandVitalDay(for: date, calendar: calendar)?.hrvRMSSDms != nil {
+      return .bridge("VPS history · overnight RMSSD")
     }
     if let detail = recoveryUnavailableSourceDetail(metricID: "hrv_rmssd_ms", for: date, calendar: calendar) {
       return .unavailable(detail)
@@ -488,33 +573,33 @@ extension HealthDataStore {
        let text = Self.numberText(metric["resting_hr_bpm"], fractionDigits: 0) {
       return "\(text) bpm"
     }
-    guard calendar.isDate(calendar.startOfDay(for: date), inSameDayAs: calendar.startOfDay(for: Date())) else {
-      return "--"
+    let isToday = calendar.isDate(calendar.startOfDay(for: date), inSameDayAs: calendar.startOfDay(for: Date()))
+    if isToday {
+      if let rollup = packetInputReports["resting_hr_rollup"],
+         Self.boolValue(rollup["pass"]) == true,
+         let text = Self.numberText(rollup["resting_hr_bpm"], fractionDigits: 0) {
+        return "\(text) bpm"
+      }
+      if let report = packetInputReports["resting_hr"] {
+        let resting = Self.map(report, "resting")
+        let value = Self.doubleValue(resting?["resting_hr_bpm"])
+          ?? Self.array(report["daily"]).last.flatMap { Self.doubleValue($0["resting_hr_bpm"]) }
+        if let value, let text = Self.numberText(value, fractionDigits: 0) {
+          return "\(text) bpm"
+        }
+      }
     }
-    if let rollup = packetInputReports["resting_hr_rollup"],
-       Self.boolValue(rollup["pass"]) == true,
-       let text = Self.numberText(rollup["resting_hr_bpm"], fractionDigits: 0) {
+    // VPS band-history overnight resting HR (any date in the feed window) —
+    // preferred over the instantaneous low-quartile live estimate.
+    if let band = bandVitalDay(for: date, calendar: calendar)?.restingHRbpm,
+       let text = Self.numberText(band, fractionDigits: 0) {
       return "\(text) bpm"
     }
-    guard let report = packetInputReports["resting_hr"] else {
-      if let sample = Self.liveHRDerivedRestingHeartRateSample(),
-         let text = Self.numberText(sample.bpm, fractionDigits: 0) {
-        return "\(text) bpm"
-      }
-      return "--"
+    if isToday, let sample = Self.liveHRDerivedRestingHeartRateSample(),
+       let text = Self.numberText(sample.bpm, fractionDigits: 0) {
+      return "\(text) bpm"
     }
-    let resting = Self.map(report, "resting")
-    let value = Self.doubleValue(resting?["resting_hr_bpm"])
-      ?? Self.array(report["daily"]).last.flatMap { Self.doubleValue($0["resting_hr_bpm"]) }
-    guard let value,
-          let text = Self.numberText(value, fractionDigits: 0) else {
-      if let sample = Self.liveHRDerivedRestingHeartRateSample(),
-         let text = Self.numberText(sample.bpm, fractionDigits: 0) {
-        return "\(text) bpm"
-      }
-      return "--"
-    }
-    return "\(text) bpm"
+    return "--"
   }
 
   func recoveryRestingHRSource(for date: Date = Date(), calendar: Calendar = .current) -> HealthDataSource {
@@ -524,25 +609,32 @@ extension HealthDataStore {
     if let metric = preferredDailyRecoveryMetricWithRestingHR(for: date, calendar: calendar) {
       return dailyRecoveryRestingHRSource(metric)
     }
-    guard calendar.isDate(calendar.startOfDay(for: date), inSameDayAs: calendar.startOfDay(for: Date())) else {
+    let isToday = calendar.isDate(calendar.startOfDay(for: date), inSameDayAs: calendar.startOfDay(for: Date()))
+    if isToday {
+      if let rollup = packetInputReports["resting_hr_rollup"],
+         Self.boolValue(rollup["pass"]) == true,
+         Self.doubleValue(rollup["resting_hr_bpm"]) != nil {
+        return .bridgeDeviceSensor("metrics.resting_hr_daily_rollup")
+      }
+      if let report = packetInputReports["resting_hr"] {
+        let resting = Self.map(report, "resting")
+        let value = Self.doubleValue(resting?["resting_hr_bpm"])
+          ?? Self.array(report["daily"]).last.flatMap { Self.doubleValue($0["resting_hr_bpm"]) }
+        if value != nil {
+          return .bridgeDeviceSensor("metrics.resting_hr_features")
+        }
+      }
+    }
+    if bandVitalDay(for: date, calendar: calendar)?.restingHRbpm != nil {
+      return .bridge("VPS history · overnight resting HR")
+    }
+    guard isToday else {
       return .unavailable("selected date has no stored resting HR metric")
     }
     let blockedRollupAction = packetInputReports["resting_hr_rollup"].map {
       firstPacketAction(in: $0) ?? "metrics.resting_hr_daily_rollup blocked"
     }
-    if let rollup = packetInputReports["resting_hr_rollup"] {
-      if Self.boolValue(rollup["pass"]) == true,
-         Self.doubleValue(rollup["resting_hr_bpm"]) != nil {
-        return .bridgeDeviceSensor("metrics.resting_hr_daily_rollup")
-      }
-    }
     if let report = packetInputReports["resting_hr"] {
-      let resting = Self.map(report, "resting")
-      let value = Self.doubleValue(resting?["resting_hr_bpm"])
-        ?? Self.array(report["daily"]).last.flatMap { Self.doubleValue($0["resting_hr_bpm"]) }
-      if value != nil {
-        return .bridgeDeviceSensor("metrics.resting_hr_features")
-      }
       return .unavailable(firstPacketAction(in: report) ?? "resting HR packet feature unavailable")
     }
     if let sample = Self.liveHRDerivedRestingHeartRateSample() {
@@ -568,15 +660,17 @@ extension HealthDataStore {
        let text = Self.numberText(metric["respiratory_rate_rpm"], fractionDigits: 1) {
       return "\(text) rpm"
     }
-    guard calendar.isDate(calendar.startOfDay(for: date), inSameDayAs: calendar.startOfDay(for: Date())) else {
-      return "--"
+    if calendar.isDate(calendar.startOfDay(for: date), inSameDayAs: calendar.startOfDay(for: Date())) {
+      let value = currentRecoveryRespiratoryRateRPM() ?? 0
+      if value > 0, let text = Self.numberText(value, fractionDigits: 1) {
+        return "\(text) rpm"
+      }
     }
-    let value = currentRecoveryRespiratoryRateRPM() ?? 0
-    guard value > 0,
-          let text = Self.numberText(value, fractionDigits: 1) else {
-      return "--"
+    if let band = bandVitalDay(for: date, calendar: calendar)?.respiratoryRPM,
+       let text = Self.numberText(band, fractionDigits: 1) {
+      return "\(text) rpm"
     }
-    return "\(text) rpm"
+    return "--"
   }
 
   func recoveryRespiratoryRateSource(for date: Date = Date(), calendar: Calendar = .current) -> HealthDataSource {
@@ -593,6 +687,9 @@ extension HealthDataStore {
         return Self.recoveryProvidedVitalsSource(vitals)
       }
       return .bridgeDeviceSensor("packet-derived recovery vitals")
+    }
+    if bandVitalDay(for: date, calendar: calendar)?.respiratoryRPM != nil {
+      return .bridge("VPS history · respiratory rate")
     }
     if let detail = recoveryUnavailableSourceDetail(metricID: "respiratory_rate_rpm", for: date, calendar: calendar) {
       return .unavailable(detail)

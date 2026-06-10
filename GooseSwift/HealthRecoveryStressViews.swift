@@ -134,6 +134,7 @@ struct RecoveryV2OverviewPage: View {
     }
     .navigationTitle("Recovery")
     .navigationBarTitleDisplayMode(.inline)
+    .task { store.refreshBandVitalsDaily() }
     .toolbarBackground(.hidden, for: .navigationBar)
     .toolbar {
       ToolbarItem(placement: .principal) {

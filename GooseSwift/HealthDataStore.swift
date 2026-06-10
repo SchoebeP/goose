@@ -21,6 +21,12 @@ final class HealthDataStore: ObservableObject {
   @Published var calibrationRunComplete = false
   @Published var heartRateHourlyRanges: [HeartRateHourlyRange] = []
   @Published var heartRateTimelineStatus = "No HR samples stored"
+  /// Daily HRV/RHR/respiratory/skin-temp computed by the VPS from the band's
+  /// uploaded history, keyed by "yyyy-MM-dd" (local). Used as the recovery
+  /// fallback because the local scorer only sees frames captured during an
+  /// explicit packet-capture session, while the band streams continuously to
+  /// the VPS. These remain OUR OWN computations, never WHOOP's.
+  @Published var bandVitalsDaily: [String: BandVitalDay] = [:]
 
   let bridge = GooseRustBridge()
   let heartRateSeriesStore = HeartRateSeriesStore.shared

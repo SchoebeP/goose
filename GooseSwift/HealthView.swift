@@ -66,6 +66,7 @@ struct HealthView: View {
       model.recordUIAction("page.opened", detail: "Health")
       store.loadBridgeCatalogsIfNeeded()
       store.refreshHeartRateTimeline()
+      store.refreshBandVitalsDaily()
     }
   }
 
