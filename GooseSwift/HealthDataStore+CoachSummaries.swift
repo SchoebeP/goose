@@ -708,15 +708,23 @@ extension HealthDataStore {
        let text = Self.signedNumberText(metric["skin_temperature_delta_c"], fractionDigits: 1) {
       return "\(text) C"
     }
-    guard calendar.isDate(calendar.startOfDay(for: date), inSameDayAs: calendar.startOfDay(for: Date())) else {
-      return "--"
+    if calendar.isDate(calendar.startOfDay(for: date), inSameDayAs: calendar.startOfDay(for: Date())) {
+      let value = recoveryProvidedVitalsValue("skin_temp_delta_c") ?? 0
+      if value != 0, let text = Self.signedNumberText(value, fractionDigits: 1) {
+        return "\(text) C"
+      }
     }
-    let value = recoveryProvidedVitalsValue("skin_temp_delta_c") ?? 0
-    guard value != 0,
-          let text = Self.signedNumberText(value, fractionDigits: 1) else {
-      return "--"
+    // VPS band-history wrist temperature: absolute °C once the calibration fit
+    // is ready, otherwise the honest raw thermistor index.
+    if let day = bandVitalDay(for: date, calendar: calendar), let value = day.skinTempValue {
+      if day.skinTempCalibrated, let text = Self.numberText(value, fractionDigits: 1) {
+        return "\(text) °C"
+      }
+      if !day.skinTempCalibrated {
+        return "\(Int(value.rounded())) raw"
+      }
     }
-    return "\(text) C"
+    return "--"
   }
 
   func recoveryOxygenSaturationDisplayText(
