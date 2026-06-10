@@ -104,6 +104,7 @@ extension GooseBLEClient: CBCentralManagerDelegate {
       gen4HistoryDeadline = nil
       gen4ReEnableTimer?.invalidate()
       gen4ReEnableTimer = nil
+      WhoopCloudForwarder.shared.resetFrameReassembly()
       readySyncWorkItem?.cancel()
       pendingConnectionReason = nil
       activePeripheral = nil
@@ -273,6 +274,7 @@ extension GooseBLEClient: CBCentralManagerDelegate {
     gen4HistoryDeadline = nil                // close the backfill ack window
     gen4ReEnableTimer?.invalidate()
     gen4ReEnableTimer = nil
+    WhoopCloudForwarder.shared.resetFrameReassembly()  // a partial frame must not bridge connections
     readySyncWorkItem?.cancel()
     if isHistoricalSyncing {
       failHistoricalSync("WHOOP disconnected during historical sync. \(error?.localizedDescription ?? "No CoreBluetooth error was provided.")")

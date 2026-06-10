@@ -239,9 +239,21 @@ final class GooseBLEClient: NSObject, ObservableObject {
   var gen4StartedPulseStream = false
   var gen4StartedHistoricalBackfill = false   // one-shot HR history pull per connection
   var gen4LastHistoryAck = Date.distantPast   // throttle for HISTORICAL_DATA_RESULT acks
-  var gen4HistoryDeadline: Date?              // hard stop for the ack loop (write-pressure guard)
+  // Watchdog state crosses threads (written on the CoreBluetooth queue's
+  // notification fast path AND on main timers/teardown) — every access goes
+  // through gen4ProbeLock via these accessors. Callers must not already hold
+  // gen4ProbeLock when touching them.
+  private var _gen4HistoryDeadline: Date?
+  var gen4HistoryDeadline: Date? {            // hard stop for the ack loop (write-pressure guard)
+    get { gen4ProbeLock.lock(); defer { gen4ProbeLock.unlock() }; return _gen4HistoryDeadline }
+    set { gen4ProbeLock.lock(); defer { gen4ProbeLock.unlock() }; _gen4HistoryDeadline = newValue }
+  }
   var lastDeadLinkRecovery = Date.distantPast // throttle for zombie-connection recovery
-  var lastDataFrameAt = Date.distantPast      // last raw notification — stall watchdog
+  private var _lastDataFrameAt = Date.distantPast
+  var lastDataFrameAt: Date {                 // last raw notification — stall watchdog
+    get { gen4ProbeLock.lock(); defer { gen4ProbeLock.unlock() }; return _lastDataFrameAt }
+    set { gen4ProbeLock.lock(); defer { gen4ProbeLock.unlock() }; _lastDataFrameAt = newValue }
+  }
   var gen4ReEnableTimer: Timer?
   let gen4ProbeLock = NSLock()
   var gen4OpticalFrameCount = 0

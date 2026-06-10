@@ -156,6 +156,17 @@ extension GooseBLEClient: CBPeripheralDelegate {
            V5PacketType.metadata,
            V5PacketType.puffinMetadata:
         return true
+      case V5PacketType.historicalData,
+           V5PacketType.historicalIMUDataStream:
+        // During a V5 sync the packet counter + idle-timer re-arm live on main
+        // (handleHistoricalSyncValue); skipping these frames starves the counter
+        // and the retry logic fails a healthy transfer. isHistoricalSyncing is
+        // main-thread state read here on the CB queue — a stale false at sync
+        // start is benign (the type-36 command responses dispatch regardless).
+        if isHistoricalSyncing {
+          return true
+        }
+        continue
       default:
         continue
       }
@@ -213,6 +224,10 @@ extension GooseBLEClient: CBPeripheralDelegate {
   }
 
   func fanOutRawNotification(_ event: GooseNotificationEvent) {
+    // Stall watchdog: EVERY live source counts as data flowing — fd4b000x (5.0)
+    // and standard 2A37 HR too, not just the 6108 family — otherwise
+    // healConnectionIfStale tears down healthy non-GEN4 links on foreground.
+    lastDataFrameAt = Date()
     gen4ObserveRawNotification(event.value, characteristicUUID: event.characteristicUUID)
     if let onRawNotificationWithContext {
       onRawNotificationWithContext(event, notificationContextSnapshot())

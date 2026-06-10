@@ -700,6 +700,7 @@ extension GooseBLEClient {
     gen4HistoryDeadline = nil
     gen4ReEnableTimer?.invalidate()
     gen4ReEnableTimer = nil
+    WhoopCloudForwarder.shared.resetFrameReassembly()
     // Cancel the zombie connection. didDisconnectPeripheral fires the normal
     // auto-reconnect, which rediscovers services with valid handles.
     if let peripheral = activePeripheral, let central {
@@ -923,6 +924,9 @@ extension GooseBLEClient {
     }
 
     if commandCharacteristic != nil {
+      // Fresh grace period for the stall heal/watchdog: a new connection must
+      // not inherit distantPast (or the previous link's last frame time).
+      lastDataFrameAt = Date()
       updateConnectionState("ready")
       sendClientHelloIfNeeded(reason: cached ? "cached_gatt" : "gatt_discovery")
       scheduleDebugSkinTemperatureCommandIfNeeded(reason: cached ? "cached_ready" : "ready")
@@ -1200,7 +1204,6 @@ extension GooseBLEClient {
     guard uuid.hasPrefix("61080005") || uuid.hasPrefix("61080003") || uuid.hasPrefix("61080004") else {
       return
     }
-    lastDataFrameAt = Date()   // stall watchdog: any notification = data is flowing
     // Forward every fragment to the cloud reassembler (powers the live /pulse).
     WhoopCloudForwarder.shared.ingestRawFrame(value, characteristicUUID: characteristicUUID)
     guard value.count >= 7 else { return }
@@ -1226,11 +1229,13 @@ extension GooseBLEClient {
     // frames doesn't flood the command channel). The frames themselves are
     // forwarded to the VPS by ingestRawFrame above.
     if type == 47 {
-      gen4ProbeLock.lock()
       let now = Date()
       // ACK only inside the bounded backfill window, throttled to ≤2/sec, so a
       // long historical stream can't pressure the command channel into a timeout.
+      // gen4HistoryDeadline's accessor takes gen4ProbeLock itself — read it
+      // before locking (NSLock is non-recursive).
       let withinWindow = (gen4HistoryDeadline.map { now < $0 }) ?? false
+      gen4ProbeLock.lock()
       let due = withinWindow && now.timeIntervalSince(gen4LastHistoryAck) >= 0.5
       if due { gen4LastHistoryAck = now }
       gen4ProbeLock.unlock()

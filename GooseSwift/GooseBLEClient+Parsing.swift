@@ -831,7 +831,7 @@ extension GooseBLEClient {
   }
 
   static func historicalDataResultPayload(fromHistoryEndMetadataPayload payload: [UInt8]) -> [UInt8]? {
-    guard payload.count > 21 else {
+    guard payload.count >= 21 else {
       return nil
     }
 
@@ -1053,10 +1053,25 @@ final class WhoopCloudForwarder {
       var i = 0
       while i + 4 <= buf.count {
         if buf[i] != 0xAA { i += 1; continue }
+        // Header crc8 (poly 0x07 over the two length bytes, per the GEN4 frame
+        // builder): a payload byte that happens to be 0xAA fails this and is
+        // skipped before its bogus declared length can desync the scanner.
+        if GooseBLEClient.crc8Gen4([buf[i + 1], buf[i + 2]]) != buf[i + 3] { i += 1; continue }
         let len = Int(buf[i + 1]) | (Int(buf[i + 2]) << 8)
+        if len < 4 { i += 1; continue }              // must at least hold the trailing CRC-32
         let end = i + 4 + len
         if end > buf.count { break }                 // frame not fully arrived yet
         let frame = Array(buf[i..<end])
+        // Trailing CRC-32 check. Real captures off this band validate over the
+        // body only (frame[4..<count-4], matching the Rust parser); the
+        // header-inclusive range from community docs is accepted as fallback.
+        let tail = GooseBLEClient.readUInt32LE(frame, at: frame.count - 4) ?? 0
+        let body = Array(frame[4..<(frame.count - 4)])
+        if GooseBLEClient.crc32(body) != tail,
+           GooseBLEClient.crc32(Array(frame[0..<(frame.count - 4)])) != tail {
+          i += 1                                     // false header — resync
+          continue
+        }
         let type = frame.count > 4 ? frame[4] : 0
         if type == 40 || type == 43 || type == 48 || type == 36 || type == 47 {
           // HR / optical / event / cmd-resp / historical-backfill
@@ -1065,7 +1080,16 @@ final class WhoopCloudForwarder {
         i = end
       }
       if i > 0 { buf.removeFirst(i) }
-      if buf.count > 16384 { buf.removeFirst(buf.count - 8192) }     // guard against runaway
+      if buf.count > 16384 {                         // guard against runaway
+        // A crc8-valid false header with a huge declared length can pin the
+        // scan at 0; drop to the next sync candidate so any valid frames
+        // buffered behind it survive, and log — this should be rare.
+        let next = buf.dropFirst().firstIndex(of: 0xAA) ?? buf.count
+        buf.removeFirst(next)
+        self.ingestLog(level: "warn", source: "cloud.frames",
+                       title: "frame_buffer.overflow_trim",
+                       body: "dropped \(next) bytes on \(uuid)", at: Date())
+      }
       self.frameBuffers[uuid] = buf
       let now = Date()
       if self.pendingFrames.count >= 30
@@ -1073,6 +1097,14 @@ final class WhoopCloudForwarder {
         self.flushFramesOnQueue(now)
       }
     }
+  }
+
+  /// Drop all partial frame-reassembly state. The BLE client must call this on
+  /// connect and disconnect (and dead-link recovery): a frame stranded
+  /// mid-reassembly by a dropped link would otherwise absorb the next
+  /// connection's bytes into a chimera frame and desync the scanner.
+  func resetFrameReassembly() {
+    queue.async { self.frameBuffers.removeAll() }
   }
 
   // MARK: Disk-backed outbox — no internet must never lose biometric frames
