@@ -27,6 +27,12 @@ final class HealthDataStore: ObservableObject {
   /// explicit packet-capture session, while the band streams continuously to
   /// the VPS. These remain OUR OWN computations, never WHOOP's.
   @Published var bandVitalsDaily: [String: BandVitalDay] = [:]
+  /// Per-signal personal "usual range" from the VPS feed, keyed "hrv"/"rhr"/"temp".
+  @Published var vitalBands: [String: VitalBand] = [:]
+  /// Per-signal daily series for the Trends tab, keyed "hrv"/"rhr"/"temp", oldest→newest.
+  @Published var vitalSeries: [String: [VitalPoint]] = [:]
+  /// Per-night sleep durations from the VPS, oldest→newest.
+  @Published var sleepNights: [SleepNight] = []
 
   let bridge = GooseRustBridge()
   let heartRateSeriesStore = HeartRateSeriesStore.shared

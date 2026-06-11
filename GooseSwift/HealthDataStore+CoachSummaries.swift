@@ -103,8 +103,97 @@ extension HealthDataStore {
           skinTempCalibrated: skinCalibrated
         )
       }
+      let bands = Self.parseVitalBands(signals)
+      let serieses = Self.parseVitalSeries(signals)
       Task { @MainActor [weak self] in
         self?.bandVitalsDaily = map
+        self?.vitalBands = bands
+        self?.vitalSeries = serieses
+      }
+    }.resume()
+  }
+
+  /// `{lo,hi,mean}` per signal → keyed "hrv"/"rhr"/"temp" (respiratory omitted —
+  /// it is a constant placeholder, not a real measurement).
+  static func parseVitalBands(_ signals: [String: Any]) -> [String: VitalBand] {
+    let pairs: [(String, String)] = [("hrv", "hrv_rmssd"), ("rhr", "resting_hr"), ("temp", "skin_temp_c")]
+    var out: [String: VitalBand] = [:]
+    for (key, feedKey) in pairs {
+      guard let sig = signals[feedKey] as? [String: Any],
+            let band = sig["band"] as? [String: Any],
+            let lo = (band["lo"] as? NSNumber)?.doubleValue,
+            let hi = (band["hi"] as? NSNumber)?.doubleValue,
+            let mean = (band["mean"] as? NSNumber)?.doubleValue else { continue }
+      out[key] = VitalBand(lo: lo, hi: hi, mean: mean)
+    }
+    return out
+  }
+
+  /// Daily series per signal as oldest→newest VitalPoints (label "MM/DD").
+  static func parseVitalSeries(_ signals: [String: Any]) -> [String: [VitalPoint]] {
+    let pairs: [(String, String)] = [("hrv", "hrv_rmssd"), ("rhr", "resting_hr"), ("temp", "skin_temp_c")]
+    var out: [String: [VitalPoint]] = [:]
+    for (key, feedKey) in pairs {
+      guard let sig = signals[feedKey] as? [String: Any],
+            let rows = sig["series"] as? [[String: Any]] else { continue }
+      out[key] = rows.compactMap { row in
+        guard let d = row["date"] as? String, let v = (row["value"] as? NSNumber)?.doubleValue else { return nil }
+        let label = d.split(separator: "-").dropFirst().joined(separator: "/")
+        return VitalPoint(label: label.isEmpty ? d : label, value: v)
+      }
+    }
+    return out
+  }
+
+  /// Trends period fetch (W=7 / M=30 / 6M=180). Uses /ingest/trends which carries
+  /// per-signal series + bands; populates vitalSeries + vitalBands for charting.
+  func refreshTrends(period: String) {
+    guard !usesPreviewPacketData else { return }
+    var components = URLComponents(string: "https://latenightgames.fr/whoop/ingest/trends")!
+    components.queryItems = [
+      URLQueryItem(name: "period", value: period),
+      URLQueryItem(name: "tz", value: TimeZone.current.identifier),
+    ]
+    guard let url = components.url else { return }
+    var req = URLRequest(url: url, timeoutInterval: 30)
+    req.setValue(IngestCredentials.token, forHTTPHeaderField: "X-Ingest-Token")
+    URLSession.shared.dataTask(with: req) { data, resp, _ in
+      guard let data,
+            let status = (resp as? HTTPURLResponse)?.statusCode, (200..<300).contains(status),
+            let parsed = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+            let signals = parsed["signals"] as? [String: Any] else { return }
+      let bands = Self.parseVitalBands(signals)
+      let serieses = Self.parseVitalSeries(signals)
+      Task { @MainActor [weak self] in
+        self?.vitalBands = bands
+        self?.vitalSeries = serieses
+      }
+    }.resume()
+  }
+
+  /// Per-night sleep durations from the VPS (our own detection).
+  func refreshSleepNights() {
+    guard !usesPreviewPacketData else { return }
+    var components = URLComponents(string: "https://latenightgames.fr/whoop/ingest/sleep/nights")!
+    components.queryItems = [
+      URLQueryItem(name: "days", value: "14"),
+      URLQueryItem(name: "tz", value: TimeZone.current.identifier),
+    ]
+    guard let url = components.url else { return }
+    var req = URLRequest(url: url, timeoutInterval: 15)
+    req.setValue(IngestCredentials.token, forHTTPHeaderField: "X-Ingest-Token")
+    URLSession.shared.dataTask(with: req) { data, resp, _ in
+      guard let data,
+            let status = (resp as? HTTPURLResponse)?.statusCode, (200..<300).contains(status),
+            let parsed = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+            let rows = parsed["nights"] as? [[String: Any]] else { return }
+      let nights: [SleepNight] = rows.compactMap { row in
+        guard let d = row["date"] as? String,
+              let mins = (row["duration_min"] as? NSNumber)?.intValue else { return nil }
+        return SleepNight(date: d, minutes: mins)
+      }
+      Task { @MainActor [weak self] in
+        self?.sleepNights = nights
       }
     }.resume()
   }
