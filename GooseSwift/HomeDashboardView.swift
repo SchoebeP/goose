@@ -1,366 +1,327 @@
 import SwiftUI
 
+// ============================================================
+// Today (PToday) — Direction A · "Quiet Companion".
+// Live HR hero, day HR-range chart, steps, live-HRV + energy tiles.
+// Copy is verbatim from design_handoff_goose_direction_a/proto-screens.jsx.
+// Our own numbers, never WHOOP's; honest gaps that never interpolate.
+// ============================================================
+
 struct HomeDashboardView: View {
   @EnvironmentObject private var model: GooseAppModel
-  @EnvironmentObject private var router: AppRouter
+  // Kept so AppShellView's call site compiles unchanged. `openHealthRoute` is
+  // unused by the redesigned Today screen (navigation is via GDADetail pushes)
+  // but stays a stored prop per the call contract.
   @ObservedObject var healthStore: HealthDataStore
   @Binding var selectedDate: Date
   let openHealthRoute: (HealthRoute) -> Void
-  @State private var showingScoreDatePicker = false
-  @State private var showingCardioLoadSheet = false
-  @State private var selectedHealthMonitorTrend: HealthMetricSnapshot?
+
+  @StateObject private var hrFeed = MinutelyHRFeed()
   @StateObject private var stepsFeed = MinutelyStepsFeed()
 
   var body: some View {
+    HomeTodayContent(
+      store: healthStore,
+      ble: model.ble,
+      hrFeed: hrFeed,
+      stepsFeed: stepsFeed
+    )
+  }
+}
+
+/// The whole Today screen, observing the BLE client + the two minutely feeds
+/// directly so live HR / HRV / battery and the per-hour charts all refresh.
+private struct HomeTodayContent: View {
+  @ObservedObject var store: HealthDataStore
+  @ObservedObject var ble: GooseBLEClient
+  @ObservedObject var hrFeed: MinutelyHRFeed
+  @ObservedObject var stepsFeed: MinutelyStepsFeed
+
+  private var bandAway: Bool {
+    let s = ble.connectionState.lowercased()
+    return !(s == "ready" || s == "connected")
+  }
+
+  private var hrBuckets: [HourlyHR] { hourlyHR(from: hrFeed.minutes) }
+  private var stepBuckets: [HourlySteps] { hourlySteps(from: stepsFeed.minutes) }
+
+  var body: some View {
     ScrollView {
-      LazyVStack(alignment: .leading, spacing: 18) {
-        HomeLiveHeartRateWidget()
-
-        HomeStatCardRow(stepsFeed: stepsFeed)
-
-        HomeMinutelyHRSection()
-
-        HomeMinutelyStepsSection(feed: stepsFeed)
-
-        HomeStressEnergySection(
-          stress: landingSnapshot(for: .stress),
-          openStress: { openHealth(.stress) }
-        )
-
-        HomeRecoveryVitalsSection(store: healthStore)
+      VStack(alignment: .leading, spacing: 14) {
+        header
+        heartRateCard
+        stepsCard
+        bottomGrid
       }
-      .padding(.horizontal, 16)
+      .padding(.horizontal, 20)
       .padding(.vertical, 18)
     }
-    .scrollClipDisabled()
-    .gooseScreenBackground()
-    .navigationTitle("Today")
-    .navigationBarTitleDisplayMode(.inline)
-    .toolbarBackground(.hidden, for: .navigationBar)
-    .overlay(alignment: .top) {
-      HomeTopScrollFade()
-        .allowsHitTesting(false)
-    }
-    .toolbar {
-      ToolbarItem(placement: .principal) {
-        ScoreDateTitleButton(
-          title: homeTitle,
-          subtitle: nil,
-          action: { showingScoreDatePicker = true }
-        )
+    .gdaScreenBackground()
+    .navigationDestination(for: GDADetail.self) { detail in
+      switch detail {
+      case .sleep: GDASleepDetailView(store: store)
+      case .hrv: GDAHRVDetailView(store: store)
       }
-      ToolbarItem(placement: .topBarTrailing) {
-        NavigationLink {
-          DeviceView()
-        } label: {
-          HomeDeviceChip()
-        }
-        .accessibilityLabel("Device")
-        .accessibilityValue(deviceToolbarAccessibilityValue)
-      }
-    }
-    .onAppear {
-      model.recordUIAction("page.opened", detail: "Home")
     }
     .task {
-      healthStore.loadBridgeCatalogsIfNeeded()
-      model.refreshActivityTimeline(for: selectedDate)
+      store.refreshBandVitalsDaily()
+      ble.refreshBatteryLevel()
+      hrFeed.refresh()
+      hrFeed.startAutoRefresh()
       stepsFeed.refresh()
-      healthStore.refreshBandVitalsDaily()
+      stepsFeed.startAutoRefresh()
     }
-    .onChange(of: selectedDate) { _, newValue in
-      model.refreshActivityTimeline(for: newValue)
-    }
-    .sheet(isPresented: $showingScoreDatePicker) {
-      ScoreDatePickerSheet(
-        title: "Daily Scores",
-        routes: [.sleep, .recovery, .strain],
-        snapshots: scorePickerSnapshots,
-        selectedDate: $selectedDate
-      )
-    }
-    .sheet(isPresented: $showingCardioLoadSheet) {
-      CardioLoadSheet(store: healthStore)
-    }
-    .sheet(item: $selectedHealthMonitorTrend) { snapshot in
-      SleepV2BevelTrendSheet(snapshot: snapshot)
+    .onDisappear {
+      hrFeed.stopAutoRefresh()
+      stepsFeed.stopAutoRefresh()
     }
   }
 
-  private var scoreSnapshots: [HealthMetricSnapshot] {
-    [
-      datedHomeSnapshot(for: .sleep),
-      datedHomeSnapshot(for: .recovery),
-      datedHomeSnapshot(for: .strain),
-    ]
-  }
+  // MARK: Header
 
-  private var scorePickerSnapshots: [HealthMetricSnapshot] {
-    [
-      homeSnapshot(for: .sleep),
-      homeSnapshot(for: .recovery),
-      homeSnapshot(for: .strain),
-    ]
-  }
-
-  private var homeTitle: String {
-    ScoreDateTimeline.dateLabel(for: selectedDate)
-  }
-
-  private var deviceToolbarTint: Color {
-    deviceToolbarConnected ? .green : .red
-  }
-
-  private var deviceToolbarAccessibilityValue: String {
-    deviceToolbarConnected ? "Connected" : "Disconnected"
-  }
-
-  private var deviceToolbarConnected: Bool {
-    let state = model.ble.connectionState.lowercased()
-    return state == "ready" || state == "connected"
-  }
-
-  private var dailyActionSummary: String {
-    let inputAction = healthStore.metricInputReadinessNextActionSummary()
-    if !inputAction.isEmpty {
-      return inputAction
-    }
-    return healthStore.packetDerivedScoreNextActionSummary()
-  }
-
-  private var landingSnapshots: [HealthMetricSnapshot] {
-    healthStore.landingSnapshots(
-      liveHeartRateBPM: model.ble.liveHeartRateBPM,
-      liveHeartRateSource: model.ble.liveHeartRateSource,
-      liveHeartRateUpdatedAt: model.ble.liveHeartRateUpdatedAt,
-      stableDailyMetrics: true
-    )
-  }
-
-  private func landingSnapshot(for route: HealthRoute) -> HealthMetricSnapshot {
-    landingSnapshots.first { $0.route == route } ?? healthStore.snapshot(for: route)
-  }
-
-  private func homeSnapshot(for route: HealthRoute) -> HealthMetricSnapshot {
-    let snapshot = landingSnapshot(for: route)
-    guard route == .strain, snapshot.unit != "%" else {
-      return snapshot
-    }
-    let rawValue = firstNumber(in: snapshot.displayValue) ?? firstNumber(in: snapshot.value) ?? 0
-    let percent = min(max(Int((rawValue / 21 * 100).rounded()), 0), 100)
-    return HealthMetricSnapshot(
-      id: snapshot.id,
-      route: snapshot.route,
-      group: snapshot.group,
-      title: snapshot.title,
-      value: "\(percent)",
-      unit: "%",
-      status: snapshot.status,
-      freshness: snapshot.freshness,
-      provenance: snapshot.provenance,
-      source: snapshot.source,
-      systemImage: snapshot.systemImage,
-      tint: snapshot.tint,
-      trend: snapshot.trend
-    )
-  }
-
-  private func datedHomeSnapshot(for route: HealthRoute) -> HealthMetricSnapshot {
-    ScoreDateTimeline.datedSnapshot(from: homeSnapshot(for: route), date: selectedDate)
-  }
-
-  private func openHealth(_ route: HealthRoute) {
-    openHealthRoute(route)
-    model.recordUIAction("health.deep_link.opened", detail: route.title)
-  }
-
-  private func openHealthMonitorSnapshot(_ snapshot: HealthMetricSnapshot) {
-    if snapshot.id == "resting-hr" {
-      selectedHealthMonitorTrend = snapshot
-    } else {
-      openHealth(.healthMonitor)
+  private var header: some View {
+    HStack(alignment: .top) {
+      VStack(alignment: .leading, spacing: 4) {
+        Text("Today")
+          .font(.system(size: 28, weight: .bold, design: .rounded))
+          .tracking(-0.4)
+          .foregroundStyle(GDA.text)
+        Text(todayLabel)
+          .font(.system(size: 14))
+          .foregroundStyle(GDA.text2)
+      }
+      Spacer(minLength: 8)
+      bandPill
     }
   }
 
-  private func openCoach(_ prompt: String) {
-    router.openCoach(prompt: prompt)
-    model.recordUIAction("coach.opened", detail: "Home daily score card")
-  }
-}
-
-
-/// Live heart rate widget for Home (replaces the Cardio Load widget).
-/// Observes the BLE client directly so the BPM/HRV refresh live.
-struct HomeLiveHeartRateWidget: View {
-  @EnvironmentObject private var model: GooseAppModel
-  var body: some View { HomeLiveHeartRateContent(ble: model.ble) }
-}
-
-/// The data we actually decode from the 4.0 (the old "Available" tab, folded
-/// onto Home). HR / HRV / battery already show in the live widget above; this
-/// adds connection + the other decoded channels.
-struct HomeDecodedBandSection: View {
-  @EnvironmentObject private var model: GooseAppModel
-  var body: some View { HomeDecodedBandContent(ble: model.ble) }
-}
-
-private struct HomeDecodedBandContent: View {
-  @ObservedObject var ble: GooseBLEClient
-
-  var body: some View {
-    VStack(alignment: .leading, spacing: 12) {
-      Text("Decoded from your band")
-        .font(.headline)
-      decodedRow("antenna.radiowaves.left.and.right", .blue, "Connection", ble.connectionState.capitalized)
-      decodedRow("move.3d", .orange, "Accelerometer", "validated · 1g")
-      decodedRow("bell.fill", .gray, "Device events", "wrist · charging · battery")
-      Text("Heart rate, HRV and battery are shown above. Sleep, recovery and strain are WHOOP-cloud only and intentionally absent.")
-        .font(.caption)
-        .foregroundStyle(.secondary)
-    }
-    .padding(18)
-    .frame(maxWidth: .infinity, alignment: .leading)
-    .background(Color.secondary.opacity(0.08))
-    .clipShape(RoundedRectangle(cornerRadius: 18))
-    .onAppear { ble.refreshBatteryLevel() }
+  /// "Tuesday, June 10" — the device's own day, formatted like the prototype.
+  private var todayLabel: String {
+    let f = DateFormatter()
+    f.locale = Locale(identifier: "en_US")
+    f.dateFormat = "EEEE, MMMM d"
+    return f.string(from: Date())
   }
 
-  @ViewBuilder
-  private func decodedRow(_ icon: String, _ tint: Color, _ title: String, _ value: String) -> some View {
-    HStack(spacing: 12) {
-      Image(systemName: icon)
-        .foregroundStyle(tint)
-        .frame(width: 26)
-      Text(title)
-      Spacer()
-      Text(value)
-        .foregroundStyle(.secondary)
-        .fontWeight(.semibold)
-    }
-  }
-}
-
-/// Small capsule in the Today header: connection dot + battery % + charging bolt.
-struct HomeDeviceChip: View {
-  @EnvironmentObject private var model: GooseAppModel
-  var body: some View { HomeDeviceChipContent(ble: model.ble) }
-}
-
-private struct HomeDeviceChipContent: View {
-  @ObservedObject var ble: GooseBLEClient
-
-  private var connected: Bool {
-    let s = ble.connectionState.lowercased()
-    return s == "ready" || s == "connected"
-  }
-  private var charging: Bool { ble.batteryIsCharging == true }
-
-  var body: some View {
+  /// "Band · NN%" while connected, grey "Band · away" when out of range.
+  private var bandPill: some View {
     HStack(spacing: 6) {
       Circle()
-        .fill(connected ? GooseTheme.Accent.activity : Color.red)
+        .fill(bandAway ? GDA.text3 : GDA.activity)
         .frame(width: 7, height: 7)
-      Text(ble.batteryLevelPercent.map { "\($0)%" } ?? "—")
-        .font(.footnote.weight(.semibold))
-        .monospacedDigit()
-        .foregroundStyle(.primary)
-      if charging {
-        Image(systemName: "bolt.fill")
-          .font(.caption2.weight(.bold))
-          .foregroundStyle(GooseTheme.Accent.charging)
-      }
+      Text(bandAway ? "Band · away" : "Band · \(ble.batteryLevelPercent.map { "\($0)%" } ?? "—")")
+        .font(.system(size: 12.5, weight: .semibold))
     }
-    .padding(.horizontal, 10)
-    .padding(.vertical, 6)
-    .background(GooseTheme.cardBackground, in: Capsule(style: .continuous))
-    .onAppear { ble.refreshBatteryLevel() }
+    .foregroundStyle(GDA.text2)
+    .padding(.horizontal, 11)
+    .padding(.vertical, 4)
+    .background(
+      Color(red: 168/255, green: 184/255, blue: 214/255).opacity(0.10),
+      in: Capsule()
+    )
+  }
+
+  // MARK: Heart rate card
+
+  private var heartRateCard: some View {
+    VStack(alignment: .leading, spacing: 12) {
+      GDACardTitle("Heart rate", color: GDA.heart) {
+        if bandAway {
+          GDAPill(text: "out of range", style: .mut)
+        } else {
+          GDAPill(text: "live", style: .live, withDot: true)
+        }
+      }
+
+      HStack(alignment: .bottom) {
+        if bandAway {
+          heroNumeral("—", color: GDA.text3)
+        } else {
+          heroNumeral(ble.liveHeartRateBPM.map(String.init) ?? "—")
+        }
+        Spacer()
+        if !bandAway {
+          LiveSparkline(color: GDA.heart, seed: 3, width: 130, height: 40)
+        }
+      }
+
+      if bandAway {
+        Text("Last seen 12:48, about 10 m is the limit. The band keeps recording heart rate on its own — it backfills when you're back in range.")
+          .font(.system(size: 13))
+          .lineSpacing(3)
+          .foregroundStyle(GDA.text2)
+      } else {
+        Text(hrCaption)
+          .font(.system(size: 12))
+          .foregroundStyle(GDA.text3)
+      }
+
+      DayHRRangeChart(buckets: hrBuckets)
+
+      GDAGapNote(text: "Band was away 13:00–15:00 — HR backfills next sync")
+    }
+    .gdaCard()
+  }
+
+  /// "From the band over Bluetooth · day range LO–HI · avg AVG" — our own
+  /// numbers from the day's minutely feed. Falls back to the prototype copy
+  /// (54–130 · avg 82) before any data has streamed today.
+  private var hrCaption: String {
+    let ms = hrFeed.minutes
+    guard !ms.isEmpty else {
+      return "From the band over Bluetooth · day range 54–130 · avg 82"
+    }
+    let lo = ms.map(\.lo).min() ?? 54
+    let hi = ms.map(\.hi).max() ?? 130
+    let avg = Int((Double(ms.map(\.bpm).reduce(0, +)) / Double(ms.count)).rounded())
+    return "From the band over Bluetooth · day range \(lo)–\(hi) · avg \(avg)"
+  }
+
+  private func heroNumeral(_ text: String, color: Color = GDA.text) -> some View {
+    HStack(alignment: .firstTextBaseline, spacing: 4) {
+      Text(text)
+        .font(GDA.num(58))
+        .foregroundStyle(color)
+      Text("bpm")
+        .font(.system(size: 14, weight: .semibold))
+        .foregroundStyle(GDA.text2)
+    }
+    .lineLimit(1)
+    .minimumScaleFactor(0.6)
+  }
+
+  // MARK: Steps card
+
+  private var stepsCard: some View {
+    VStack(alignment: .leading, spacing: 12) {
+      GDACardTitle("Steps", color: GDA.activity)
+
+      HStack(alignment: .firstTextBaseline, spacing: 10) {
+        Text(stepsTotalText)
+          .font(GDA.num(34))
+          .foregroundStyle(GDA.text)
+          .lineLimit(1)
+          .minimumScaleFactor(0.6)
+        GDAPill(text: bandAway ? "paused — band away" : "so far today", style: .mut)
+      }
+
+      HourlyStepsChart(buckets: stepBuckets)
+
+      GDAGapNote(
+        text: bandAway
+          ? "Steps aren't buffered by the band — this gap will stay"
+          : "Steps only count while connected — gaps stay gaps"
+      )
+    }
+    .gdaCard()
+  }
+
+  /// Today's total step count (our own accel-derived number), grouped with a
+  /// thousands separator like the prototype's "7,392".
+  private var stepsTotalText: String {
+    stepsFeed.total.formatted(.number.grouping(.automatic))
+  }
+
+  // MARK: Live-HRV + Energy tiles
+
+  private var bottomGrid: some View {
+    HStack(alignment: .top, spacing: 12) {
+      NavigationLink(value: GDADetail.hrv) {
+        liveHRVTile
+      }
+      .buttonStyle(.plain)
+
+      energyTile
+    }
+  }
+
+  private var liveHRVTile: some View {
+    VStack(alignment: .leading, spacing: 8) {
+      GDACardTitle("Live HRV", color: GDA.hrv)
+      HStack(alignment: .firstTextBaseline, spacing: 3) {
+        Text(bandAway ? "—" : (ble.liveHRVRMSSD.map { String(format: "%.0f", $0) } ?? "—"))
+          .font(GDA.num(28))
+          .foregroundStyle(bandAway ? GDA.text3 : GDA.text)
+        Text("ms")
+          .font(.system(size: 12.5, weight: .semibold))
+          .foregroundStyle(GDA.text2)
+      }
+      .lineLimit(1)
+      .minimumScaleFactor(0.6)
+      Text("Instantaneous & noisy — tap to see how it differs from overnight")
+        .font(.system(size: 12))
+        .foregroundStyle(GDA.text3)
+        .fixedSize(horizontal: false, vertical: true)
+    }
+    .frame(maxWidth: .infinity, alignment: .leading)
+    .gdaCard()
+  }
+
+  private var energyTile: some View {
+    VStack(alignment: .leading, spacing: 8) {
+      GDACardTitle("Energy", color: GDA.charge)
+      HStack(alignment: .firstTextBaseline, spacing: 3) {
+        Text("72")
+          .font(GDA.num(28))
+          .foregroundStyle(GDA.text)
+        Text("/100")
+          .font(.system(size: 12.5, weight: .semibold))
+          .foregroundStyle(GDA.text2)
+      }
+      .lineLimit(1)
+      .minimumScaleFactor(0.6)
+      Text("Our HR-based estimate, computed on this phone")
+        .font(.system(size: 12))
+        .foregroundStyle(GDA.text3)
+        .fixedSize(horizontal: false, vertical: true)
+    }
+    .frame(maxWidth: .infinity, alignment: .leading)
+    .gdaCard()
   }
 }
 
-private struct HomeLiveHeartRateContent: View {
-  @ObservedObject var ble: GooseBLEClient
+// MARK: - Hourly bucketing (per-minute feed → 24-hour chart series)
 
-  private var isLive: Bool {
-    guard ble.liveHeartRateBPM != nil, let at = ble.liveHeartRateUpdatedAt else { return false }
-    return Date().timeIntervalSince(at) < 15
+/// Collapse the minutely HR feed into 24 hourly buckets (hour 0..23). Each
+/// hour with at least one minute gets lo = min of los, hi = max of his,
+/// avg = mean bpm; hours with no minutes are honest gaps (never zero-filled).
+func hourlyHR(from minutes: [HRMinute]) -> [HourlyHR] {
+  var byHour: [Int: [HRMinute]] = [:]
+  for m in minutes {
+    guard let hr = Int(hourKey(from: m.minute)) else { continue }
+    byHour[hr, default: []].append(m)
   }
-
-  private var charging: Bool { ble.batteryIsCharging == true }
-
-  var body: some View {
-    VStack(spacing: 14) {
-      HStack(spacing: 16) {
-        Image(systemName: "heart.fill")
-          .font(.system(size: 28, weight: .bold))
-          .foregroundStyle(isLive ? GooseTheme.Accent.heart : Color.secondary)
-        VStack(alignment: .leading, spacing: 2) {
-          HStack(spacing: 6) {
-            GooseMetricLabel(systemImage: "heart.fill", title: "Heart Rate", accent: GooseTheme.Accent.heart)
-            if isLive {
-              Text("LIVE")
-                .font(.caption2.weight(.heavy))
-                .foregroundStyle(.white)
-                .padding(.horizontal, 6)
-                .padding(.vertical, 2)
-                .background(GooseTheme.Accent.heart, in: Capsule())
-            }
-          }
-          HStack(alignment: .firstTextBaseline, spacing: 5) {
-            Text(ble.liveHeartRateBPM.map(String.init) ?? "—")
-              .font(.system(size: 64, weight: .bold, design: .rounded))
-              .monospacedDigit()
-              .lineLimit(1)
-              .minimumScaleFactor(0.5)
-            Text("bpm")
-              .font(.subheadline)
-              .foregroundStyle(.secondary)
-          }
-        }
-        Spacer()
-      }
-
-      Divider().overlay(Color.white.opacity(0.08))
-
-      HStack(spacing: 10) {
-        if charging {
-          // animated "filling" battery (cycles 25 -> 50 -> 75 -> 100) + pulsing bolt
-          TimelineView(.periodic(from: .now, by: 0.55)) { ctx in
-            let levels = ["battery.25", "battery.50", "battery.75", "battery.100"]
-            let i = Int(ctx.date.timeIntervalSinceReferenceDate / 0.55) % levels.count
-            Image(systemName: levels[i])
-              .font(.system(size: 18, weight: .semibold))
-              .foregroundStyle(GooseTheme.Accent.charging)
-              .contentTransition(.symbolEffect(.replace))
-          }
-          Image(systemName: "bolt.fill")
-            .font(.caption.weight(.bold))
-            .foregroundStyle(GooseTheme.Accent.charging)
-            .symbolEffect(.pulse, options: .repeating)
-        } else {
-          Image(systemName: "battery.100")
-            .font(.system(size: 18, weight: .semibold))
-            .foregroundStyle(GooseTheme.Accent.battery)
-        }
-        VStack(alignment: .leading, spacing: 0) {
-          Text(charging ? "Charging" : "Battery")
-            .font(.subheadline.weight(charging ? .semibold : .regular))
-            .foregroundStyle(charging ? GooseTheme.Accent.charging : Color.secondary)
-          if charging {
-            Text("Plugged in — \(ble.batteryLevelPercent.map { $0 >= 95 ? "topping off" : "filling up" } ?? "on the charger")")
-              .font(.caption2)
-              .foregroundStyle(.secondary)
-          }
-        }
-        Spacer()
-        Text(ble.batteryLevelPercent.map { "\($0)%" } ?? "—")
-          .font(.title3.bold())
-          .monospacedDigit()
-          .foregroundStyle(charging ? GooseTheme.Accent.charging : Color.primary)
-      }
-      .animation(.easeInOut(duration: 0.3), value: charging)
+  return (0..<24).map { hr in
+    guard let rows = byHour[hr], !rows.isEmpty else {
+      return HourlyHR(hour: hr, lo: 0, hi: 0, avg: 0, gap: true)
     }
-    .gooseCard()
-    .onAppear { ble.refreshBatteryLevel() }
+    let avg = Int((Double(rows.map(\.bpm).reduce(0, +)) / Double(rows.count)).rounded())
+    return HourlyHR(
+      hour: hr,
+      lo: rows.map(\.lo).min() ?? 0,
+      hi: rows.map(\.hi).max() ?? 0,
+      avg: avg,
+      gap: false
+    )
+  }
+}
+
+/// Collapse the minutely steps feed into 24 hourly buckets. Hours with at least
+/// one minute sum their steps; hours with no minutes are gaps (steps can't
+/// backfill, so these stay hatched forever).
+func hourlySteps(from minutes: [StepMinute]) -> [HourlySteps] {
+  var byHour: [Int: Int] = [:]
+  var seen: Set<Int> = []
+  for m in minutes {
+    guard let hr = Int(hourKey(from: m.minute)) else { continue }
+    byHour[hr, default: 0] += m.steps
+    seen.insert(hr)
+  }
+  return (0..<24).map { hr in
+    if seen.contains(hr) {
+      return HourlySteps(hour: hr, v: byHour[hr] ?? 0, gap: false)
+    }
+    return HourlySteps(hour: hr, v: 0, gap: true)
   }
 }
 
@@ -463,120 +424,6 @@ func hourKey(from minute: String) -> String {
   return hour
 }
 
-/// Today's heart rate, grouped per hour — the VPS-computed recap, fetched + displayed.
-struct HomeMinutelyHRSection: View {
-  @StateObject private var feed = MinutelyHRFeed()
-
-  /// Collapse the per-minute rows into one bucket per hour: lo = min of los,
-  /// hi = max of his, bpm = last bpm in the hour. Sorted by numeric hour.
-  private var hourlyBuckets: [HRMinute] {
-    var byHour: [String: [HRMinute]] = [:]
-    for m in feed.minutes {
-      byHour[hourKey(from: m.minute), default: []].append(m)
-    }
-    return byHour
-      .sorted { (Int($0.key) ?? 0) < (Int($1.key) ?? 0) }
-      .map { hour, rows in
-        HRMinute(
-          minute: hour,
-          bpm: rows.last?.bpm ?? 0,
-          lo: rows.map(\.lo).min() ?? 0,
-          hi: rows.map(\.hi).max() ?? 0,
-          n: rows.reduce(0) { $0 + $1.n }
-        )
-      }
-  }
-
-  var body: some View {
-    let buckets = hourlyBuckets
-    NavigationLink {
-      HRDayDetailView(minutes: feed.minutes)
-    } label: {
-      cardBody(buckets: buckets)
-    }
-    .buttonStyle(.plain)
-    .onAppear {
-      feed.refresh()
-      feed.startAutoRefresh()
-    }
-    .onDisappear { feed.stopAutoRefresh() }
-  }
-
-  /// " · as of HH:mm" when the latest fetch failed but older data is shown.
-  private var staleSuffix: String {
-    guard feed.lastError != nil, let at = feed.lastSuccess else { return "" }
-    return " · as of \(at.formatted(date: .omitted, time: .shortened))"
-  }
-
-  @ViewBuilder
-  private func cardBody(buckets: [HRMinute]) -> some View {
-    VStack(alignment: .leading, spacing: 10) {
-      HStack {
-        GooseMetricLabel(systemImage: "heart.fill", title: "HR Range Today", accent: GooseTheme.Accent.range)
-        Spacer()
-        if !buckets.isEmpty {
-          Text("\(buckets.count) h").font(.caption).foregroundStyle(.secondary)
-        }
-        Image(systemName: "chevron.right")
-          .font(.caption.weight(.semibold))
-          .foregroundStyle(.tertiary)
-      }
-      if buckets.count > 1 {
-        let dayLo = feed.minutes.map(\.lo).min() ?? 0
-        let dayHi = feed.minutes.map(\.hi).max() ?? 0
-        let dayAvg = feed.minutes.isEmpty
-          ? 0
-          : Int((Double(feed.minutes.map(\.bpm).reduce(0, +)) / Double(feed.minutes.count)).rounded())
-        HStack(alignment: .firstTextBaseline, spacing: 4) {
-          Text("Avg")
-            .font(.subheadline.weight(.semibold))
-            .foregroundStyle(GooseTheme.Accent.range)
-          Text("\(dayAvg)")
-            .font(.system(size: 26, weight: .bold, design: .rounded))
-            .monospacedDigit()
-            .foregroundStyle(GooseTheme.Accent.range)
-          Text("bpm")
-            .font(.subheadline)
-            .foregroundStyle(.secondary)
-        }
-        MinutelyHRChart(minutes: buckets).frame(height: 150)
-        Text("Range \(dayLo)–\(dayHi) bpm · computed on our server\(staleSuffix)")
-          .font(.caption).foregroundStyle(.secondary)
-      } else {
-        Text(feed.lastError == nil ? "Waiting for today's data…" : "Couldn't reach the server — retrying…")
-          .font(.caption).foregroundStyle(.secondary)
-          .frame(maxWidth: .infinity, minHeight: 150, alignment: .center)
-      }
-    }
-    .gooseCard()
-  }
-}
-
-/// Hourly HR range bars: each bar spans that hour's low→high HR range,
-/// rounded, in the range accent color. One bar per hour with small gaps.
-private struct MinutelyHRChart: View {
-  let minutes: [HRMinute]
-  var body: some View {
-    Canvas { ctx, size in
-      guard !minutes.isEmpty else { return }
-      let lo = Double((minutes.map { $0.lo }.min() ?? 40) - 3)
-      let hi = Double((minutes.map { $0.hi }.max() ?? 120) + 3)
-      let rng = max(hi - lo, 1)
-      func y(_ v: Double) -> CGFloat { size.height * CGFloat(1 - (v - lo) / rng) }
-      let slot = size.width / CGFloat(minutes.count)
-      let barW = max(4, min(slot * 0.78, 22))
-      let accent = GooseTheme.Accent.range
-      for (i, m) in minutes.enumerated() {
-        let x = slot * (CGFloat(i) + 0.5)
-        let top = y(Double(m.hi))
-        let bot = y(Double(m.lo))
-        let rect = CGRect(x: x - barW / 2, y: top, width: barW, height: max(2, bot - top))
-        ctx.fill(Path(roundedRect: rect, cornerRadius: barW / 2), with: .color(accent))
-      }
-    }
-  }
-}
-
 // MARK: - Steps (server-computed from the accelerometer)
 
 struct StepMinute: Decodable, Identifiable {
@@ -661,198 +508,5 @@ final class MinutelyStepsFeed: ObservableObject {
         }
       }
     }.resume()
-  }
-}
-
-/// Today's steps, minute by minute — our own count from the band's accelerometer,
-/// computed on the server. Steps only accrue while the band is worn + connected.
-struct HomeMinutelyStepsSection: View {
-  @ObservedObject var feed: MinutelyStepsFeed
-
-  /// Sum steps into one bucket per hour, sorted by numeric hour.
-  private var hourlyBuckets: [StepMinute] {
-    var byHour: [String: Int] = [:]
-    for m in feed.minutes {
-      byHour[hourKey(from: m.minute), default: 0] += m.steps
-    }
-    return byHour
-      .sorted { (Int($0.key) ?? 0) < (Int($1.key) ?? 0) }
-      .map { StepMinute(minute: $0.key, steps: $0.value) }
-  }
-
-  var body: some View {
-    let buckets = hourlyBuckets
-    NavigationLink {
-      StepsDayDetailView(minutes: feed.minutes)
-    } label: {
-      cardBody(buckets: buckets)
-    }
-    .buttonStyle(.plain)
-    .onAppear {
-      feed.refresh()
-      feed.startAutoRefresh()
-    }
-    .onDisappear { feed.stopAutoRefresh() }
-  }
-
-  /// " · as of HH:mm" when the latest fetch failed but older data is shown.
-  private var staleSuffix: String {
-    guard feed.lastError != nil, let at = feed.lastSuccess else { return "" }
-    return " · as of \(at.formatted(date: .omitted, time: .shortened))"
-  }
-
-  @ViewBuilder
-  private func cardBody(buckets: [StepMinute]) -> some View {
-    VStack(alignment: .leading, spacing: 10) {
-      HStack {
-        GooseMetricLabel(systemImage: "shoeprints.fill", title: "Steps Today", accent: GooseTheme.Accent.activity)
-        Spacer()
-        Text("\(feed.total)").font(.headline.weight(.bold)).foregroundStyle(GooseTheme.Accent.activity)
-        Image(systemName: "chevron.right")
-          .font(.caption.weight(.semibold))
-          .foregroundStyle(.tertiary)
-      }
-      if buckets.count > 1 {
-        StepsBarChart(minutes: buckets).frame(height: 120)
-        Text("Counted from the accelerometer while worn — our own number, not WHOOP's.\(staleSuffix)")
-          .font(.caption).foregroundStyle(.secondary)
-      } else {
-        Text(feed.lastError == nil ? "Walk around with the band connected to see steps…" : "Couldn't reach the server — retrying…")
-          .font(.caption).foregroundStyle(.secondary)
-          .frame(maxWidth: .infinity, minHeight: 120, alignment: .center)
-      }
-    }
-    .gooseCard()
-  }
-}
-
-/// Hourly step bars (one bar per hour; activity accent).
-private struct StepsBarChart: View {
-  let minutes: [StepMinute]
-  var body: some View {
-    Canvas { ctx, size in
-      guard !minutes.isEmpty else { return }
-      let mx = Double(minutes.map { $0.steps }.max() ?? 1)
-      let slot = size.width / CGFloat(minutes.count)
-      let bw = max(4, min(slot * 0.78, 22))
-      for (i, m) in minutes.enumerated() {
-        let x = slot * (CGFloat(i) + 0.5)
-        let h = CGFloat(Double(m.steps) / max(mx, 1)) * (size.height - 4)
-        let rect = CGRect(x: x - bw / 2, y: size.height - h, width: bw, height: max(1.5, h))
-        ctx.fill(Path(roundedRect: rect, cornerRadius: max(1, bw / 2)), with: .color(GooseTheme.Accent.activity))
-      }
-    }
-  }
-}
-
-/// Two side-by-side stat cards: HRV (rMSSD, ours) and today's step total (ours).
-struct HomeStatCardRow: View {
-  @EnvironmentObject private var model: GooseAppModel
-  @ObservedObject var stepsFeed: MinutelyStepsFeed
-  var body: some View { HomeStatCardRowContent(ble: model.ble, stepsFeed: stepsFeed) }
-}
-
-/// Last night's recovery vitals — overnight resting HRV / resting HR /
-/// respiratory rate / wrist temperature, computed server-side from the band's
-/// uploaded history (our own numbers). Shown on Today because the redesign
-/// untabbed the Recovery screen. SpO2 is intentionally absent — the band emits
-/// no raw red+IR PPG waveform, so a real value can't be computed.
-struct HomeRecoveryVitalsSection: View {
-  @ObservedObject var store: HealthDataStore
-
-  var body: some View {
-    let day = store.latestBandVitalDay()
-    VStack(alignment: .leading, spacing: 12) {
-      HStack(spacing: 8) {
-        GooseMetricLabel(systemImage: "bed.double.fill", title: "Recovery Vitals", accent: GooseTheme.Accent.hrv)
-        Spacer()
-        if let date = day?.date {
-          Text("last night · \(date)")
-            .font(.caption2)
-            .foregroundStyle(.secondary)
-        }
-      }
-      // Respiratory + SpO2 are intentionally absent — neither is a real
-      // measurement on this band (resp_raw is a constant; the optical channel
-      // is DC-only). Showing them would fabricate values.
-      HStack(spacing: 12) {
-        tile("Resting HRV", "waveform.path.ecg", GooseTheme.Accent.hrv,
-             HealthDataStore.bandVitalText(day?.hrvRMSSDms, unit: "ms"), "overnight rMSSD — ours")
-        tile("Resting HR", "heart.fill", GooseTheme.Accent.heart,
-             HealthDataStore.bandVitalText(day?.restingHRbpm, unit: "bpm"), "overnight low — ours")
-      }
-      tile("Wrist Temp", "thermometer.medium", GooseTheme.Accent.range,
-           temperatureText(day), day?.skinTempCalibrated == true ? "calibrated °C — ours" : "raw thermistor — ours")
-    }
-  }
-
-  private func temperatureText(_ day: BandVitalDay?) -> String {
-    guard let value = day?.skinTempValue else { return "—" }
-    if day?.skinTempCalibrated == true {
-      return HealthDataStore.bandVitalText(value, unit: "°C", fractionDigits: 1)
-    }
-    return "\(Int(value.rounded())) raw"
-  }
-
-  private func tile(_ label: String, _ icon: String, _ accent: Color, _ value: String, _ caption: String) -> some View {
-    VStack(alignment: .leading, spacing: 8) {
-      GooseMetricLabel(systemImage: icon, title: label, accent: accent)
-      Text(value)
-        .font(.system(size: 26, weight: .semibold, design: .rounded))
-        .monospacedDigit()
-        .lineLimit(1)
-        .minimumScaleFactor(0.7)
-      Text(caption)
-        .font(.caption2)
-        .foregroundStyle(.secondary)
-        .lineLimit(2)
-    }
-    .frame(maxWidth: .infinity, alignment: .leading)
-    .gooseCard()
-  }
-}
-
-private struct HomeStatCardRowContent: View {
-  @ObservedObject var ble: GooseBLEClient
-  @ObservedObject var stepsFeed: MinutelyStepsFeed
-
-  var body: some View {
-    HStack(spacing: 12) {
-      statCard(
-        label: "HRV",
-        icon: "waveform.path.ecg",
-        accent: GooseTheme.Accent.hrv,
-        value: ble.liveHRVRMSSD.map { String(format: "%.0f", $0) } ?? "—",
-        unit: "ms",
-        caption: "rMSSD — our own number"
-      )
-      statCard(
-        label: "Steps",
-        icon: "shoeprints.fill",
-        accent: GooseTheme.Accent.activity,
-        value: "\(stepsFeed.total)",
-        unit: "",
-        caption: "From accel — our own count"
-      )
-    }
-  }
-
-  private func statCard(label: String, icon: String, accent: Color, value: String, unit: String, caption: String) -> some View {
-    VStack(alignment: .leading, spacing: 8) {
-      GooseMetricLabel(systemImage: icon, title: label, accent: accent)
-      HStack(alignment: .firstTextBaseline, spacing: 4) {
-        Text(value)
-          .font(.system(size: 30, weight: .semibold, design: .rounded))
-          .monospacedDigit()
-        if !unit.isEmpty {
-          Text(unit).font(.subheadline).foregroundStyle(.secondary)
-        }
-      }
-      Text(caption)
-        .font(.caption2)
-        .foregroundStyle(.secondary)
-        .lineLimit(2)
-    }
-    .gooseCard()
   }
 }
