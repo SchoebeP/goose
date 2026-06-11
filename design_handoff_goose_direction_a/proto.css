@@ -1,0 +1,56 @@
+/* proto.css — Direction A clickable prototype shell */
+html, body { margin: 0; height: 100%; background: #04060A; }
+
+.p-stage {
+  position: fixed; inset: 0;
+  display: flex; align-items: center; justify-content: center;
+  background:
+    radial-gradient(900px 600px at 50% 0%, rgba(134, 185, 255, 0.05), transparent 60%),
+    #04060A;
+}
+.p-device {
+  width: 393px; height: 852px;
+  border-radius: 47px;
+  overflow: hidden;
+  position: relative;
+  background: var(--bg);
+  border: 1px solid rgba(168, 184, 214, 0.16);
+  box-shadow: 0 0 0 10px #11141B, 0 0 0 11px rgba(168, 184, 214, 0.18), 0 40px 90px rgba(0, 0, 0, 0.7);
+}
+.p-screen { position: absolute; inset: 0; display: flex; flex-direction: column; background: var(--bg); color: var(--text); font-family: var(--font-body); font-size: 15px; line-height: 1.4; -webkit-font-smoothing: antialiased; }
+.p-content { flex: 1; overflow-y: auto; scrollbar-width: none; }
+.p-content::-webkit-scrollbar { display: none; }
+
+@keyframes pFade { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+.p-tabfade { animation: pFade 0.24s ease; }
+
+@keyframes pPush { from { transform: translateX(100%); } to { transform: none; } }
+@keyframes pPop { to { transform: translateX(100%); } }
+.p-detail {
+  position: absolute; inset: 0; z-index: 5;
+  display: flex; flex-direction: column;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-body);
+  font-size: 15px; line-height: 1.4;
+  -webkit-font-smoothing: antialiased;
+  animation: pPush 0.28s cubic-bezier(0.2, 0.8, 0.2, 1);
+  box-shadow: -30px 0 60px rgba(0, 0, 0, 0.45);
+}
+.p-detail.closing { animation: pPop 0.22s ease forwards; }
+.p-detail.no-anim { animation: none; }
+
+.p-back {
+  display: inline-flex; align-items: center; gap: 2px;
+  color: var(--sleep); font-size: 15px; font-weight: 600;
+  cursor: pointer; padding: 6px 8px 6px 0; min-height: 32px;
+}
+.g-tab { cursor: pointer; min-height: 44px; justify-content: center; }
+.p-tappable { cursor: pointer; transition: filter 0.15s ease, transform 0.15s ease; }
+.p-tappable:active { filter: brightness(1.18); transform: scale(0.985); }
+
+@keyframes pPulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+.p-livedot { animation: pPulse 1.6s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) {
+  .p-tabfade, .p-detail, .p-livedot { animation: none; }
+}

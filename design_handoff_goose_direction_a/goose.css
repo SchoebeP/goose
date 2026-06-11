@@ -1,0 +1,238 @@
+/* ============================================================
+   Goose redesign — design tokens & shared styles
+   Dark, calm, chart-first. All metrics are OUR OWN numbers.
+   ============================================================ */
+
+:root {
+  /* surfaces */
+  --bg: #0B0E13;
+  --surface: #131823;
+  --surface-2: #1A2130;
+  --surface-3: #222A3C;
+  --line: rgba(168, 184, 214, 0.10);
+  --line-strong: rgba(168, 184, 214, 0.18);
+
+  /* text */
+  --text: #E9EDF5;
+  --text-2: #A7B0C0;
+  --text-3: #6F7889;
+
+  /* per-metric accents (soft, calm-on-dark) */
+  --heart: #FF8177;
+  --hrv: #B9A3FF;
+  --activity: #8BD9A9;
+  --sleep: #86B9FF;
+  --range: #FFB876;
+  --charge: #FFD479;
+  --resp: #74D6CF;
+  --temp: #FFA98F;
+
+  /* type */
+  --font-display: "Schibsted Grotesk", system-ui, sans-serif;
+  --font-body: "Albert Sans", system-ui, sans-serif;
+  --font-serif: "Source Serif 4", Georgia, serif;
+
+  /* density unit — tweakable */
+  --u: 1;
+
+  --r-card: 20px;
+  --r-chip: 100px;
+}
+
+/* density variants (set on artboard root) */
+[data-density="compact"] { --u: 0.78; }
+[data-density="comfy"]   { --u: 1.12; }
+
+/* contrast boost (tweak) */
+[data-contrast="boost"] {
+  --text-2: #C3CBDA;
+  --text-3: #8E97A9;
+  --line: rgba(168, 184, 214, 0.16);
+  --line-strong: rgba(168, 184, 214, 0.28);
+}
+
+/* ---------- phone shell ---------- */
+.g-phone {
+  width: 393px;
+  height: 100%;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-body);
+  display: flex;
+  flex-direction: column;
+  -webkit-font-smoothing: antialiased;
+  font-size: 15px;
+  line-height: 1.4;
+  overflow: hidden;
+  position: relative;
+}
+.g-statusbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 14px 26px 6px 30px;
+  font-family: var(--font-display);
+  font-size: 14.5px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+.g-statusbar svg { display: block; }
+.g-homebar {
+  width: 140px; height: 5px; border-radius: 3px;
+  background: var(--text-3);
+  margin: 8px auto 8px;
+  opacity: 0.55;
+}
+
+/* ---------- content scaffolding ---------- */
+.g-body {
+  display: flex;
+  flex-direction: column;
+  gap: calc(14px * var(--u));
+  padding: calc(10px * var(--u)) 20px calc(20px * var(--u));
+  flex: 1;
+}
+.g-h1 {
+  font-family: var(--font-display);
+  font-size: 28px;
+  font-weight: 700;
+  letter-spacing: -0.015em;
+  margin: 0;
+}
+.g-sub { color: var(--text-2); font-size: 14px; margin: 2px 0 0; text-wrap: pretty; }
+
+.g-card {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-card);
+  padding: calc(16px * var(--u)) calc(18px * var(--u));
+  display: flex;
+  flex-direction: column;
+  gap: calc(10px * var(--u));
+}
+.g-card-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-2);
+  margin: 0;
+  white-space: nowrap;
+}
+.g-dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+.g-card > .g-pill { align-self: flex-start; }
+
+.g-num {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+  line-height: 1;
+}
+.g-unit { font-size: 0.42em; font-weight: 600; color: var(--text-2); letter-spacing: 0; margin-left: 4px; }
+
+/* badges & pills */
+.g-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border-radius: var(--r-chip);
+  padding: 4px 11px;
+  font-size: 12.5px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.g-pill.ok   { background: rgba(139, 217, 169, 0.13); color: var(--activity); }
+.g-pill.warn { background: rgba(255, 184, 118, 0.14); color: var(--range); }
+.g-pill.mut  { background: rgba(168, 184, 214, 0.10); color: var(--text-2); }
+.g-pill.live { background: rgba(255, 129, 119, 0.13); color: var(--heart); }
+
+.g-prov {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-3);
+  border: 1px solid var(--line-strong);
+  border-radius: 5px;
+  padding: 1.5px 6px;
+}
+
+.g-ours {
+  font-size: 11.5px;
+  color: var(--text-3);
+}
+
+/* divided rows */
+.g-rows { display: flex; flex-direction: column; }
+.g-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: calc(12px * var(--u)) 0;
+  border-bottom: 1px solid var(--line);
+}
+.g-row:last-child { border-bottom: none; }
+
+/* tab bar */
+.g-tabbar {
+  display: flex;
+  border-top: 1px solid var(--line);
+  background: color-mix(in oklab, var(--surface) 72%, var(--bg));
+  padding: 8px 10px 2px;
+}
+.g-tab {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--text-3);
+  padding: 4px 0;
+}
+.g-tab.on { color: var(--text); }
+.g-tab svg { display: block; }
+
+/* segmented control */
+.g-seg {
+  display: flex;
+  background: var(--surface-2);
+  border-radius: 12px;
+  padding: 3px;
+  gap: 2px;
+}
+.g-seg > div {
+  flex: 1;
+  text-align: center;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-3);
+  padding: 6px 0;
+  border-radius: 9px;
+}
+.g-seg > div.on { background: var(--surface-3); color: var(--text); }
+
+/* gap hatching for honest missing-data regions */
+.g-gapnote {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 11.5px; color: var(--text-3);
+}
+
+/* ---------- Direction C (editorial ledger) overrides ---------- */
+.g-phone.ledger { background: #0A0C10; font-family: var(--font-body); }
+.ledger .g-h1 { font-family: var(--font-serif); font-weight: 600; letter-spacing: 0; }
+.ledger .g-card {
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  border-top: 1px solid var(--line-strong);
+  padding-left: 0;
+  padding-right: 0;
+}
+.ledger .g-num { font-family: var(--font-serif); font-weight: 600; letter-spacing: -0.01em; }
