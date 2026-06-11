@@ -545,6 +545,9 @@ final class GooseAppModel: ObservableObject {
     ble.onLiveHeartRate = { [weak self] bpm, source, capturedAt in
       self?.recordRoutingFallbackHeartRate(bpm, at: capturedAt)
       heartRateSamplePipeline.recordHeartRateSample(bpm: bpm, source: source, capturedAt: capturedAt)
+      Task { @MainActor [weak self] in
+        self?.syncLiveHeartRateActivity()
+      }
     }
     ble.onHRVSample = { rmssdMS, rrIntervalCount, source, capturedAt in
       heartRateSamplePipeline.recordHRVSample(

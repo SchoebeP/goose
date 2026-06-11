@@ -82,7 +82,33 @@ extension GooseAppModel {
     heartRateStorageStatus = snapshot.status
   }
 
+  /// Key for the opt-in "Live Heart Rate on Lock Screen / Dynamic Island" toggle.
+  static let liveHeartRateActivityDefaultsKey = "liveHeartRateActivityEnabled"
+
+  /// Push the band's current live values into the standalone Live Heart Rate
+  /// activity (no-op unless the user enabled it). Safe to call on every HR
+  /// sample and on connection changes — the controller starts/throttles/ends.
+  func syncLiveHeartRateActivity() {
+    let enabled = UserDefaults.standard.bool(forKey: Self.liveHeartRateActivityDefaultsKey)
+    let connected = ble.connectionState == "ready" || ble.connectionState == "connected"
+    let state = LiveHeartRateActivityAttributes.ContentState(
+      bpm: connected ? ble.liveHeartRateBPM : nil,
+      hrvRMSSD: ble.liveHRVRMSSD,
+      source: ble.liveHeartRateSource,
+      connection: ble.connectionState,
+      batteryPercent: ble.batteryLevelPercent,
+      charging: ble.batteryIsCharging ?? false,
+      updatedAt: Date()
+    )
+    LiveHeartRateActivityController.shared.sync(
+      enabled: enabled,
+      deviceName: ble.activeDeviceName,
+      state: state
+    )
+  }
+
   func handleBLEConnectionStateChange(_ state: String) {
+    syncLiveHeartRateActivity()
     if overnightGuardActive {
       if state == "ready" {
         resumeOvernightGuardStreamsIfReady(reason: "ble_ready")

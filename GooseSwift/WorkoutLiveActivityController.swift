@@ -183,3 +183,82 @@ final class WorkoutLiveActivityController {
     }
   }
 }
+
+/// Drives the standalone "Live Heart Rate" Live Activity (Lock Screen + Dynamic
+/// Island). Idempotent `sync` is safe to call on every BLE heart-rate sample —
+/// it starts the activity when enabled+authorized, throttles updates to genuine
+/// BPM changes or a 4 s heartbeat, and ends it when disabled.
+@MainActor
+final class LiveHeartRateActivityController {
+  static let shared = LiveHeartRateActivityController()
+
+  private var liveActivity: ActivityKit.Activity<LiveHeartRateActivityAttributes>?
+  private var lastUpdateAt = Date.distantPast
+  private var lastBPM: Int?
+  private let minimumUpdateInterval: TimeInterval = 4
+
+  private init() {}
+
+  var isRunning: Bool { current != nil }
+
+  func sync(
+    enabled: Bool,
+    deviceName: String,
+    state: LiveHeartRateActivityAttributes.ContentState
+  ) {
+    guard enabled else {
+      stop()
+      return
+    }
+    guard ActivityAuthorizationInfo().areActivitiesEnabled else {
+      return
+    }
+
+    if current == nil {
+      let attributes = LiveHeartRateActivityAttributes(deviceName: deviceName)
+      do {
+        liveActivity = try ActivityKit.Activity.request(
+          attributes: attributes,
+          content: ActivityContent(state: state, staleDate: state.updatedAt.addingTimeInterval(120)),
+          pushType: nil
+        )
+        lastUpdateAt = state.updatedAt
+        lastBPM = state.bpm
+      } catch {
+        NSLog("GooseSwift live-HR Live Activity start failed: \(String(describing: error))")
+      }
+      return
+    }
+
+    // Update only on a real BPM change or the 4 s heartbeat (respects the
+    // Live Activity update budget).
+    guard state.bpm != lastBPM || state.updatedAt.timeIntervalSince(lastUpdateAt) >= minimumUpdateInterval else {
+      return
+    }
+    lastUpdateAt = state.updatedAt
+    lastBPM = state.bpm
+    let activity = current
+    Task {
+      await activity?.update(ActivityContent(state: state, staleDate: state.updatedAt.addingTimeInterval(120)))
+    }
+  }
+
+  func stop() {
+    guard let liveActivity = current else {
+      return
+    }
+    self.liveActivity = nil
+    lastBPM = nil
+    Task {
+      await liveActivity.end(nil, dismissalPolicy: .immediate)
+    }
+  }
+
+  private var current: ActivityKit.Activity<LiveHeartRateActivityAttributes>? {
+    if let liveActivity {
+      return liveActivity
+    }
+    liveActivity = ActivityKit.Activity<LiveHeartRateActivityAttributes>.activities.first
+    return liveActivity
+  }
+}

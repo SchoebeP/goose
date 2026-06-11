@@ -16,6 +16,7 @@ struct MoreView: View {
   @AppStorage(OnboardingStorage.unitSystem) private var profileUnitSystemRaw = "imperial"
   @AppStorage(OnboardingStorage.heightMm) private var profileHeightMm = 0
   @AppStorage(OnboardingStorage.weightGrams) private var profileWeightGrams = 0
+  @AppStorage(GooseAppModel.liveHeartRateActivityDefaultsKey) private var liveHeartRateActivityEnabled = false
 
   @MainActor
   init(healthStore: HealthDataStore) {
@@ -43,6 +44,21 @@ struct MoreView: View {
 
       Section("Device") {
         routeRows([.device, .connectionLab])
+        Toggle(isOn: $liveHeartRateActivityEnabled) {
+          Label {
+            VStack(alignment: .leading, spacing: 2) {
+              Text("Live Heart Rate on Lock Screen")
+              Text("Shows live BPM in the Dynamic Island while the band streams")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+            }
+          } icon: {
+            Image(systemName: "heart.fill").foregroundStyle(.red)
+          }
+        }
+        .onChange(of: liveHeartRateActivityEnabled) { _, _ in
+          model.syncLiveHeartRateActivity()
+        }
       }
 
       Section("Band") {
