@@ -102,6 +102,7 @@ pub enum ParsedPayload {
         timestamp_subseconds: Option<u16>,
         data_offset: usize,
         data_hex: String,
+        body_summary: Option<EventBodySummary>,
         warnings: Vec<String>,
     },
     DataPacket {
@@ -132,6 +133,7 @@ pub enum DataPacketBodySummary {
         hr_present: Option<bool>,
         marker_offset: Option<usize>,
         marker_value: Option<u8>,
+        biometrics: Option<NormalHistoryBiometrics>,
     },
     R17OpticalOrLabradorFiltered {
         flags: Option<u16>,
@@ -154,6 +156,51 @@ pub enum DataPacketBodySummary {
         axes: Vec<I16SeriesSummary>,
         warnings: Vec<String>,
     },
+}
+
+/// Rich biometric fields of a V24/V12-style normal-history record (packet_k 9/12/24).
+///
+/// Offsets are payload-relative and reference-verified against 762 real WHOOP 4.0
+/// records in an external protocol schema — NOT yet confirmed on this band. Every
+/// field is a raw ADC/sensor word; unit conversion is a separate, calibrated step.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NormalHistoryBiometrics {
+    pub rr_count: Option<u8>,
+    pub rr_intervals_raw: Vec<u16>,
+    pub ppg_green_raw: Option<u16>,
+    pub ppg_red_ir_raw: Option<u16>,
+    pub gravity_x_milli_g: Option<i32>,
+    pub gravity_y_milli_g: Option<i32>,
+    pub gravity_z_milli_g: Option<i32>,
+    pub skin_contact: Option<u8>,
+    pub spo2_red_raw: Option<u16>,
+    pub spo2_ir_raw: Option<u16>,
+    pub skin_temp_raw: Option<u16>,
+    pub ambient_light_raw: Option<u16>,
+    pub led_drive_1_raw: Option<u16>,
+    pub led_drive_2_raw: Option<u16>,
+    pub resp_rate_raw: Option<u16>,
+    pub signal_quality_raw: Option<u16>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum EventBodySummary {
+    /// BATTERY_LEVEL(3) / EXTENDED_BATTERY_INFORMATION(63) field decode.
+    ///
+    /// `battery_current_raw` (i16 LE at payload offset 16) is field-verified on this
+    /// band: positive = charging, negative = discharging, ~0 near full.
+    /// `state_of_charge_tenths` (u16 @13, percent x10) and `charging_flags` (u8 @22,
+    /// bit0 = charging) are reference-verified on another WHOOP 4.0 and only decoded
+    /// for BATTERY_LEVEL — treat as candidates until confirmed on this band.
+    BatteryLevel {
+        state_of_charge_tenths: Option<u16>,
+        battery_current_raw: Option<i16>,
+        charging_flags: Option<u8>,
+        charging: Option<bool>,
+    },
+    /// WRIST_ON(9) / WRIST_OFF(10) — GEN4 on-wrist state straight from the event id.
+    WristState { on_wrist: bool },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -474,7 +521,36 @@ fn parse_event_payload(payload: &[u8]) -> ParsedPayload {
         timestamp_subseconds: read_u16_le(payload, 8),
         data_offset: 12.min(payload.len()),
         data_hex: hex::encode(&payload[12.min(payload.len())..]),
+        body_summary: event_id.and_then(|event_id| parse_event_body_summary(event_id, payload)),
         warnings,
+    }
+}
+
+fn parse_event_body_summary(event_id: u16, payload: &[u8]) -> Option<EventBodySummary> {
+    match event_id {
+        // BATTERY_LEVEL(3): full candidate decode; EXTENDED_BATTERY_INFORMATION(63):
+        // only the field-verified current word applies.
+        3 | 63 => {
+            let is_battery_level = event_id == 3;
+            let charging_flags = if is_battery_level {
+                payload.get(22).copied()
+            } else {
+                None
+            };
+            Some(EventBodySummary::BatteryLevel {
+                state_of_charge_tenths: if is_battery_level {
+                    read_u16_le(payload, 13)
+                } else {
+                    None
+                },
+                battery_current_raw: read_i16_le(payload, 16),
+                charging_flags,
+                charging: charging_flags.map(|flags| flags & 0x01 != 0),
+            })
+        }
+        9 => Some(EventBodySummary::WristState { on_wrist: true }),
+        10 => Some(EventBodySummary::WristState { on_wrist: false }),
+        _ => None,
     }
 }
 
@@ -525,6 +601,8 @@ fn parse_data_packet_body_summary(
                 hr_present: hr_present_marker.map(|marker| marker != 0),
                 marker_offset: hr_marker_offset,
                 marker_value: hr_present_marker,
+                biometrics: matches!(packet_k, 9 | 12 | 24)
+                    .then(|| parse_normal_history_biometrics(payload)),
             }),
             Vec::new(),
         ),
@@ -532,6 +610,41 @@ fn parse_data_packet_body_summary(
         10 => parse_k10_raw_motion_summary(payload),
         21 => parse_k21_raw_motion_summary(payload),
         _ => (None, Vec::new()),
+    }
+}
+
+fn parse_normal_history_biometrics(payload: &[u8]) -> NormalHistoryBiometrics {
+    let rr_count = payload.get(18).copied();
+    let rr_slots = usize::from(rr_count.unwrap_or(0)).min(5);
+    let rr_intervals_raw = (0..rr_slots)
+        .filter_map(|index| read_u16_le(payload, 19 + index * 2))
+        .collect();
+
+    NormalHistoryBiometrics {
+        rr_count,
+        rr_intervals_raw,
+        ppg_green_raw: read_u16_le(payload, 29),
+        ppg_red_ir_raw: read_u16_le(payload, 31),
+        gravity_x_milli_g: read_f32_le(payload, 36).map(gravity_to_milli_g),
+        gravity_y_milli_g: read_f32_le(payload, 40).map(gravity_to_milli_g),
+        gravity_z_milli_g: read_f32_le(payload, 44).map(gravity_to_milli_g),
+        skin_contact: payload.get(51).copied(),
+        spo2_red_raw: read_u16_le(payload, 64),
+        spo2_ir_raw: read_u16_le(payload, 66),
+        skin_temp_raw: read_u16_le(payload, 68),
+        ambient_light_raw: read_u16_le(payload, 70),
+        led_drive_1_raw: read_u16_le(payload, 72),
+        led_drive_2_raw: read_u16_le(payload, 74),
+        resp_rate_raw: read_u16_le(payload, 76),
+        signal_quality_raw: read_u16_le(payload, 78),
+    }
+}
+
+fn gravity_to_milli_g(value: f32) -> i32 {
+    if value.is_finite() {
+        (f64::from(value) * 1000.0).round() as i32
+    } else {
+        0
     }
 }
 
@@ -775,6 +888,15 @@ fn read_u16_le(bytes: &[u8], offset: usize) -> Option<u16> {
 
 fn read_u32_le(bytes: &[u8], offset: usize) -> Option<u32> {
     Some(u32::from_le_bytes([
+        *bytes.get(offset)?,
+        *bytes.get(offset + 1)?,
+        *bytes.get(offset + 2)?,
+        *bytes.get(offset + 3)?,
+    ]))
+}
+
+fn read_f32_le(bytes: &[u8], offset: usize) -> Option<f32> {
+    Some(f32::from_le_bytes([
         *bytes.get(offset)?,
         *bytes.get(offset + 1)?,
         *bytes.get(offset + 2)?,

@@ -73,4 +73,5 @@ Work top to bottom. Tick a box only when its acceptance criteria are met (see CL
 
 ## Progress log
 _(append dated entries here as work completes; newest at top)_
+- 2026-07-22 — Rust core: decode V24 normal-history biometric fields (R-R, PPG, gravity, skin contact, SpO2/temp/resp/signal-quality raw ADCs; reference-verified offsets, pending on-band confirmation), BATTERY_LEVEL/EXTENDED_BATTERY event fields (SoC, current, charging bit), and WRIST_ON/OFF → on-wrist state. 6 new unit tests; protocol suite green.
 - (none yet)
