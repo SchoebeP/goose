@@ -114,8 +114,8 @@ use crate::{
         DEFAULT_CASES_PER_GROUP, DEFAULT_PROPERTY_SEED, PropertySuiteOptions, run_property_suite,
     },
     protocol::{
-        DataPacketBodySummary, DeviceType, I16SeriesSummary, ParsedFrame, ParsedPayload,
-        parse_frame_hex,
+        DataPacketBodySummary, DeviceType, EventBodySummary, I16SeriesSummary, ParsedFrame,
+        ParsedPayload, parse_frame_hex,
     },
     recovery_rollup::{
         RecoverySensorDailyRollupOptions, RecoveryUnavailableDailyStatusOptions,
@@ -2601,6 +2601,31 @@ fn compact_parsed_frame_summary(parsed: &ParsedFrame) -> serde_json::Value {
                 _ => None,
             };
             let movement = compact_k10_movement_summary(body_summary.as_ref());
+            let history_biometrics = match body_summary.as_ref() {
+                Some(DataPacketBodySummary::NormalHistory {
+                    biometrics: Some(biometrics),
+                    ..
+                }) => Some(biometrics),
+                _ => None,
+            };
+            let biometrics_text = history_biometrics
+                .map(|biometrics| {
+                    let opt =
+                        |value: Option<u16>| value.map_or("?".to_string(), |v| v.to_string());
+                    format!(
+                        " bio[rr_n={} spo2={}:{} temp={} resp={} sigq={} contact={}]",
+                        biometrics.rr_intervals_raw.len(),
+                        opt(biometrics.spo2_red_raw),
+                        opt(biometrics.spo2_ir_raw),
+                        opt(biometrics.skin_temp_raw),
+                        opt(biometrics.resp_rate_raw),
+                        opt(biometrics.signal_quality_raw),
+                        biometrics
+                            .skin_contact
+                            .map_or("?".to_string(), |v| v.to_string()),
+                    )
+                })
+                .unwrap_or_default();
             json!({
                 "packet_type": parsed.packet_type,
                 "packet_type_name": packet_type_name,
@@ -2613,19 +2638,47 @@ fn compact_parsed_frame_summary(parsed: &ParsedFrame) -> serde_json::Value {
                 "body_byte_count": body_hex.len() / 2,
                 "heart_rate": heart_rate,
                 "movement": movement,
-                "summary": format!("packet={packet_name}({packet}) seq={sequence} data.k={packet_k_text} domain={domain_text} body={body_kind} warnings={warning_count}"),
+                "history_biometrics": history_biometrics,
+                "summary": format!("packet={packet_name}({packet}) seq={sequence} data.k={packet_k_text} domain={domain_text} body={body_kind}{biometrics_text} warnings={warning_count}"),
             })
         }
         Some(ParsedPayload::Event {
             event_id,
             event_name,
             data_hex,
+            body_summary,
             ..
         }) => {
             let event_id_text = event_id
                 .map(|value| value.to_string())
                 .unwrap_or_else(|| "?".to_string());
             let event_name_text = event_name.as_deref().unwrap_or("unknown");
+            let event_body_text = match body_summary {
+                Some(EventBodySummary::WristState { on_wrist }) => {
+                    format!(" wrist={}", if *on_wrist { "ON" } else { "OFF" })
+                }
+                Some(EventBodySummary::BatteryLevel {
+                    state_of_charge_tenths,
+                    battery_current_raw,
+                    charging_flags,
+                    charging,
+                }) => {
+                    let soc = state_of_charge_tenths
+                        .map(|value| format!("{:.1}%", f64::from(value) / 10.0))
+                        .unwrap_or_else(|| "?".to_string());
+                    let current = battery_current_raw
+                        .map(|value| value.to_string())
+                        .unwrap_or_else(|| "?".to_string());
+                    let charge_bit = match (charging_flags, charging) {
+                        (Some(flags), Some(charging)) => {
+                            format!(" flags=0x{flags:02x} chargingBit={}", u8::from(*charging))
+                        }
+                        _ => String::new(),
+                    };
+                    format!(" soc={soc} current={current}{charge_bit}")
+                }
+                None => String::new(),
+            };
             json!({
                 "packet_type": parsed.packet_type,
                 "packet_type_name": packet_type_name,
@@ -2634,8 +2687,9 @@ fn compact_parsed_frame_summary(parsed: &ParsedFrame) -> serde_json::Value {
                 "payload_kind": "event",
                 "event_id": event_id,
                 "event_name": event_name,
+                "event_body": body_summary,
                 "event_byte_count": data_hex.len() / 2,
-                "summary": format!("packet={packet_name}({packet}) seq={sequence} event={event_name_text}({event_id_text}) bytes={} warnings={warning_count}", data_hex.len() / 2),
+                "summary": format!("packet={packet_name}({packet}) seq={sequence} event={event_name_text}({event_id_text}){event_body_text} bytes={} warnings={warning_count}", data_hex.len() / 2),
             })
         }
         Some(payload) => {
