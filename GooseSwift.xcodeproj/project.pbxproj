@@ -33,6 +33,11 @@
 		A1000000000000000000001A /* MoreView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000020 /* MoreView.swift */; };
 		A1000000000000000000001B /* CodexEmbeddedAuth.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000021 /* CodexEmbeddedAuth.swift */; };
 		A10000000000000000000023 /* GooseTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000023 /* GooseTheme.swift */; };
+		A10000000000000000000047 /* InkMoreView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000047 /* InkMoreView.swift */; };
+		A10000000000000000000046 /* InkTrendsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000046 /* InkTrendsView.swift */; };
+		A10000000000000000000045 /* InkTodayView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000045 /* InkTodayView.swift */; };
+		A10000000000000000000044 /* InkComponents.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000044 /* InkComponents.swift */; };
+		A10000000000000000000043 /* InkTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000043 /* InkTheme.swift */; };
 		A10000000000000000000025 /* CodexCoachSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000025 /* CodexCoachSupport.swift */; };
 		A10000000000000000000026 /* OpenAICoachChat.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000026 /* OpenAICoachChat.swift */; };
 		A10000000000000000000027 /* CoachTips.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000027 /* CoachTips.swift */; };
@@ -206,6 +211,11 @@
 		A20000000000000000000020 /* MoreView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MoreView.swift; sourceTree = "<group>"; };
 		A20000000000000000000021 /* CodexEmbeddedAuth.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexEmbeddedAuth.swift; sourceTree = "<group>"; };
 		A20000000000000000000023 /* GooseTheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GooseTheme.swift; sourceTree = "<group>"; };
+		A20000000000000000000047 /* InkMoreView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InkMoreView.swift; sourceTree = "<group>"; };
+		A20000000000000000000046 /* InkTrendsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InkTrendsView.swift; sourceTree = "<group>"; };
+		A20000000000000000000045 /* InkTodayView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InkTodayView.swift; sourceTree = "<group>"; };
+		A20000000000000000000044 /* InkComponents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InkComponents.swift; sourceTree = "<group>"; };
+		A20000000000000000000043 /* InkTheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InkTheme.swift; sourceTree = "<group>"; };
 		A20000000000000000000025 /* CodexCoachSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexCoachSupport.swift; sourceTree = "<group>"; };
 		A20000000000000000000026 /* OpenAICoachChat.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenAICoachChat.swift; sourceTree = "<group>"; };
 		A20000000000000000000027 /* CoachTips.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoachTips.swift; sourceTree = "<group>"; };
@@ -388,6 +398,11 @@
 				D20000000000000000000021 /* PassiveActivityDetector.swift */,
 				A20000000000000000000003 /* RootView.swift */,
 				A20000000000000000000023 /* GooseTheme.swift */,
+				A20000000000000000000047 /* InkMoreView.swift */,
+				A20000000000000000000046 /* InkTrendsView.swift */,
+				A20000000000000000000045 /* InkTodayView.swift */,
+				A20000000000000000000044 /* InkComponents.swift */,
+				A20000000000000000000043 /* InkTheme.swift */,
 				A20000000000000000000004 /* OnboardingView.swift */,
 				D20000000000000000000009 /* OnboardingModels.swift */,
 				D2000000000000000000000A /* OnboardingPermissions.swift */,
@@ -784,6 +799,11 @@
 				A10000000000000000000040 /* CoachLocalToolContext.swift in Sources */,
 				A10000000000000000000027 /* CoachTips.swift in Sources */,
 				A10000000000000000000023 /* GooseTheme.swift in Sources */,
+				A10000000000000000000047 /* InkMoreView.swift in Sources */,
+				A10000000000000000000046 /* InkTrendsView.swift in Sources */,
+				A10000000000000000000045 /* InkTodayView.swift in Sources */,
+				A10000000000000000000044 /* InkComponents.swift in Sources */,
+				A10000000000000000000043 /* InkTheme.swift in Sources */,
 				B10000000000000000000001 /* WorkoutLiveActivityAttributes.swift in Sources */,
 				B10000000000000000000002 /* WorkoutLiveActivityController.swift in Sources */,
 				A10000000000000000000006 /* GooseRustBridge.swift in Sources */,

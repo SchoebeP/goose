@@ -24,3 +24,8 @@ build-device/
 build-release/
 .superpowers/
 imu.png
+
+build-sim/
+build-device/
+build-release/
+build/

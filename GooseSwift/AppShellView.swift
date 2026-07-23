@@ -18,6 +18,7 @@ struct AppShellView: View {
         .tag(tab)
       }
     }
+    .tint(InkTheme.ink)
   }
 
   private var tabSelection: Binding<GooseAppTab> {
@@ -68,13 +69,13 @@ struct AppShellView: View {
   private func tabContent(for tab: GooseAppTab) -> some View {
     switch tab {
     case .home:
-      HomeDashboardView(
+      InkTodayView(
         healthStore: healthStore,
         selectedDate: $homeSelectedDate,
         openHealthRoute: openHomeHealthRoute
       )
     case .trends:
-      TrendsView(healthStore: healthStore)
+      InkTrendsView(healthStore: healthStore)
     case .health:
       HealthView(store: healthStore)
     case .available:
@@ -84,7 +85,7 @@ struct AppShellView: View {
     case .coach:
       CoachView(healthStore: healthStore)
     case .more:
-      MoreView(healthStore: healthStore)
+      InkMoreView(healthStore: healthStore)
     }
   }
 

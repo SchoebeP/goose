@@ -7,7 +7,7 @@ struct GooseSwiftApp: App {
   @StateObject private var router = AppRouter()
 
   init() {
-    GooseTheme.configureAppearance()
+    InkTheme.configureAppearance()
   }
 
   var body: some Scene {
