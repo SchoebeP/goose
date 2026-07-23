@@ -24,7 +24,7 @@ struct RecoveryV2OverviewPage: View {
     let palette = SleepV2Palette(colorScheme: colorScheme, theme: .recovery)
     ScrollViewReader { _ in
       ZStack(alignment: .top) {
-        palette.background
+        InkTheme.film
           .ignoresSafeArea()
 
         RecoveryV2ScenicBackground(palette: palette)
@@ -139,7 +139,7 @@ struct RecoveryV2OverviewPage: View {
       ToolbarItem(placement: .principal) {
         Text("Recovery")
           .font(.headline.weight(.semibold))
-          .foregroundStyle(palette.text)
+          .foregroundStyle(InkTheme.ink)
       }
     }
     .sheet(isPresented: $showingDatePicker) {
@@ -211,7 +211,7 @@ struct StressV2OverviewPage: View {
   var body: some View {
     let palette = SleepV2Palette(colorScheme: colorScheme, theme: .stress)
     ZStack(alignment: .top) {
-      palette.background
+      InkTheme.film
         .ignoresSafeArea()
 
       StressV2ScenicBackground(palette: palette)
@@ -298,7 +298,7 @@ struct StressV2OverviewPage: View {
       ToolbarItem(placement: .principal) {
         Text("Stress")
           .font(.headline.weight(.semibold))
-          .foregroundStyle(palette.text)
+          .foregroundStyle(InkTheme.ink)
       }
       ToolbarItem(placement: .topBarTrailing) {
         Button {
@@ -397,7 +397,7 @@ struct StressV2Hero: View {
 
       Text(title)
         .font(.system(size: 38, weight: .semibold, design: .rounded))
-        .foregroundStyle(palette.text)
+        .foregroundStyle(InkTheme.ink)
         .lineLimit(1)
 
       Button(action: onDateTap) {
@@ -407,7 +407,7 @@ struct StressV2Hero: View {
             .font(.caption.weight(.semibold))
         }
         .font(.title3.weight(.semibold))
-        .foregroundStyle(palette.secondaryText)
+        .foregroundStyle(InkTheme.graphite)
         .padding(.top, 5)
       }
       .buttonStyle(.plain)
@@ -440,11 +440,10 @@ struct StressV2ScoreGauge: View {
 
       ZStack {
         Circle()
-          .fill(palette.surface.opacity(palette.light ? 0.86 : 0.72))
-          .shadow(color: palette.shadow.opacity(0.48), radius: 18, x: 0, y: 8)
+          .fill(InkTheme.film)
 
         Circle()
-          .stroke(palette.separator.opacity(0.70), lineWidth: 2)
+          .stroke(InkTheme.hairline, lineWidth: 2)
           .padding(2)
 
         ForEach(0..<tickCount, id: \.self) { index in
@@ -458,13 +457,13 @@ struct StressV2ScoreGauge: View {
         .rotationEffect(.degrees(90))
 
         Circle()
-          .stroke(palette.accent.opacity(0.30), lineWidth: 2)
+          .stroke(InkTheme.hairline, lineWidth: 2)
           .padding(innerInset)
 
         VStack(spacing: 4) {
           Text("\(score)")
             .font(.system(size: 58, weight: .semibold, design: .rounded))
-            .foregroundStyle(palette.text)
+            .foregroundStyle(InkTheme.ink)
             .lineLimit(1)
           Text(status)
             .font(.title3.weight(.semibold))
@@ -481,7 +480,7 @@ struct StressV2ScoreGauge: View {
             Text("100")
           }
           .font(.subheadline.weight(.semibold))
-          .foregroundStyle(palette.mutedText)
+          .foregroundStyle(InkTheme.graphite)
           .padding(.horizontal, side * 0.24)
           .padding(.bottom, side * 0.12)
         }
@@ -492,25 +491,13 @@ struct StressV2ScoreGauge: View {
   }
 
   private var statusColor: Color {
-    if score >= 66 {
-      return .red
-    }
-    if score >= 33 {
-      return palette.accentAlt
-    }
-    return palette.accent
+    // Radiograph: the score reading stays ink; level is carried by the text.
+    InkTheme.ink
   }
 
   private func tickColor(percent: Double, active: Bool) -> Color {
-    let base: Color
-    if percent >= 0.66 {
-      base = .red
-    } else if percent >= 0.33 {
-      base = palette.accentAlt
-    } else {
-      base = palette.accent
-    }
-    return active ? base : base.opacity(palette.light ? 0.20 : 0.16)
+    _ = percent
+    return active ? InkTheme.ink : InkTheme.ink.opacity(0.16)
   }
 }
 
@@ -520,9 +507,7 @@ struct StressV2ScenicBackground: View {
   var body: some View {
     ZStack {
       LinearGradient(
-        colors: palette.light
-          ? [Color(red: 0.91, green: 0.94, blue: 0.96), Color(red: 0.88, green: 0.91, blue: 0.92), palette.background]
-          : [Color(red: 0.09, green: 0.10, blue: 0.14), Color(red: 0.13, green: 0.13, blue: 0.17), palette.background],
+        colors: [InkTheme.wash, InkTheme.film, InkTheme.film],
         startPoint: .top,
         endPoint: .bottom
       )
@@ -534,7 +519,7 @@ struct StressV2ScenicBackground: View {
           let radius = index % 8 == 0 ? CGFloat(1.1) : CGFloat(0.65)
           context.fill(
             Path(ellipseIn: CGRect(x: x, y: y, width: radius * 2, height: radius * 2)),
-            with: .color(.white.opacity(palette.light ? 0.16 : 0.20))
+            with: .color(InkTheme.graphite.opacity(0.18))
           )
         }
 
@@ -550,8 +535,8 @@ struct StressV2ScenicBackground: View {
           wave,
           with: .linearGradient(
             Gradient(colors: [
-              palette.accent.opacity(palette.light ? 0.18 : 0.28),
-              palette.accentAlt.opacity(palette.light ? 0.10 : 0.18),
+              InkTheme.graphite.opacity(0.22),
+              InkTheme.graphite.opacity(0.10),
             ]),
             startPoint: CGPoint(x: 0, y: waveY),
             endPoint: CGPoint(x: size.width, y: waveY)
@@ -565,7 +550,7 @@ struct StressV2ScenicBackground: View {
         Rectangle()
           .fill(
             LinearGradient(
-              colors: [.clear, palette.background.opacity(0.72), palette.background],
+              colors: [.clear, InkTheme.film.opacity(0.72), InkTheme.film],
               startPoint: .top,
               endPoint: .bottom
             )
@@ -599,17 +584,17 @@ struct StressV2TimelineSection: View {
           VStack(alignment: .leading, spacing: 4) {
             Text(dateLabel)
               .font(.headline.weight(.semibold))
-              .foregroundStyle(palette.text)
+              .foregroundStyle(InkTheme.ink)
             Text(summary.freshness)
               .font(.caption.weight(.semibold))
-              .foregroundStyle(palette.mutedText)
+              .foregroundStyle(InkTheme.graphite)
           }
 
           Spacer(minLength: 12)
 
           Text("Duration \(StressV2Format.durationClockText(totalDurationMinutes))")
             .font(.caption.weight(.semibold))
-            .foregroundStyle(palette.secondaryText)
+            .foregroundStyle(InkTheme.graphite)
             .lineLimit(1)
             .minimumScaleFactor(0.78)
         }
@@ -619,7 +604,7 @@ struct StressV2TimelineSection: View {
         if summary.hasData {
           Text(summary.inputSummary)
             .font(.caption.weight(.medium))
-            .foregroundStyle(palette.secondaryText)
+            .foregroundStyle(InkTheme.graphite)
             .lineLimit(2)
             .fixedSize(horizontal: false, vertical: true)
         }
@@ -640,21 +625,21 @@ struct StressV2TimelineChart: View {
     GeometryReader { proxy in
       if windows.isEmpty {
         RoundedRectangle(cornerRadius: 18, style: .continuous)
-          .fill(palette.surfaceElevated.opacity(0.66))
+          .fill(InkTheme.wash)
           .overlay {
             Text("No stress timeline")
               .font(.subheadline.weight(.semibold))
-              .foregroundStyle(palette.secondaryText)
+              .foregroundStyle(InkTheme.graphite)
           }
       } else {
         ZStack(alignment: .topLeading) {
           RoundedRectangle(cornerRadius: 12, style: .continuous)
-            .fill(palette.surfaceElevated.opacity(palette.light ? 0.54 : 0.42))
+            .fill(InkTheme.wash)
 
           ForEach(Array(windows.enumerated()), id: \.element.id) { index, window in
             if window.isSleepWindow {
               Rectangle()
-                .fill(Color.indigo.opacity(palette.light ? 0.10 : 0.20))
+                .fill(InkTheme.graphite.opacity(0.08))
                 .frame(width: max(proxy.size.width / CGFloat(max(windows.count, 1)), 12), height: proxy.size.height - 34)
                 .position(x: chartPoint(index: index, size: proxy.size).x, y: (proxy.size.height - 34) / 2)
             }
@@ -666,7 +651,7 @@ struct StressV2TimelineChart: View {
               path.move(to: CGPoint(x: 0, y: y))
               path.addLine(to: CGPoint(x: proxy.size.width - 34, y: y))
             }
-            .stroke(palette.separator.opacity(0.64), style: StrokeStyle(lineWidth: 1, dash: [4, 5]))
+            .stroke(InkTheme.hairline, style: StrokeStyle(lineWidth: 1, dash: [4, 5]))
           }
 
           ForEach(Array(0..<max(windows.count - 1, 0)), id: \.self) { index in
@@ -691,14 +676,14 @@ struct StressV2TimelineChart: View {
           if windows.contains(where: \.isSleepWindow) {
             Image(systemName: "moon.fill")
               .font(.caption.weight(.bold))
-              .foregroundStyle(Color.indigo.opacity(0.88))
+              .foregroundStyle(InkTheme.graphite)
               .position(x: proxy.size.width * 0.18, y: 17)
           }
 
           if let peakIndex = windows.indices.max(by: { windows[$0].stress < windows[$1].stress }) {
             Image(systemName: "figure.run")
               .font(.caption.weight(.bold))
-              .foregroundStyle(Color.orange.opacity(0.92))
+              .foregroundStyle(InkTheme.graphite)
               .position(x: chartPoint(index: peakIndex, size: proxy.size).x, y: 17)
           }
 
@@ -714,7 +699,7 @@ struct StressV2TimelineChart: View {
             Text("0")
           }
           .font(.caption.weight(.semibold))
-          .foregroundStyle(palette.mutedText)
+          .foregroundStyle(InkTheme.graphite)
           .frame(width: proxy.size.width - 8, height: proxy.size.height - 18, alignment: .trailing)
           .padding(.top, 6)
 
@@ -726,7 +711,7 @@ struct StressV2TimelineChart: View {
             Text(windows.last?.timeLabel ?? "")
           }
           .font(.caption.weight(.semibold))
-          .foregroundStyle(palette.mutedText)
+          .foregroundStyle(InkTheme.graphite)
           .padding(.horizontal, 10)
           .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
           .padding(.trailing, 28)
@@ -758,13 +743,14 @@ struct StressV2TimelineChart: View {
   }
 
   private func color(for stress: Double) -> Color {
+    // Radiograph: ink-monochrome trace; intensity fades with stress level.
     if stress >= 66 {
-      return .red
+      return InkTheme.ink
     }
     if stress >= 33 {
-      return palette.accentAlt
+      return InkTheme.ink.opacity(0.62)
     }
-    return palette.accent
+    return InkTheme.ink.opacity(0.34)
   }
 }
 
@@ -776,16 +762,16 @@ struct StressV2BreakdownSection: View {
     VStack(alignment: .leading, spacing: 12) {
       HStack(alignment: .firstTextBaseline) {
         Text("Duration:")
-          .foregroundStyle(palette.mutedText)
+          .foregroundStyle(InkTheme.graphite)
         Text(StressV2Format.durationClockText(totalDurationMinutes))
-          .foregroundStyle(palette.text)
+          .foregroundStyle(InkTheme.ink)
         Spacer()
       }
       .font(.subheadline.weight(.semibold))
 
-      StressV2BreakdownRow(palette: palette, label: "High", zone: summary.high, color: .red)
-      StressV2BreakdownRow(palette: palette, label: "Med", zone: summary.medium, color: palette.accentAlt)
-      StressV2BreakdownRow(palette: palette, label: "Low", zone: summary.low, color: palette.accent)
+      StressV2BreakdownRow(palette: palette, label: "High", zone: summary.high, color: InkTheme.ink)
+      StressV2BreakdownRow(palette: palette, label: "Med", zone: summary.medium, color: InkTheme.ink.opacity(0.55))
+      StressV2BreakdownRow(palette: palette, label: "Low", zone: summary.low, color: InkTheme.ink.opacity(0.30))
     }
   }
 
@@ -804,13 +790,13 @@ struct StressV2BreakdownRow: View {
     HStack(spacing: 14) {
       Text(label)
         .font(.headline.weight(.semibold))
-        .foregroundStyle(palette.text)
+        .foregroundStyle(InkTheme.ink)
         .frame(width: 46, alignment: .leading)
 
       GeometryReader { proxy in
         ZStack(alignment: .leading) {
           Capsule()
-            .fill(color.opacity(palette.light ? 0.14 : 0.16))
+            .fill(InkTheme.hairline)
           Capsule()
             .fill(color)
             .frame(width: proxy.size.width * CGFloat(min(max(zone.percent, 0), 1)))
@@ -821,13 +807,13 @@ struct StressV2BreakdownRow: View {
       Text("\(Int((zone.percent * 100).rounded()))%")
         .font(.headline.weight(.semibold))
         .fontDesign(.rounded)
-        .foregroundStyle(palette.text)
+        .foregroundStyle(InkTheme.ink)
         .frame(width: 46, alignment: .trailing)
 
       Text(StressV2Format.durationClockText(zone.durationMinutes))
         .font(.headline.weight(.semibold))
         .fontDesign(.rounded)
-        .foregroundStyle(palette.mutedText)
+        .foregroundStyle(InkTheme.graphite)
         .frame(width: 74, alignment: .trailing)
         .minimumScaleFactor(0.78)
     }
@@ -835,12 +821,11 @@ struct StressV2BreakdownRow: View {
     .frame(height: 64)
     .background(
       RoundedRectangle(cornerRadius: 16, style: .continuous)
-        .fill(palette.surface)
-        .shadow(color: palette.shadow.opacity(0.30), radius: 8, x: 0, y: 3)
+        .fill(InkTheme.wash)
     )
     .overlay(
       RoundedRectangle(cornerRadius: 16, style: .continuous)
-        .stroke(palette.separator.opacity(0.70), lineWidth: 1)
+        .stroke(InkTheme.hairline, lineWidth: 1)
     )
   }
 }

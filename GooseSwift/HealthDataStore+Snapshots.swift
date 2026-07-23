@@ -227,6 +227,26 @@ extension HealthDataStore {
   }
 
   func sleepSnapshot(base snapshot: HealthMetricSnapshot) -> HealthMetricSnapshot {
+    if !previewMissingData {
+      ServerSleepFeed.shared.refreshIfStale()
+      if let night = ServerSleepFeed.shared.lastNight {
+        return HealthMetricSnapshot(
+          id: snapshot.id,
+          route: snapshot.route,
+          group: snapshot.group,
+          title: snapshot.title,
+          value: night.durationHoursText,
+          unit: "h",
+          status: night.summaryText,
+          freshness: "Last night",
+          provenance: "server-computed sleep night (\(night.quality ?? "unversioned"))",
+          source: .local("server-computed sleep night (self-hosted VPS /sleep/nights)"),
+          systemImage: snapshot.systemImage,
+          tint: snapshot.tint,
+          trend: snapshot.trend
+        )
+      }
+    }
     if let output = Self.map(packetScoreReports["sleep"], "score_result", "output") {
       let scoreText = Self.numberText(output["score_0_to_100"], fractionDigits: 0) ?? snapshot.value
       return HealthMetricSnapshot(

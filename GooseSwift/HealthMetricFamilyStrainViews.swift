@@ -86,7 +86,7 @@ struct HealthMetricFamilyView: View {
       }
       .padding(16)
     }
-    .gooseScreenBackground()
+    .inkScreen()
     .navigationTitle(route.title)
     .navigationBarTitleDisplayMode(.inline)
     .toolbarBackground(.hidden, for: .navigationBar)
@@ -298,17 +298,7 @@ struct StrainV2ActivityBackground: View {
   var body: some View {
     ZStack {
       LinearGradient(
-        colors: palette.light
-          ? [
-            Color(red: 0.98, green: 0.95, blue: 0.89),
-            Color(red: 0.94, green: 0.96, blue: 0.92),
-            palette.background,
-          ]
-          : [
-            Color(red: 0.14, green: 0.12, blue: 0.10),
-            Color(red: 0.10, green: 0.13, blue: 0.11),
-            palette.background,
-          ],
+        colors: [InkTheme.wash, InkTheme.film, InkTheme.film],
         startPoint: .top,
         endPoint: .bottom
       )
@@ -325,7 +315,7 @@ struct StrainV2ActivityBackground: View {
         Rectangle()
           .fill(
             LinearGradient(
-              colors: [.clear, palette.background.opacity(0.76), palette.background],
+              colors: [.clear, InkTheme.film.opacity(0.76), InkTheme.film],
               startPoint: .top,
               endPoint: .bottom
             )
@@ -336,12 +326,8 @@ struct StrainV2ActivityBackground: View {
   }
 
   private func drawZoneGrid(context: inout GraphicsContext, size: CGSize) {
-    let lineColor = palette.light
-      ? Color.black.opacity(0.055)
-      : Color.white.opacity(0.055)
-    let labelColor = palette.light
-      ? Color(red: 0.70, green: 0.42, blue: 0.20).opacity(0.18)
-      : Color(red: 1.0, green: 0.62, blue: 0.30).opacity(0.16)
+    let lineColor = InkTheme.hairline
+    let labelColor = InkTheme.graphite.opacity(0.18)
 
     for index in 0..<5 {
       let y = size.height * 0.12 + CGFloat(index) * 38
@@ -363,17 +349,11 @@ struct StrainV2ActivityBackground: View {
   }
 
   private func drawEffortBars(context: inout GraphicsContext, size: CGSize) {
-    let colors: [Color] = palette.light
-      ? [
-        Color(red: 0.32, green: 0.61, blue: 0.40).opacity(0.12),
-        Color(red: 0.91, green: 0.58, blue: 0.20).opacity(0.14),
-        Color(red: 0.88, green: 0.32, blue: 0.14).opacity(0.13),
-      ]
-      : [
-        Color(red: 0.34, green: 0.72, blue: 0.44).opacity(0.13),
-        Color(red: 1.0, green: 0.68, blue: 0.28).opacity(0.15),
-        Color(red: 1.0, green: 0.40, blue: 0.20).opacity(0.14),
-      ]
+    let colors: [Color] = [
+      InkTheme.graphite.opacity(0.06),
+      InkTheme.graphite.opacity(0.09),
+      InkTheme.graphite.opacity(0.07),
+    ]
 
     for index in 0..<3 {
       let width = size.width * (0.16 + CGFloat(index) * 0.05)
@@ -408,7 +388,7 @@ struct StrainV2OverviewPage: View {
     let palette = SleepV2Palette(colorScheme: colorScheme, theme: SleepV2PaletteTheme.strain)
 
     ZStack(alignment: .top) {
-      palette.background
+      InkTheme.film
         .ignoresSafeArea()
 
       StrainV2ActivityBackground(palette: palette, showsDecorations: false)
@@ -523,7 +503,7 @@ struct StrainV2OverviewPage: View {
       ToolbarItem(placement: .principal) {
         Text("Strain")
           .font(.headline.weight(.semibold))
-          .foregroundStyle(palette.text)
+          .foregroundStyle(InkTheme.ink)
       }
       ToolbarItem(placement: .topBarTrailing) {
         Button {
@@ -591,7 +571,7 @@ struct StrainV2Hero: View {
             .font(.caption.weight(.semibold))
         }
         .font(.subheadline.weight(.semibold))
-        .foregroundStyle(palette.secondaryText)
+        .foregroundStyle(InkTheme.graphite)
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
         .background(.thinMaterial, in: Capsule())
@@ -622,27 +602,22 @@ struct StrainV2ScoreGauge: View {
       let lineWidth = max(13, side * 0.078)
       let radius = side / 2 - 18
       let end = progressPoint(side: side, radius: radius)
-      let tint = Color(red: 1.0, green: 0.52, blue: 0.18)
+      let tint = InkTheme.ink
 
       ZStack {
         Circle()
-          .fill(palette.surface.opacity(palette.light ? 0.94 : 0.84))
-          .shadow(color: palette.shadow.opacity(0.48), radius: 18, x: 0, y: 8)
+          .fill(InkTheme.film)
         Circle()
-          .stroke(.white.opacity(palette.light ? 0.88 : 0.12), lineWidth: 10)
+          .stroke(InkTheme.hairline, lineWidth: 1)
           .padding(6)
         Circle()
           .inset(by: 18)
-          .stroke(palette.separator.opacity(palette.light ? 0.72 : 0.62), lineWidth: lineWidth)
+          .stroke(InkTheme.hairline, lineWidth: lineWidth)
         Circle()
           .inset(by: 18)
           .trim(from: 0, to: progress)
           .stroke(
-            LinearGradient(
-              colors: [Color(red: 1.0, green: 0.72, blue: 0.36), tint],
-              startPoint: .topLeading,
-              endPoint: .bottomTrailing
-            ),
+            tint,
             style: StrokeStyle(lineWidth: lineWidth, lineCap: .round)
           )
           .rotationEffect(.degrees(-90))
@@ -650,16 +625,15 @@ struct StrainV2ScoreGauge: View {
         Circle()
           .fill(tint)
           .frame(width: lineWidth * 0.95, height: lineWidth * 0.95)
-          .shadow(color: tint.opacity(0.32), radius: 6, x: 0, y: 2)
           .position(end)
 
         VStack(spacing: 4) {
           Text(scoreText)
             .font(.system(size: 52, weight: .semibold, design: .rounded))
-            .foregroundStyle(palette.text)
+            .foregroundStyle(InkTheme.ink)
           Text(status)
             .font(.footnote.weight(.semibold))
-            .foregroundStyle(palette.secondaryText)
+            .foregroundStyle(InkTheme.graphite)
             .lineLimit(1)
             .minimumScaleFactor(0.7)
         }
@@ -692,17 +666,17 @@ struct StrainV2DailyLoadCard: View {
         VStack(alignment: .leading, spacing: 4) {
           Text("Daily load")
             .font(.title3.weight(.semibold))
-            .foregroundStyle(palette.text)
+            .foregroundStyle(InkTheme.ink)
           Text("Today")
             .font(.subheadline.weight(.medium))
-            .foregroundStyle(palette.secondaryText)
+            .foregroundStyle(InkTheme.graphite)
         }
         Spacer()
         Image(systemName: "figure.run")
           .font(.headline.weight(.semibold))
-          .foregroundStyle(Color(red: 1.0, green: 0.52, blue: 0.18))
+          .foregroundStyle(InkTheme.ink)
           .frame(width: 34, height: 34)
-          .background(Color(red: 1.0, green: 0.52, blue: 0.18).opacity(0.12), in: Circle())
+          .background(InkTheme.wash, in: Circle())
       }
 
       HStack(spacing: 10) {
@@ -720,12 +694,11 @@ struct StrainV2DailyLoadCard: View {
     .padding(20)
     .background(
       RoundedRectangle(cornerRadius: 28, style: .continuous)
-        .fill(palette.surface)
-        .shadow(color: palette.shadow.opacity(0.42), radius: 12, x: 0, y: 5)
+        .fill(InkTheme.wash)
     )
     .overlay(
       RoundedRectangle(cornerRadius: 28, style: .continuous)
-        .stroke(palette.separator.opacity(0.70), lineWidth: 1)
+        .stroke(InkTheme.hairline, lineWidth: 1)
     )
     .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
   }
@@ -741,17 +714,17 @@ struct StrainV2LoadTile: View {
     HStack(alignment: .top, spacing: 10) {
       Image(systemName: systemImage)
         .font(.caption.weight(.semibold))
-        .foregroundStyle(Color(red: 1.0, green: 0.52, blue: 0.18))
+        .foregroundStyle(InkTheme.ink)
         .frame(width: 28, height: 28)
-        .background(Color(red: 1.0, green: 0.52, blue: 0.18).opacity(0.12), in: Circle())
+        .background(InkTheme.wash, in: Circle())
       VStack(alignment: .leading, spacing: 4) {
         Text(title)
           .font(.caption.weight(.semibold))
-          .foregroundStyle(palette.secondaryText)
+          .foregroundStyle(InkTheme.graphite)
         Text(value)
           .font(.title3.weight(.semibold))
           .fontDesign(.rounded)
-          .foregroundStyle(palette.text)
+          .foregroundStyle(InkTheme.ink)
           .lineLimit(1)
           .minimumScaleFactor(0.7)
       }
@@ -759,7 +732,7 @@ struct StrainV2LoadTile: View {
     }
     .padding(12)
     .frame(maxWidth: .infinity, alignment: .leading)
-    .background(palette.surfaceElevated.opacity(0.48), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+    .background(InkTheme.wash.opacity(0.48), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
   }
 }
 
@@ -771,18 +744,18 @@ struct StrainV2ZoneMeter: View {
       HStack {
         Text("Heart rate zones")
           .font(.subheadline.weight(.semibold))
-          .foregroundStyle(palette.text)
+          .foregroundStyle(InkTheme.ink)
         Spacer()
         Text("0 min")
           .font(.subheadline.weight(.semibold))
           .fontDesign(.rounded)
-          .foregroundStyle(palette.secondaryText)
+          .foregroundStyle(InkTheme.graphite)
       }
 
       HStack(spacing: 5) {
         ForEach(0..<5, id: \.self) { _ in
           Capsule()
-            .fill(palette.separator.opacity(0.75))
+            .fill(InkTheme.hairline.opacity(0.75))
             .frame(height: 9)
         }
       }
@@ -791,13 +764,13 @@ struct StrainV2ZoneMeter: View {
         ForEach(["Z1", "Z2", "Z3", "Z4", "Z5"], id: \.self) { zone in
           Text(zone)
             .font(.caption2.weight(.semibold))
-            .foregroundStyle(palette.mutedText)
+            .foregroundStyle(InkTheme.graphite)
             .frame(maxWidth: .infinity)
         }
       }
     }
     .padding(14)
-    .background(palette.surfaceElevated.opacity(0.48), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+    .background(InkTheme.wash.opacity(0.48), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
   }
 }
 
@@ -812,17 +785,17 @@ struct StrainV2EmptyStateCard: View {
       HStack(alignment: .top, spacing: 12) {
         Image(systemName: systemImage)
           .font(.title3.weight(.semibold))
-          .foregroundStyle(palette.mutedText)
+          .foregroundStyle(InkTheme.graphite)
           .frame(width: 40, height: 40)
-          .background(palette.surfaceElevated.opacity(0.64), in: Circle())
+          .background(InkTheme.wash.opacity(0.64), in: Circle())
 
         VStack(alignment: .leading, spacing: 5) {
           Text(title)
             .font(.headline.weight(.semibold))
-            .foregroundStyle(palette.text)
+            .foregroundStyle(InkTheme.ink)
           Text(message)
             .font(.subheadline)
-            .foregroundStyle(palette.secondaryText)
+            .foregroundStyle(InkTheme.graphite)
             .fixedSize(horizontal: false, vertical: true)
         }
       }
@@ -850,18 +823,18 @@ struct StrainV2InsightsSheet: View {
           SleepV2Panel(palette: palette, padding: 16, radius: 18) {
             VStack(spacing: 0) {
               StrainV2FactRow(label: "Score", value: store.strainScoreDisplayText(), palette: palette)
-              Divider().overlay(palette.separator)
+              Divider().overlay(InkTheme.hairline)
               StrainV2FactRow(label: "Target", value: store.strainTargetDisplayText(), palette: palette)
-              Divider().overlay(palette.separator)
+              Divider().overlay(InkTheme.hairline)
               StrainV2FactRow(label: "Duration", value: store.strainDurationDisplayText(), palette: palette)
-              Divider().overlay(palette.separator)
+              Divider().overlay(InkTheme.hairline)
               StrainV2FactRow(label: "Total Energy", value: store.strainEnergyDisplayText(), palette: palette)
             }
           }
         }
         .padding(18)
       }
-      .background(palette.background.ignoresSafeArea())
+      .background(InkTheme.film.ignoresSafeArea())
       .navigationTitle("Strain Data")
       .navigationBarTitleDisplayMode(.inline)
       .toolbar {
@@ -885,12 +858,12 @@ struct StrainV2FactRow: View {
     HStack {
       Text(label)
         .font(.subheadline.weight(.semibold))
-        .foregroundStyle(palette.secondaryText)
+        .foregroundStyle(InkTheme.graphite)
       Spacer(minLength: 12)
       Text(value)
         .font(.subheadline.weight(.semibold))
         .fontDesign(.rounded)
-        .foregroundStyle(palette.text)
+        .foregroundStyle(InkTheme.ink)
         .lineLimit(1)
         .minimumScaleFactor(0.7)
     }
@@ -909,18 +882,18 @@ struct RecoveryV2EmptyStateCard: View {
       HStack(spacing: 12) {
         Image(systemName: systemImage)
           .font(.headline.weight(.semibold))
-          .foregroundStyle(palette.accent)
+          .foregroundStyle(InkTheme.ink)
           .frame(width: 34, height: 34)
-          .background(palette.accent.opacity(0.10), in: Circle())
+          .background(InkTheme.ink.opacity(0.10), in: Circle())
 
         VStack(alignment: .leading, spacing: 4) {
           Text(title)
             .font(.headline.weight(.semibold))
-            .foregroundStyle(palette.text)
+            .foregroundStyle(InkTheme.ink)
           Text(value)
             .font(.subheadline.weight(.medium))
             .fontDesign(.rounded)
-            .foregroundStyle(palette.secondaryText)
+            .foregroundStyle(InkTheme.graphite)
         }
 
         Spacer(minLength: 8)
