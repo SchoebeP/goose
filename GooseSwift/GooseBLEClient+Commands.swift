@@ -1200,7 +1200,10 @@ extension GooseBLEClient {
            body: "pulling buffered HR history (GET_DATA_RANGE -> SEND_HISTORICAL_DATA), 90s window")
     writeGen4Command(34, payload: [], label: "GET_DATA_RANGE")
     DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in
-      self?.writeGen4Command(22, payload: [], label: "SEND_HISTORICAL_DATA")
+      // Payload MUST be [0x00]: an empty payload is answered with zero frames
+      // (reference-verified on a real WHOOP 4.0 — the cause of our forever-empty
+      // backfills, logged as historical_range.success_missing).
+      self?.writeGen4Command(22, payload: [0x00], label: "SEND_HISTORICAL_DATA")
     }
   }
 
