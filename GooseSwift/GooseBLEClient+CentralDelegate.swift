@@ -47,6 +47,7 @@ extension GooseBLEClient: CBCentralManagerDelegate {
       connectedAt = now
       lastSyncAt = now
       updateConnectionState("discovering")
+      armFirstDataWatchdog()
       peripheral.discoverServices(serviceDiscoveryIDs)
       processCachedServicesIfAvailable(peripheral, reason: "restore.connected")
     case .connecting:
@@ -198,6 +199,7 @@ extension GooseBLEClient: CBCentralManagerDelegate {
     lastSyncAt = now
     updateConnectionState("discovering")
     updateReconnectState("connected")
+    armFirstDataWatchdog()
     record(source: "ble", title: "connect.succeeded", body: "\(peripheral.name ?? fallbackName ?? "WHOOP") \(peripheral.identifier.uuidString) evidence=\(evidence)")
     peripheral.discoverServices(serviceDiscoveryIDs)
     processCachedServicesIfAvailable(peripheral, reason: "connect.\(reason)")

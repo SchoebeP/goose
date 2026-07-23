@@ -689,6 +689,25 @@ extension GooseBLEClient {
   /// Tear down a dead link and let the normal disconnect path reconnect cleanly,
   /// re-running the GEN4 enable on a fresh connection. Throttled so a burst of
   /// failed writes triggers exactly one recovery.
+  /// One-shot watchdog armed at every connect: the existing 60 s stall watchdog
+  /// only guards the "ready" state, so a link that dies BEFORE ready (silent
+  /// write failures during bond/enable) previously hung forever as "connected".
+  /// If no data frame lands within the grace window, force a fresh reconnect.
+  func armFirstDataWatchdog(graceSeconds: TimeInterval = 35) {
+    firstDataWatchdogTimer?.invalidate()
+    firstDataWatchdogTimer = Timer.scheduledTimer(withTimeInterval: graceSeconds, repeats: false) { [weak self] _ in
+      guard let self,
+            self.connectionState != "disconnected",
+            let connectedAt = self.connectedAt,
+            self.lastDataFrameAt < connectedAt else {
+        return
+      }
+      self.record(level: .warn, source: "ble", title: "connection.firstdata.timeout",
+                  body: "state=\(self.connectionState), no data \(Int(graceSeconds))s after connect — forcing reconnect")
+      self.recoverFromDeadLink(reason: "no first data within \(Int(graceSeconds))s")
+    }
+  }
+
   func recoverFromDeadLink(reason: String) {
     guard Date().timeIntervalSince(lastDeadLinkRecovery) > 10 else { return }
     lastDeadLinkRecovery = Date()
@@ -1108,8 +1127,10 @@ extension GooseBLEClient {
   /// than making the user wait for the watchdog tick. If nothing's connected,
   /// kick a reconnect. Cheap to call; no-op when data is flowing.
   func healConnectionIfStale(reason: String) {
-    if connectionState == "ready",
-       Date().timeIntervalSince(lastDataFrameAt) > 30 {
+    let believedLive = ["ready", "connected", "discovering", "bonding"].contains(connectionState)
+    let freshness = max(lastDataFrameAt, connectedAt ?? .distantPast)
+    if believedLive,
+       Date().timeIntervalSince(freshness) > 30 {
       record(level: .warn, source: "ble", title: "connection.heal",
              body: "stale on \(reason) — recovering")
       recoverFromDeadLink(reason: "stale on \(reason)")

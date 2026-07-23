@@ -244,6 +244,7 @@ final class GooseBLEClient: NSObject, ObservableObject {
   var gen4HistoryDeadline: Date?              // hard stop for the ack loop (write-pressure guard)
   var lastDeadLinkRecovery = Date.distantPast // throttle for zombie-connection recovery
   var lastDataFrameAt = Date.distantPast      // last raw notification — stall watchdog
+  var firstDataWatchdogTimer: Timer?          // one-shot: connect must yield data or we recover
   var gen4ReEnableTimer: Timer?
   let gen4ProbeLock = NSLock()
   var gen4OpticalFrameCount = 0
