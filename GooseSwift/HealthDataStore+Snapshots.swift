@@ -269,6 +269,13 @@ extension HealthDataStore {
           if let hrDip = day.hrDipText {
             statusText += " | \(hrDip)"
           }
+          if let stages = day.sleepStages {
+            var parts: [String] = []
+            if let rem = stages.remPct { parts.append("REM \(Int(rem.rounded()))%") }
+            if let deep = stages.deepPct { parts.append("deep \(Int(deep.rounded()))%") }
+            if let eff = stages.efficiencyPct { parts.append("eff \(Int(eff.rounded()))%") }
+            if !parts.isEmpty { statusText += " | " + parts.joined(separator: " · ") }
+          }
         }
         return HealthMetricSnapshot(
           id: snapshot.id,

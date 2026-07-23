@@ -56,6 +56,68 @@ struct ServerMetricsSkinTemp: Decodable, Equatable {
   }
 }
 
+/// Baevsky stress index + band. All server-computed; absent when no data.
+struct ServerMetricsStress: Decodable, Equatable {
+  let stressIndex: Double?
+  let band: String?
+  enum CodingKeys: String, CodingKey { case stressIndex = "stress_index", band }
+  init(from decoder: Decoder) throws {
+    let c = try decoder.container(keyedBy: CodingKeys.self)
+    stressIndex = try? c.decodeIfPresent(Double.self, forKey: .stressIndex)
+    band = try? c.decodeIfPresent(String.self, forKey: .band)
+  }
+}
+
+/// Frequency-domain HRV (LF/HF autonomic balance).
+struct ServerMetricsHRVFreq: Decodable, Equatable {
+  let lfHfRatio: Double?
+  enum CodingKeys: String, CodingKey { case lfHfRatio = "lf_hf_ratio" }
+  init(from decoder: Decoder) throws {
+    let c = try decoder.container(keyedBy: CodingKeys.self)
+    lfHfRatio = try? c.decodeIfPresent(Double.self, forKey: .lfHfRatio)
+  }
+}
+
+/// Relative SpO2 desaturation screen — events per hour, never an absolute %.
+struct ServerMetricsODI: Decodable, Equatable {
+  let eventsPerHour: Double?
+  let burdenPct: Double?
+  enum CodingKeys: String, CodingKey {
+    case eventsPerHour = "odi_events_per_hour", burdenPct = "burden_pct"
+  }
+  init(from decoder: Decoder) throws {
+    let c = try decoder.container(keyedBy: CodingKeys.self)
+    eventsPerHour = try? c.decodeIfPresent(Double.self, forKey: .eventsPerHour)
+    burdenPct = try? c.decodeIfPresent(Double.self, forKey: .burdenPct)
+  }
+}
+
+/// Sleep staging + AASM accounting. Any field may be absent (honest omission).
+struct ServerMetricsSleepStages: Decodable, Equatable {
+  let tibMin: Double?
+  let tstMin: Double?
+  let remPct: Double?
+  let deepPct: Double?
+  let lightPct: Double?
+  let wasoMin: Double?
+  let efficiencyPct: Double?
+  enum CodingKeys: String, CodingKey {
+    case tibMin = "tib_min", tstMin = "tst_min", remPct = "rem_pct"
+    case deepPct = "deep_pct", lightPct = "light_pct"
+    case wasoMin = "waso_min", efficiencyPct = "efficiency_pct"
+  }
+  init(from decoder: Decoder) throws {
+    let c = try decoder.container(keyedBy: CodingKeys.self)
+    tibMin = try? c.decodeIfPresent(Double.self, forKey: .tibMin)
+    tstMin = try? c.decodeIfPresent(Double.self, forKey: .tstMin)
+    remPct = try? c.decodeIfPresent(Double.self, forKey: .remPct)
+    deepPct = try? c.decodeIfPresent(Double.self, forKey: .deepPct)
+    lightPct = try? c.decodeIfPresent(Double.self, forKey: .lightPct)
+    wasoMin = try? c.decodeIfPresent(Double.self, forKey: .wasoMin)
+    efficiencyPct = try? c.decodeIfPresent(Double.self, forKey: .efficiencyPct)
+  }
+}
+
 /// One server-computed local day of daily metrics from the VPS
 /// (`GET /whoop/ingest/metrics/daily?days=7&tz=...`). The server windows days
 /// in the timezone we pass, so `date` is the local calendar day (yyyy-MM-dd).
@@ -80,6 +142,14 @@ struct ServerMetricsDay: Decodable, Identifiable, Equatable {
   let strain: Double?
   /// Recovery, percent 0–100.
   let recoveryPct: Double?
+  /// Stress: Baevsky index + band ("low"/"normal"/"elevated"/"high").
+  let stress: ServerMetricsStress?
+  /// Frequency-domain HRV (LF/HF).
+  let hrvFreq: ServerMetricsHRVFreq?
+  /// Relative SpO2 desaturation screen (events/hour) — never an absolute %.
+  let spo2ODI: ServerMetricsODI?
+  /// Sleep staging + AASM accounting (REM/deep/light, time-in-bed, efficiency).
+  let sleepStages: ServerMetricsSleepStages?
 
   var id: String { date }
 
@@ -93,6 +163,10 @@ struct ServerMetricsDay: Decodable, Identifiable, Equatable {
     case skinTemp = "skin_temp"
     case strain
     case recoveryPct = "recovery_pct"
+    case stress
+    case hrvFreq = "hrv_freq"
+    case spo2ODI = "spo2_odi"
+    case sleepStages = "sleep_stages"
   }
 
   init(from decoder: Decoder) throws {
@@ -109,6 +183,10 @@ struct ServerMetricsDay: Decodable, Identifiable, Equatable {
     skinTemp = try? container.decodeIfPresent(ServerMetricsSkinTemp.self, forKey: .skinTemp)
     strain = try? container.decodeIfPresent(Double.self, forKey: .strain)
     recoveryPct = try? container.decodeIfPresent(Double.self, forKey: .recoveryPct)
+    stress = try? container.decodeIfPresent(ServerMetricsStress.self, forKey: .stress)
+    hrvFreq = try? container.decodeIfPresent(ServerMetricsHRVFreq.self, forKey: .hrvFreq)
+    spo2ODI = try? container.decodeIfPresent(ServerMetricsODI.self, forKey: .spo2ODI)
+    sleepStages = try? container.decodeIfPresent(ServerMetricsSleepStages.self, forKey: .sleepStages)
   }
 
   /// True when this day is the given local calendar day.
