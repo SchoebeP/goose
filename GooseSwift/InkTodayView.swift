@@ -24,7 +24,7 @@ struct InkTodayView: View {
         InkMinutelyStepsSection(feed: stepsFeed)
         InkRule()
 
-        snapshotRows
+        InkSnapshotLedger(healthStore: healthStore, openHealthRoute: openHealthRoute)
       }
       .padding(.horizontal, InkTheme.screenMargin)
       .padding(.bottom, 34)
@@ -37,13 +37,20 @@ struct InkTodayView: View {
     }
   }
 
-  private var snapshotRows: some View {
-    let snapshots = healthStore.landingSnapshots(
-      liveHeartRateBPM: model.ble.liveHeartRateBPM,
-      liveHeartRateSource: model.ble.liveHeartRateSource,
-      liveHeartRateUpdatedAt: model.ble.liveHeartRateUpdatedAt
-    )
-    return VStack(alignment: .leading, spacing: 0) {
+}
+
+/// Derived-metric ledger, isolated from live-tick re-renders: snapshots are
+/// cached in @State and recomputed on a 30 s cadence, never per heartbeat.
+/// (landingSnapshots is the known dashboard-hang hot path — metrics are the
+/// server's job; this view only displays.)
+private struct InkSnapshotLedger: View {
+  let healthStore: HealthDataStore
+  let openHealthRoute: (HealthRoute) -> Void
+  @State private var snapshots: [HealthMetricSnapshot] = []
+  private let refresh = Timer.publish(every: 30, on: .main, in: .common).autoconnect()
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 0) {
       ForEach(snapshots) { snapshot in
         Button {
           openHealthRoute(snapshot.route)
@@ -54,6 +61,17 @@ struct InkTodayView: View {
         InkRule()
       }
     }
+    .onAppear { reload() }
+    .onReceive(refresh) { _ in reload() }
+  }
+
+  private func reload() {
+    snapshots = healthStore.landingSnapshots(
+      liveHeartRateBPM: nil,
+      liveHeartRateSource: "ledger.cached",
+      liveHeartRateUpdatedAt: nil,
+      stableDailyMetrics: true
+    )
   }
 }
 
