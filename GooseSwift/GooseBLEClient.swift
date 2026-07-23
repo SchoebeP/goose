@@ -372,7 +372,7 @@ final class GooseBLEClient: NSObject, ObservableObject {
   static let hrvRMSSDAverageWindowSize = 12
   static let hrvEstimatePublishInterval: TimeInterval = 60
   static let historicalPacketCountPublishInterval: TimeInterval = 1
-  static let gen4HistoryPullInterval: TimeInterval = 30 * 60   // periodic re-pull of the band's onboard history
+  static let gen4HistoryPullInterval: TimeInterval = 5 * 60   // periodic re-pull; the band serves ~one small page per request, so pull often to drain the backlog
   static let historicalProgressCallbackInterval: TimeInterval = 1
   static let strapClockAutoSyncThresholdSeconds: TimeInterval = 5
   static let diagnosticLogFormatter: ISO8601DateFormatter = {

@@ -1199,11 +1199,18 @@ extension GooseBLEClient {
     record(level: .warn, source: "ble.gen4", title: "gen4.history.request",
            body: "pulling buffered HR history (GET_DATA_RANGE -> SEND_HISTORICAL_DATA), 90s window")
     writeGen4Command(34, payload: [], label: "GET_DATA_RANGE")
-    DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in
-      // Payload MUST be [0x00]: an empty payload is answered with zero frames
-      // (reference-verified on a real WHOOP 4.0 — the cause of our forever-empty
-      // backfills, logged as historical_range.success_missing).
-      self?.writeGen4Command(22, payload: [0x00], label: "SEND_HISTORICAL_DATA")
+    // Payload MUST be [0x00]: an empty payload is answered with zero frames
+    // (reference-verified on a real WHOOP 4.0). The band serves roughly one
+    // small page (~20 records) per request and its read pointer advances, so
+    // repeat the request through the window to drain multiple pages per pull.
+    for (index, delay) in [0.6, 14.0, 28.0, 42.0, 56.0, 70.0, 84.0].enumerated() {
+      DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+        guard let self, (self.gen4HistoryDeadline.map { Date() < $0 }) ?? false else { return }
+        self.writeGen4Command(
+          22, payload: [0x00],
+          label: "SEND_HISTORICAL_DATA(page \(index + 1))"
+        )
+      }
     }
   }
 
