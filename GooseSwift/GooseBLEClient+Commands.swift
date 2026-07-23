@@ -1118,6 +1118,14 @@ extension GooseBLEClient {
         self.recoverFromDeadLink(reason: "silent stall \(Int(stale))s")
       } else {
         self.startGen4PulseStreamSequence(reason: "re_enable", bond: false)
+        // Periodic history re-pull. The backfill used to fire only on bond, so a
+        // long-lived background link (which this app deliberately maintains)
+        // never pulled again and buffered history stopped reaching the VPS.
+        // Overlapping pulls are safe: the server dedupes frames by sha256.
+        if Date().timeIntervalSince(self.gen4LastHistoryPullAt) >= Self.gen4HistoryPullInterval {
+          self.gen4StartedHistoricalBackfill = false
+          self.requestGen4HistoricalBackfillIfNeeded()
+        }
       }
     }
   }
@@ -1186,6 +1194,7 @@ extension GooseBLEClient {
           let ch = commandCharacteristic, isGen4CommandCharacteristic(ch) else { return }
     guard !gen4StartedHistoricalBackfill else { return }
     gen4StartedHistoricalBackfill = true
+    gen4LastHistoryPullAt = Date()
     gen4HistoryDeadline = Date().addingTimeInterval(90)   // bound the ack loop
     record(level: .warn, source: "ble.gen4", title: "gen4.history.request",
            body: "pulling buffered HR history (GET_DATA_RANGE -> SEND_HISTORICAL_DATA), 90s window")

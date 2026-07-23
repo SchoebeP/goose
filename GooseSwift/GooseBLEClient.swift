@@ -107,9 +107,15 @@ final class GooseBLEClient: NSObject, ObservableObject {
       || processInfo.environment["GOOSE_START_PHYSIOLOGY_CAPTURE"] == "1"
   }()
   let autoHistoricalSyncOnReady: Bool = {
+    // Default ON: the band's onboard buffer must be pulled routinely or the
+    // history rolls off before it ever reaches the VPS. Opt out via
+    // --goose-disable-auto-historical-sync / GOOSE_AUTO_HISTORICAL_SYNC=0.
     let processInfo = ProcessInfo.processInfo
-    return processInfo.arguments.contains("--goose-auto-historical-sync")
-      || processInfo.environment["GOOSE_AUTO_HISTORICAL_SYNC"] == "1"
+    if processInfo.arguments.contains("--goose-disable-auto-historical-sync")
+      || processInfo.environment["GOOSE_AUTO_HISTORICAL_SYNC"] == "0" {
+      return false
+    }
+    return true
   }()
   let diagnosticLoggingEnabled: Bool = {
     let processInfo = ProcessInfo.processInfo
@@ -240,6 +246,7 @@ final class GooseBLEClient: NSObject, ObservableObject {
   // optical/HR streams with the GEN4 frame format. See GooseBLEClient+Gen4Pulse.swift.
   var gen4StartedPulseStream = false
   var gen4StartedHistoricalBackfill = false   // one-shot HR history pull per connection
+  var gen4LastHistoryPullAt = Date.distantPast // periodic re-pull timer (long-lived links never disconnect)
   var gen4LastHistoryAck = Date.distantPast   // throttle for HISTORICAL_DATA_RESULT acks
   var gen4HistoryDeadline: Date?              // hard stop for the ack loop (write-pressure guard)
   var lastDeadLinkRecovery = Date.distantPast // throttle for zombie-connection recovery
@@ -365,6 +372,7 @@ final class GooseBLEClient: NSObject, ObservableObject {
   static let hrvRMSSDAverageWindowSize = 12
   static let hrvEstimatePublishInterval: TimeInterval = 60
   static let historicalPacketCountPublishInterval: TimeInterval = 1
+  static let gen4HistoryPullInterval: TimeInterval = 30 * 60   // periodic re-pull of the band's onboard history
   static let historicalProgressCallbackInterval: TimeInterval = 1
   static let strapClockAutoSyncThresholdSeconds: TimeInterval = 5
   static let diagnosticLogFormatter: ISO8601DateFormatter = {

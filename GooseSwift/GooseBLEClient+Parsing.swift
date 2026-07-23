@@ -974,6 +974,8 @@ final class WhoopCloudForwarder {
   private var frameBuffers: [String: [UInt8]] = [:]   // per-characteristic frame reassembly
   private var pendingFrames: [String] = []            // complete-frame hex awaiting POST
   private var lastFrameFlush = Date.distantPast
+  private var pendingHistoryFrames: [String] = []     // type-47 backfill hex awaiting outbox write
+  private var lastHistoryFrameFlush = Date.distantPast
 
   /// Enable/disable the cloud feed (defaults on; flip via UserDefaults "whoopCloudForwarding").
   var isEnabled: Bool {
@@ -1025,8 +1027,12 @@ final class WhoopCloudForwarder {
         if end > buf.count { break }                 // frame not fully arrived yet
         let frame = Array(buf[i..<end])
         let type = frame.count > 4 ? frame[4] : 0
-        if type == 40 || type == 43 || type == 48 || type == 36 || type == 47 {
-          // HR / optical / event / cmd-resp / historical-backfill
+        if type == 47 {
+          // Historical backfill: route through the disk outbox, not the live
+          // in-memory batch — see flushHistoryFramesOnQueue.
+          self.pendingHistoryFrames.append(frame.map { String(format: "%02x", $0) }.joined())
+        } else if type == 40 || type == 43 || type == 48 || type == 36 {
+          // HR / optical / event / cmd-resp
           self.pendingFrames.append(frame.map { String(format: "%02x", $0) }.joined())
         }
         i = end
@@ -1038,6 +1044,10 @@ final class WhoopCloudForwarder {
       if self.pendingFrames.count >= 30
           || (!self.pendingFrames.isEmpty && now.timeIntervalSince(self.lastFrameFlush) >= 3) {
         self.flushFramesOnQueue(now)
+      }
+      if self.pendingHistoryFrames.count >= 30
+          || (!self.pendingHistoryFrames.isEmpty && now.timeIntervalSince(self.lastHistoryFrameFlush) >= 3) {
+        self.flushHistoryFramesOnQueue(now)
       }
     }
   }
@@ -1064,16 +1074,16 @@ final class WhoopCloudForwarder {
     ])
   }
 
-  private func postFrames(_ body: Data, completion: @escaping (Bool) -> Void) {
+  private func postFrames(_ body: Data, completion: @escaping (Bool, Int?) -> Void) {
     var req = URLRequest(url: Self.framesEndpoint)
     req.httpMethod = "POST"
     req.setValue("application/json", forHTTPHeaderField: "Content-Type")
     req.setValue(token, forHTTPHeaderField: "X-Ingest-Token")
     req.httpBody = body
     URLSession.shared.dataTask(with: req) { _, resp, err in
-      let ok = err == nil
-        && ((resp as? HTTPURLResponse).map { (200..<300).contains($0.statusCode) } ?? false)
-      completion(ok)
+      let status = (resp as? HTTPURLResponse)?.statusCode
+      let ok = err == nil && (status.map { (200..<300).contains($0) } ?? false)
+      completion(ok, status)
     }.resume()
   }
 
@@ -1086,14 +1096,31 @@ final class WhoopCloudForwarder {
     lastFrameFlush = now
     if batch.isEmpty { drainOutbox(); return }
     guard let body = framesBody(batch) else { return }
-    postFrames(body) { [weak self] ok in
+    postFrames(body) { [weak self] ok, _ in
       self?.queue.async {
         if ok { self?.drainOutbox() } else { self?.persistFailedBody(body) }
       }
     }
   }
 
-  /// Persist a body that failed to upload, ordered by time for in-order replay.
+  /// Historical (type-47) batches take the durable path: write to the disk
+  /// outbox FIRST, then upload from there. Backfills fire right after a
+  /// reconnect — often in the background, where iOS can suspend the app before
+  /// an in-flight POST completes, silently losing the batch (live frames
+  /// survive because they keep flowing; a backfill happens once and is gone).
+  /// Disk-first makes every history batch replayable. Call on `queue` only.
+  private func flushHistoryFramesOnQueue(_ now: Date) {
+    let batch = pendingHistoryFrames
+    pendingHistoryFrames = []
+    lastHistoryFrameFlush = now
+    guard !batch.isEmpty, let body = framesBody(batch) else { return }
+    persistFailedBody(body)
+    drainOutbox()
+  }
+
+  /// Persist a body to the outbox, ordered by time for in-order replay. Used
+  /// for live batches that failed to upload AND (write-first) for history
+  /// batches, which must survive background suspension.
   private func persistFailedBody(_ body: Data) {
     outboxSeq += 1
     let name = String(format: "%015.0f-%05d.json", Date().timeIntervalSince1970 * 1000, outboxSeq)
@@ -1102,18 +1129,27 @@ final class WhoopCloudForwarder {
   }
 
   /// Send the oldest backlog file; on success delete it and continue draining,
-  /// on failure stop (still offline) and leave it for the next attempt.
+  /// on failure stop (still offline) and leave it for the next attempt. A file
+  /// the server permanently rejects (4xx other than auth/rate-limit) is a
+  /// poison pill: it would head the queue forever and block everything behind
+  /// it — delete it and keep draining.
   private func drainOutbox() {
     let fm = FileManager.default
     guard let url = (try? fm.contentsOfDirectory(at: Self.outboxDir, includingPropertiesForKeys: nil))?
       .filter({ $0.pathExtension == "json" })
       .sorted(by: { $0.lastPathComponent < $1.lastPathComponent }).first else { return }
     guard let body = try? Data(contentsOf: url) else { try? fm.removeItem(at: url); return }
-    postFrames(body) { [weak self] ok in
+    postFrames(body) { [weak self] ok, status in
       self?.queue.async {
-        guard ok else { return }
-        try? fm.removeItem(at: url)
-        self?.drainOutbox()
+        if ok {
+          try? fm.removeItem(at: url)
+          self?.drainOutbox()
+          return
+        }
+        if let status, (400..<500).contains(status), status != 401, status != 408, status != 429 {
+          try? fm.removeItem(at: url)   // permanent rejection — drop, keep draining
+          self?.drainOutbox()
+        }
       }
     }
   }
