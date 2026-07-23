@@ -5,6 +5,7 @@ import SwiftUI
 struct InkTrendsView: View {
   @EnvironmentObject private var model: GooseAppModel
   @ObservedObject var healthStore: HealthDataStore
+  @State private var period: TrendPeriod = .week
 
   var body: some View {
     ScrollView {
@@ -25,11 +26,33 @@ struct InkTrendsView: View {
   private var header: some View {
     VStack(alignment: .leading, spacing: 3) {
       Text("Long window").inkEyebrow()
-      Text("Trends")
-        .font(InkTheme.screenTitle)
-        .foregroundStyle(InkTheme.ink)
+      HStack(alignment: .firstTextBaseline) {
+        Text("Trends")
+          .font(InkTheme.screenTitle)
+          .foregroundStyle(InkTheme.ink)
+        Spacer()
+        periodControl
+      }
     }
     .padding(.top, 12)
+  }
+
+  /// Mono period switch — W / M / 6M as quiet text, active one in ink.
+  private var periodControl: some View {
+    HStack(spacing: 16) {
+      ForEach(TrendPeriod.allCases) { candidate in
+        Button {
+          period = candidate
+        } label: {
+          Text(candidate.rawValue)
+            .font(InkTheme.mono(12, weight: period == candidate ? .bold : .regular))
+            .foregroundStyle(period == candidate ? InkTheme.ink : InkTheme.graphite)
+            .underline(period == candidate, color: InkTheme.arterial)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Show \(candidate.rawValue) window")
+      }
+    }
   }
 
   private var trendSections: some View {
@@ -40,7 +63,7 @@ struct InkTrendsView: View {
       } else {
         ForEach(rows) { row in
           if row.trend.points.count > 1 {
-            InkTrendSection(snapshot: row)
+            InkTrendSection(snapshot: row, period: period)
             InkRule()
           }
         }
@@ -66,9 +89,10 @@ struct InkTrendsView: View {
 
 private struct InkTrendSection: View {
   let snapshot: HealthMetricSnapshot
+  let period: TrendPeriod
 
   private var values: [Double] {
-    snapshot.trend.points.map(\.value)
+    Array(snapshot.trend.points.map(\.value).suffix(period.pointCount))
   }
 
   private var latestText: String {

@@ -57,7 +57,7 @@ struct HRDayDetailView: View {
 
   var body: some View {
     let buckets = self.buckets
-    let accent = GooseTheme.Accent.range
+    let accent = InkTheme.arterial
     ScrollView {
       VStack(alignment: .leading, spacing: 18) {
         if buckets.isEmpty {
@@ -143,7 +143,7 @@ struct HRDayDetailView: View {
       .padding(.horizontal, 16)
       .padding(.vertical, 18)
     }
-    .gooseScreenBackground()
+    .inkScreen()
     .navigationTitle("Heart Rate · Today")
     .navigationBarTitleDisplayMode(.inline)
   }
@@ -230,7 +230,7 @@ struct StepsDayDetailView: View {
 
   var body: some View {
     let buckets = self.buckets
-    let accent = GooseTheme.Accent.activity
+    let accent = InkTheme.ink
     ScrollView {
       VStack(alignment: .leading, spacing: 18) {
         if buckets.isEmpty {
@@ -316,7 +316,7 @@ struct StepsDayDetailView: View {
       .padding(.horizontal, 16)
       .padding(.vertical, 18)
     }
-    .gooseScreenBackground()
+    .inkScreen()
     .navigationTitle("Steps · Today")
     .navigationBarTitleDisplayMode(.inline)
   }

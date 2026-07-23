@@ -174,6 +174,84 @@ struct InkSparkline: View {
   }
 }
 
+// MARK: - Hour bars (ink)
+
+/// Vertical range bars, one per bucket (e.g. hourly HR lo–hi). Monochrome ink;
+/// the most recent bucket carries the arterial now-mark when `emphasizeLast`.
+struct InkRangeBars: View {
+  struct Bucket {
+    let low: Double
+    let high: Double
+  }
+
+  let buckets: [Bucket]
+  var height: CGFloat = 64
+  var emphasizeLast: Bool = false
+
+  var body: some View {
+    Canvas { context, size in
+      guard !buckets.isEmpty else { return }
+      let minValue = buckets.map(\.low).min() ?? 0
+      let maxValue = buckets.map(\.high).max() ?? 1
+      let span = max(maxValue - minValue, 1)
+      let slot = size.width / CGFloat(max(buckets.count, 24))
+      let barWidth = max(2.5, slot * 0.42)
+
+      for (index, bucket) in buckets.enumerated() {
+        let x = CGFloat(index) * slot + slot / 2
+        let yHigh = size.height - CGFloat((bucket.high - minValue) / span) * (size.height - 4) - 2
+        let yLow = size.height - CGFloat((bucket.low - minValue) / span) * (size.height - 4) - 2
+        let rect = CGRect(
+          x: x - barWidth / 2,
+          y: yHigh,
+          width: barWidth,
+          height: max(2.5, yLow - yHigh)
+        )
+        let isLast = index == buckets.count - 1
+        context.fill(
+          Path(roundedRect: rect, cornerRadius: barWidth / 2),
+          with: .color(emphasizeLast && isLast ? InkTheme.arterial : InkTheme.ink)
+        )
+      }
+    }
+    .frame(height: height)
+    .accessibilityHidden(true)
+  }
+}
+
+/// Simple vertical bars (e.g. hourly steps). Monochrome ink.
+struct InkBars: View {
+  let values: [Double]
+  var height: CGFloat = 52
+
+  var body: some View {
+    Canvas { context, size in
+      guard !values.isEmpty else { return }
+      let maxValue = max(values.max() ?? 1, 1)
+      let slot = size.width / CGFloat(max(values.count, 24))
+      let barWidth = max(2.5, slot * 0.42)
+
+      for (index, value) in values.enumerated() {
+        guard value > 0 else { continue }
+        let x = CGFloat(index) * slot + slot / 2
+        let barHeight = max(2.5, CGFloat(value / maxValue) * (size.height - 4))
+        let rect = CGRect(
+          x: x - barWidth / 2,
+          y: size.height - 2 - barHeight,
+          width: barWidth,
+          height: barHeight
+        )
+        context.fill(
+          Path(roundedRect: rect, cornerRadius: barWidth / 2),
+          with: .color(InkTheme.ink)
+        )
+      }
+    }
+    .frame(height: height)
+    .accessibilityHidden(true)
+  }
+}
+
 // MARK: - Section scaffolding
 
 struct InkSectionHeader: View {

@@ -7,6 +7,7 @@ struct InkTodayView: View {
   @ObservedObject var healthStore: HealthDataStore
   @Binding var selectedDate: Date
   let openHealthRoute: (HealthRoute) -> Void
+  @StateObject private var stepsFeed = MinutelyStepsFeed()
 
   var body: some View {
     ScrollView {
@@ -18,8 +19,12 @@ struct InkTodayView: View {
         InkRule()
           .padding(.top, InkTheme.sectionSpacing)
 
+        InkMinutelyHRSection()
+        InkRule()
+        InkMinutelyStepsSection(feed: stepsFeed)
+        InkRule()
+
         snapshotRows
-          .padding(.top, 4)
       }
       .padding(.horizontal, InkTheme.screenMargin)
       .padding(.bottom, 34)
@@ -127,6 +132,9 @@ private struct InkLiveHero: View {
   private var bandStatusText: String {
     if isLive {
       var text = "\(ble.activeDeviceName) — live"
+      if let onWrist = ble.isOnWrist {
+        text += onWrist ? " · on wrist" : " · off wrist"
+      }
       if let lastSync = ble.lastSyncAt {
         text += " · synced \(lastSync.formatted(.relative(presentation: .named)))"
       }
@@ -137,6 +145,115 @@ private struct InkLiveHero: View {
       return "\(ble.activeDeviceName) — connected, waiting for signal"
     }
     return "Bring the band in range to go live"
+  }
+}
+
+/// Today's heart rate per hour — VPS recap, drawn as ink range bars.
+/// Tap-through to the minute-level day detail (regression fix vs old Home).
+private struct InkMinutelyHRSection: View {
+  @StateObject private var feed = MinutelyHRFeed()
+  private let refresh = Timer.publish(every: 30, on: .main, in: .common).autoconnect()
+
+  private var hourlyBuckets: [HRMinute] {
+    var byHour: [String: [HRMinute]] = [:]
+    for minute in feed.minutes {
+      byHour[hourKey(from: minute.minute), default: []].append(minute)
+    }
+    return byHour
+      .sorted { (Int($0.key) ?? 0) < (Int($1.key) ?? 0) }
+      .map { hour, rows in
+        HRMinute(
+          minute: hour,
+          bpm: rows.last?.bpm ?? 0,
+          lo: rows.map(\.lo).min() ?? 0,
+          hi: rows.map(\.hi).max() ?? 0,
+          n: rows.reduce(0) { $0 + $1.n }
+        )
+      }
+  }
+
+  var body: some View {
+    let buckets = hourlyBuckets
+    NavigationLink {
+      HRDayDetailView(minutes: feed.minutes)
+    } label: {
+      VStack(alignment: .leading, spacing: 10) {
+        HStack(alignment: .firstTextBaseline) {
+          Text("Heart rate · today").inkEyebrow()
+          Spacer()
+          if let last = buckets.last, last.hi > 0 {
+            Text("\(Int(last.lo))–\(Int(last.hi)) bpm")
+              .font(InkTheme.mono(11))
+              .foregroundStyle(InkTheme.graphite)
+          }
+          Image(systemName: "chevron.right")
+            .font(.system(size: 11, weight: .semibold))
+            .foregroundStyle(InkTheme.hairline)
+        }
+        if buckets.isEmpty {
+          Text("No readings yet today")
+            .font(InkTheme.footnote)
+            .foregroundStyle(InkTheme.graphite)
+        } else {
+          InkRangeBars(
+            buckets: buckets.map { .init(low: Double($0.lo), high: Double($0.hi)) },
+            emphasizeLast: true
+          )
+        }
+      }
+      .padding(.vertical, 15)
+      .contentShape(Rectangle())
+    }
+    .buttonStyle(.plain)
+    .onAppear { feed.refresh() }
+    .onReceive(refresh) { _ in feed.refresh() }
+  }
+}
+
+/// Today's steps per hour — our own accelerometer-derived count.
+private struct InkMinutelyStepsSection: View {
+  @ObservedObject var feed: MinutelyStepsFeed
+  private let refresh = Timer.publish(every: 30, on: .main, in: .common).autoconnect()
+
+  private var hourlyTotals: [Double] {
+    var byHour: [String: Int] = [:]
+    for minute in feed.minutes {
+      byHour[hourKey(from: minute.minute), default: 0] += minute.steps
+    }
+    return byHour
+      .sorted { (Int($0.key) ?? 0) < (Int($1.key) ?? 0) }
+      .map { Double($0.value) }
+  }
+
+  var body: some View {
+    NavigationLink {
+      StepsDayDetailView(minutes: feed.minutes)
+    } label: {
+      VStack(alignment: .leading, spacing: 10) {
+        HStack(alignment: .firstTextBaseline) {
+          Text("Steps · today").inkEyebrow()
+          Spacer()
+          Text("\(feed.total)")
+            .font(InkTheme.mono(11))
+            .foregroundStyle(InkTheme.graphite)
+          Image(systemName: "chevron.right")
+            .font(.system(size: 11, weight: .semibold))
+            .foregroundStyle(InkTheme.hairline)
+        }
+        if hourlyTotals.isEmpty {
+          Text("Steps accrue while the band is worn and connected")
+            .font(InkTheme.footnote)
+            .foregroundStyle(InkTheme.graphite)
+        } else {
+          InkBars(values: hourlyTotals)
+        }
+      }
+      .padding(.vertical, 15)
+      .contentShape(Rectangle())
+    }
+    .buttonStyle(.plain)
+    .onAppear { feed.refresh() }
+    .onReceive(refresh) { _ in feed.refresh() }
   }
 }
 

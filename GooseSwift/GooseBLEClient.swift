@@ -30,6 +30,8 @@ final class GooseBLEClient: NSObject, ObservableObject {
   @Published var batteryLevelPercent: Int?
   @Published var batteryUpdatedAt: Date?
   @Published var batteryIsCharging: Bool?
+  @Published var isOnWrist: Bool?
+  @Published var wristStateUpdatedAt: Date?
   @Published var batteryPowerStatus = "Unknown"
   @Published var firmwareVersion: String?
   @Published var modelNumber: String?
