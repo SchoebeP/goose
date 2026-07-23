@@ -85,6 +85,13 @@ final class ServerSleepFeed: ObservableObject {
   @Published var nights: [ServerSleepNight] = []
   @Published var latestNight: ServerSleepNight?
 
+  /// False until the first fetch has completed (success, empty, or failure).
+  /// While false a server-backed field is still genuinely awaiting its first
+  /// response and callers may show a loading state instead of "No data".
+  @Published private(set) var hasLoadedOnce = false
+  /// True while a fetch is in flight.
+  @Published private(set) var isLoading = false
+
   private let url: URL = {
     var components = URLComponents(string: "https://latenightgames.fr/whoop/ingest/sleep/nights")!
     components.queryItems = [URLQueryItem(name: "tz", value: TimeZone.current.identifier)]
@@ -100,15 +107,25 @@ final class ServerSleepFeed: ObservableObject {
 
   func refresh() {
     lastRequestedAt = Date()
+    isLoading = true
     var req = URLRequest(url: url, timeoutInterval: 15)
     req.setValue(token, forHTTPHeaderField: "X-Ingest-Token")
     URLSession.shared.dataTask(with: req) { [weak self] data, _, _ in
-      guard let data,
-            let r = try? JSONDecoder().decode(ServerSleepNightsResponse.self, from: data) else { return }
-      let sorted = r.nights.sorted { $0.date > $1.date }
+      var sorted: [ServerSleepNight]?
+      if let data,
+         let r = try? JSONDecoder().decode(ServerSleepNightsResponse.self, from: data) {
+        sorted = r.nights.sorted { $0.date > $1.date }
+      }
       Task { @MainActor in
-        self?.nights = sorted
-        self?.latestNight = sorted.first
+        guard let self else { return }
+        // Only replace data on a successful decode; always finish the load
+        // state so the first completion (success/empty/failure) ends loading.
+        if let sorted {
+          self.nights = sorted
+          self.latestNight = sorted.first
+        }
+        self.isLoading = false
+        self.hasLoadedOnce = true
       }
     }.resume()
   }

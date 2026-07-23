@@ -444,11 +444,19 @@ struct HealthMetricCard: View {
         HealthSourceBadge(source: snapshot.source)
       }
 
-      Text(snapshot.displayValue)
-        .font(.system(size: 22, weight: .medium, design: .serif))
-        .foregroundStyle(InkTheme.ink)
-        .lineLimit(1)
-        .minimumScaleFactor(0.7)
+      if snapshot.isAwaitingServer {
+        ProgressView()
+          .controlSize(.small)
+          .tint(InkTheme.graphite)
+          .frame(height: 27, alignment: .leading)
+          .frame(maxWidth: .infinity, alignment: .leading)
+      } else {
+        Text(snapshot.displayValue)
+          .font(.system(size: 22, weight: .medium, design: .serif))
+          .foregroundStyle(InkTheme.ink)
+          .lineLimit(1)
+          .minimumScaleFactor(0.7)
+      }
 
       VStack(alignment: .leading, spacing: 3) {
         Text(snapshot.title)

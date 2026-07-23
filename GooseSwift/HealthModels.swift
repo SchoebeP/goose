@@ -70,6 +70,16 @@ struct HealthMetricSnapshot: Identifiable {
   let tint: Color
   let trend: HealthTrendModel
 
+  /// Status text used while a server-backed field is still awaiting its first
+  /// server response. Rows render a small spinner for this status instead of
+  /// the honest empty dash. The value is never fabricated — it stays "--".
+  static let loadingStatus = "Loading…"
+
+  /// True when this snapshot is in the "awaiting first server response" state.
+  var isAwaitingServer: Bool {
+    status == Self.loadingStatus
+  }
+
   var displayValue: String {
     guard !unit.isEmpty else {
       return value

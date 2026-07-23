@@ -287,14 +287,20 @@ private struct InkSnapshotRow: View {
       VStack(alignment: .leading, spacing: 5) {
         Text(snapshot.title).inkEyebrow()
         HStack(alignment: .firstTextBaseline, spacing: 5) {
-          Text(snapshot.value)
-            .font(InkTheme.displayNumeral(27))
-            .foregroundStyle(InkTheme.ink)
-            .monospacedDigit()
-          if !snapshot.unit.isEmpty {
-            Text(snapshot.unit)
-              .font(InkTheme.mono(11))
-              .foregroundStyle(InkTheme.graphite)
+          if snapshot.isAwaitingServer {
+            ProgressView()
+              .controlSize(.small)
+              .tint(InkTheme.graphite)
+          } else {
+            Text(snapshot.value)
+              .font(InkTheme.displayNumeral(27))
+              .foregroundStyle(InkTheme.ink)
+              .monospacedDigit()
+            if !snapshot.unit.isEmpty {
+              Text(snapshot.unit)
+                .font(InkTheme.mono(11))
+                .foregroundStyle(InkTheme.graphite)
+            }
           }
         }
         if !snapshot.status.isEmpty {

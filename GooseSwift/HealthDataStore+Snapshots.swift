@@ -168,6 +168,25 @@ extension HealthDataStore {
     if let index = snapshots.firstIndex(where: { $0.id == "health-sleep" }) {
       snapshots[index] = sleepHealthMonitorSnapshot(base: snapshots[index])
     }
+    // Final pass: for the server-backed vitals, while the relevant feed is
+    // still awaiting its first response and no local fallback replaced the
+    // unavailable state, show a neutral "Loading…" state instead of empty.
+    for index in snapshots.indices {
+      switch snapshots[index].id {
+      case "respiratory-rate", "resting-hr", "resting-hrv", "wrist-temperature":
+        snapshots[index] = awaitingServerSnapshot(
+          snapshots[index],
+          feedLoaded: ServerMetricsFeed.shared.hasLoadedOnce
+        )
+      case "health-sleep":
+        snapshots[index] = awaitingServerSnapshot(
+          snapshots[index],
+          feedLoaded: ServerSleepFeed.shared.hasLoadedOnce
+        )
+      default:
+        break
+      }
+    }
     return snapshots
   }
 
@@ -212,6 +231,37 @@ extension HealthDataStore {
     )
   }
 
+  /// While a server feed is still awaiting its very first response
+  /// (`!feedLoaded`) AND the resolved snapshot has no local fallback value
+  /// (its source is `.unavailable`), swap the honest empty state for a neutral
+  /// "Loading…" one so the row can show a spinner. The value stays "--" — we
+  /// never invent one, and once the server has responded (even with no data)
+  /// this returns the snapshot unchanged so the honest empty state remains.
+  func awaitingServerSnapshot(
+    _ snapshot: HealthMetricSnapshot,
+    feedLoaded: Bool
+  ) -> HealthMetricSnapshot {
+    guard !previewMissingData, !usesPreviewPacketData,
+          !feedLoaded, snapshot.source.kind == .unavailable else {
+      return snapshot
+    }
+    return HealthMetricSnapshot(
+      id: snapshot.id,
+      route: snapshot.route,
+      group: snapshot.group,
+      title: snapshot.title,
+      value: "--",
+      unit: snapshot.unit,
+      status: HealthMetricSnapshot.loadingStatus,
+      freshness: "Awaiting server",
+      provenance: snapshot.provenance,
+      source: snapshot.source,
+      systemImage: snapshot.systemImage,
+      tint: snapshot.tint,
+      trend: snapshot.trend
+    )
+  }
+
   /// Prefers the server-computed strain (0-21) for today; falls back to the
   /// local packet-derived `strainSnapshot(base:)` when the server has no
   /// strain field for today. Never fabricates a value.
@@ -239,7 +289,10 @@ extension HealthDataStore {
         )
       }
     }
-    return strainSnapshot(base: snapshot)
+    return awaitingServerSnapshot(
+      strainSnapshot(base: snapshot),
+      feedLoaded: ServerMetricsFeed.shared.hasLoadedOnce
+    )
   }
 
   func strainSnapshot(for date: Date, calendar: Calendar = .current) -> HealthMetricSnapshot {
@@ -329,7 +382,10 @@ extension HealthDataStore {
         trend: snapshot.trend
       )
     }
-    return snapshot
+    return awaitingServerSnapshot(
+      snapshot,
+      feedLoaded: ServerSleepFeed.shared.hasLoadedOnce
+    )
   }
 
   func sleepHealthMonitorSnapshot(base snapshot: HealthMetricSnapshot) -> HealthMetricSnapshot {
@@ -432,20 +488,23 @@ extension HealthDataStore {
     guard !usesPreviewPacketData,
           let score = recoveryScoreValue(),
           let scoreText = Self.numberText(score, fractionDigits: 0) else {
-      return HealthMetricSnapshot(
-        id: snapshot.id,
-        route: snapshot.route,
-        group: snapshot.group,
-        title: snapshot.title,
-        value: "--",
-        unit: "%",
-        status: "No data",
-        freshness: "No recovery score",
-        provenance: "metrics.recovery_score_from_features",
-        source: .unavailable("recovery score not available"),
-        systemImage: snapshot.systemImage,
-        tint: snapshot.tint,
-        trend: Self.emptyTrend(from: snapshot.trend, packetCount: packetEvidenceFrameCount())
+      return awaitingServerSnapshot(
+        HealthMetricSnapshot(
+          id: snapshot.id,
+          route: snapshot.route,
+          group: snapshot.group,
+          title: snapshot.title,
+          value: "--",
+          unit: "%",
+          status: "No data",
+          freshness: "No recovery score",
+          provenance: "metrics.recovery_score_from_features",
+          source: .unavailable("recovery score not available"),
+          systemImage: snapshot.systemImage,
+          tint: snapshot.tint,
+          trend: Self.emptyTrend(from: snapshot.trend, packetCount: packetEvidenceFrameCount())
+        ),
+        feedLoaded: ServerMetricsFeed.shared.hasLoadedOnce
       )
     }
 

@@ -182,10 +182,16 @@ struct HealthHero: View {
       }
 
       HStack(alignment: .firstTextBaseline, spacing: 8) {
-        Text(snapshot.displayValue)
-          .font(.system(size: 36, weight: .bold))
-          .lineLimit(1)
-          .minimumScaleFactor(0.7)
+        if snapshot.isAwaitingServer {
+          ProgressView()
+            .controlSize(.regular)
+            .tint(InkTheme.graphite)
+        } else {
+          Text(snapshot.displayValue)
+            .font(.system(size: 36, weight: .bold))
+            .lineLimit(1)
+            .minimumScaleFactor(0.7)
+        }
         Text(snapshot.status)
           .font(.headline)
           .foregroundStyle(snapshot.tint)

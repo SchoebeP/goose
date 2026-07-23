@@ -288,6 +288,13 @@ final class ServerMetricsFeed: ObservableObject {
   @Published var days: [ServerMetricsDay] = []
   @Published var latestDay: ServerMetricsDay?
 
+  /// False until the first fetch has completed (success, empty, or failure).
+  /// While false a server-backed field is still genuinely awaiting its first
+  /// response and callers may show a loading state instead of "No data".
+  @Published private(set) var hasLoadedOnce = false
+  /// True while a fetch is in flight.
+  @Published private(set) var isLoading = false
+
   private let url: URL = {
     var components = URLComponents(string: "https://latenightgames.fr/whoop/ingest/metrics/daily")!
     components.queryItems = [
@@ -311,16 +318,26 @@ final class ServerMetricsFeed: ObservableObject {
 
   func refresh() {
     lastRequestedAt = Date()
+    isLoading = true
     var req = URLRequest(url: url, timeoutInterval: 15)
     req.setValue(token, forHTTPHeaderField: "X-Ingest-Token")
     URLSession.shared.dataTask(with: req) { [weak self] data, response, _ in
-      guard let data,
-            (response as? HTTPURLResponse).map({ (200..<300).contains($0.statusCode) }) != false,
-            let r = try? JSONDecoder().decode(ServerMetricsDailyResponse.self, from: data) else { return }
-      let sorted = r.days.sorted { $0.date > $1.date }
+      var sorted: [ServerMetricsDay]?
+      if let data,
+         (response as? HTTPURLResponse).map({ (200..<300).contains($0.statusCode) }) != false,
+         let r = try? JSONDecoder().decode(ServerMetricsDailyResponse.self, from: data) {
+        sorted = r.days.sorted { $0.date > $1.date }
+      }
       Task { @MainActor in
-        self?.days = sorted
-        self?.latestDay = sorted.first
+        guard let self else { return }
+        // Only replace data on a successful decode; always finish the load
+        // state so the first completion (success/empty/failure) ends loading.
+        if let sorted {
+          self.days = sorted
+          self.latestDay = sorted.first
+        }
+        self.isLoading = false
+        self.hasLoadedOnce = true
       }
     }.resume()
   }
