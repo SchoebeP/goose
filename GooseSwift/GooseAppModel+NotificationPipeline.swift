@@ -41,8 +41,11 @@ extension GooseAppModel {
 
     let event = result.event
     if result.droppedBytes > 0 {
+      // Tiny drops (<=16 B) are orphaned tails of frames whose head notification
+      // was lost over the air — routine BLE packet loss, framing verified against
+      // real captures 2026-07-23. Log quietly; warn only on substantial loss.
       ble.record(
-        level: .warn,
+        level: result.droppedBytes > 16 ? .warn : .debug,
         source: "rust",
         title: "notification.frame.reassembly.dropped",
         body: "\(event.characteristicUUID) dropped=\(result.droppedBytes) buffered=\(result.bufferedBytes)"
@@ -100,8 +103,11 @@ extension GooseAppModel {
 
     let event = result.event
     if result.droppedBytes > 0 {
+      // Tiny drops (<=16 B) are orphaned tails of frames whose head notification
+      // was lost over the air — routine BLE packet loss, framing verified against
+      // real captures 2026-07-23. Log quietly; warn only on substantial loss.
       ble.record(
-        level: .warn,
+        level: result.droppedBytes > 16 ? .warn : .debug,
         source: "rust",
         title: "notification.frame.reassembly.dropped",
         body: "\(event.characteristicUUID) dropped=\(result.droppedBytes) buffered=\(result.bufferedBytes)"
@@ -130,8 +136,11 @@ extension GooseAppModel {
 
     let event = result.event
     if result.droppedBytes > 0 {
+      // Tiny drops (<=16 B) are orphaned tails of frames whose head notification
+      // was lost over the air — routine BLE packet loss, framing verified against
+      // real captures 2026-07-23. Log quietly; warn only on substantial loss.
       ble.record(
-        level: .warn,
+        level: result.droppedBytes > 16 ? .warn : .debug,
         source: "rust",
         title: "notification.frame.reassembly.dropped",
         body: "\(event.characteristicUUID) dropped=\(result.droppedBytes) buffered=\(result.bufferedBytes)"
