@@ -967,7 +967,7 @@ final class WhoopCloudForwarder {
 
   /// Self-hosted ingest endpoint (token-protected; no basic auth on this path).
   private let endpoint = URL(string: "https://latenightgames.fr/whoop/ingest/samples")!
-  private let token = "c0067852565b4d0d46606172de35c6ba120112c447e1f25b"
+  private var token: String { IngestCredentials.token }
   private let queue = DispatchQueue(label: "com.goose.swift.cloud-forward", qos: .utility)
   private let iso = ISO8601DateFormatter()
   private var lastSent = Date.distantPast
