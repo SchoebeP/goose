@@ -104,7 +104,7 @@ struct SleepV2OverviewPage: View {
               SleepV2SectionHeader(title: "Trends", palette: palette)
 
               VStack(spacing: 14) {
-                ForEach(store.trendRows(for: .sleep)) { snapshot in
+                ForEach(store.trendRows(for: .sleep).filter { $0.trend.hasData }) { snapshot in
                   SleepV2TrendRow(palette: palette, snapshot: snapshot) {
                     selectedTrend = snapshot
                   }

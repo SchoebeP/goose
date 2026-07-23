@@ -90,7 +90,7 @@ extension HealthDataStore {
       snapshots[index] = recoverySnapshot(base: snapshots[index])
     }
     if let index = snapshots.firstIndex(where: { $0.route == .strain }) {
-      snapshots[index] = strainSnapshot(base: snapshots[index])
+      snapshots[index] = strainSnapshotPreferringServer(base: snapshots[index])
     }
     if let index = snapshots.firstIndex(where: { $0.route == .stress }) {
       snapshots[index] = stressSnapshot(base: snapshots[index], allowLiveFallbacks: !stableDailyMetrics)
@@ -181,7 +181,7 @@ extension HealthDataStore {
       return recoverySnapshot(base: snapshot)
     }
     if route == .strain && !previewMissingData {
-      return strainSnapshot(base: snapshot)
+      return strainSnapshotPreferringServer(base: snapshot)
     }
     if route == .stress && !previewMissingData {
       return stressSnapshot(base: snapshot)
@@ -212,9 +212,39 @@ extension HealthDataStore {
     )
   }
 
+  /// Prefers the server-computed strain (0-21) for today; falls back to the
+  /// local packet-derived `strainSnapshot(base:)` when the server has no
+  /// strain field for today. Never fabricates a value.
+  func strainSnapshotPreferringServer(base snapshot: HealthMetricSnapshot) -> HealthMetricSnapshot {
+    if !usesPreviewPacketData && !previewMissingData {
+      ServerMetricsFeed.shared.refreshIfStale()
+      if let day = ServerMetricsFeed.shared.today,
+         let strain0To21 = day.strain {
+        let percent = Self.strainPercent(strain0To21)
+        let scoreText = Self.numberText(percent, fractionDigits: 0) ?? "0"
+        return HealthMetricSnapshot(
+          id: snapshot.id,
+          route: snapshot.route,
+          group: snapshot.group,
+          title: snapshot.title,
+          value: scoreText,
+          unit: "",
+          status: Self.strainStatusLabel(score: percent),
+          freshness: "Latest",
+          provenance: "server-computed strain (self-hosted VPS /metrics/daily)",
+          source: .local("server-computed strain (self-hosted VPS /metrics/daily)"),
+          systemImage: snapshot.systemImage,
+          tint: snapshot.tint,
+          trend: snapshot.trend
+        )
+      }
+    }
+    return strainSnapshot(base: snapshot)
+  }
+
   func strainSnapshot(for date: Date, calendar: Calendar = .current) -> HealthMetricSnapshot {
     let base = Self.baseLandingSnapshots.first { $0.route == .strain } ?? Self.baseLandingSnapshots[0]
-    let snapshot = strainSnapshot(base: base)
+    let snapshot = strainSnapshotPreferringServer(base: base)
     guard calendar.isDate(calendar.startOfDay(for: date), inSameDayAs: calendar.startOfDay(for: Date())) else {
       return zeroStrainSnapshot(
         base: snapshot,
@@ -229,7 +259,17 @@ extension HealthDataStore {
   func sleepSnapshot(base snapshot: HealthMetricSnapshot) -> HealthMetricSnapshot {
     if !previewMissingData {
       ServerSleepFeed.shared.refreshIfStale()
+      ServerMetricsFeed.shared.refreshIfStale()
       if let night = ServerSleepFeed.shared.lastNight {
+        var statusText = night.summaryText
+        if let day = ServerMetricsFeed.shared.today {
+          if night.end == nil, let wake = day.wakeLocalTimeText {
+            statusText += " | wake \(wake)"
+          }
+          if let hrDip = day.hrDipText {
+            statusText += " | \(hrDip)"
+          }
+        }
         return HealthMetricSnapshot(
           id: snapshot.id,
           route: snapshot.route,
@@ -237,7 +277,7 @@ extension HealthDataStore {
           title: snapshot.title,
           value: night.durationHoursText,
           unit: "h",
-          status: night.summaryText,
+          status: statusText,
           freshness: "Last night",
           provenance: "server-computed sleep night (\(night.quality ?? "unversioned"))",
           source: .local("server-computed sleep night (self-hosted VPS /sleep/nights)"),
@@ -325,6 +365,43 @@ extension HealthDataStore {
   }
 
   func recoverySnapshot(base snapshot: HealthMetricSnapshot) -> HealthMetricSnapshot {
+    if !usesPreviewPacketData && !previewMissingData {
+      ServerMetricsFeed.shared.refreshIfStale()
+      if let day = ServerMetricsFeed.shared.today,
+         let recovery = day.recoveryPct {
+        let score = min(max(recovery, 0), 100)
+        var statusParts = [Self.recoveryQualityLabel(score: score)]
+        if let hrv = day.hrvRMSSDMs {
+          statusParts.append("HRV \(Int(hrv.rounded())) ms")
+        }
+        if let rhr = day.rhrBPM {
+          statusParts.append("RHR \(Int(rhr.rounded())) bpm")
+        }
+        return HealthMetricSnapshot(
+          id: snapshot.id,
+          route: snapshot.route,
+          group: snapshot.group,
+          title: snapshot.title,
+          value: "\(Int(score.rounded()))",
+          unit: "%",
+          status: statusParts.joined(separator: " | "),
+          freshness: "Latest",
+          provenance: "server-computed recovery (self-hosted VPS /metrics/daily)",
+          source: .local("server-computed recovery (self-hosted VPS /metrics/daily)"),
+          systemImage: snapshot.systemImage,
+          tint: snapshot.tint,
+          trend: HealthTrendModel(
+            id: snapshot.trend.id,
+            title: snapshot.trend.title,
+            rangeLabel: "\(Int(score.rounded()))%",
+            summary: "Latest server-computed recovery score",
+            analysis: "Recovery computed on the self-hosted VPS from overnight HRV and resting heart rate.",
+            resources: snapshot.trend.resources,
+            points: []
+          )
+        )
+      }
+    }
     guard !usesPreviewPacketData,
           let score = recoveryScoreValue(),
           let scoreText = Self.numberText(score, fractionDigits: 0) else {
