@@ -28,6 +28,34 @@ struct ServerMetricsSleep: Decodable, Equatable {
   var end: Date? { endUTC.flatMap(ServerMetricsDay.parseUTC) }
 }
 
+/// Server skin temperature for one day (`skin_temp` in
+/// `GET /whoop/ingest/metrics/daily`): `{value, unit, calibrated}`. When
+/// `calibrated` is false the value is in RAW sensor units, not °C — it must
+/// never be displayed as a temperature.
+struct ServerMetricsSkinTemp: Decodable, Equatable {
+  let value: Double?
+  let unit: String?
+  let calibrated: Bool?
+
+  enum CodingKeys: String, CodingKey {
+    case value
+    case unit
+    case calibrated
+  }
+
+  init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    value = try? container.decodeIfPresent(Double.self, forKey: .value)
+    unit = try? container.decodeIfPresent(String.self, forKey: .unit)
+    calibrated = try? container.decodeIfPresent(Bool.self, forKey: .calibrated)
+  }
+
+  /// True only when the server explicitly marked this value calibrated (°C).
+  var isCalibratedCelsius: Bool {
+    calibrated == true && value != nil
+  }
+}
+
 /// One server-computed local day of daily metrics from the VPS
 /// (`GET /whoop/ingest/metrics/daily?days=7&tz=...`). The server windows days
 /// in the timezone we pass, so `date` is the local calendar day (yyyy-MM-dd).
@@ -45,6 +73,9 @@ struct ServerMetricsDay: Decodable, Identifiable, Equatable {
   let rhrBPM: Double?
   /// Respiratory rate, breaths per minute.
   let respRPM: Double?
+  /// Nightly skin temperature (`{value, unit, calibrated}`); the value is
+  /// only °C when `calibrated == true`, otherwise raw sensor units.
+  let skinTemp: ServerMetricsSkinTemp?
   /// Strain on the server's 0–21 scale.
   let strain: Double?
   /// Recovery, percent 0–100.
@@ -59,6 +90,7 @@ struct ServerMetricsDay: Decodable, Identifiable, Equatable {
     case hrvRMSSDMs = "hrv_rmssd_ms"
     case rhrBPM = "rhr_bpm"
     case respRPM = "resp_rpm"
+    case skinTemp = "skin_temp"
     case strain
     case recoveryPct = "recovery_pct"
   }
@@ -74,6 +106,7 @@ struct ServerMetricsDay: Decodable, Identifiable, Equatable {
     hrvRMSSDMs = try? container.decodeIfPresent(Double.self, forKey: .hrvRMSSDMs)
     rhrBPM = try? container.decodeIfPresent(Double.self, forKey: .rhrBPM)
     respRPM = try? container.decodeIfPresent(Double.self, forKey: .respRPM)
+    skinTemp = try? container.decodeIfPresent(ServerMetricsSkinTemp.self, forKey: .skinTemp)
     strain = try? container.decodeIfPresent(Double.self, forKey: .strain)
     recoveryPct = try? container.decodeIfPresent(Double.self, forKey: .recoveryPct)
   }

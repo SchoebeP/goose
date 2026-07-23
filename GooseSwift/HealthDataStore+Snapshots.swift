@@ -326,6 +326,26 @@ extension HealthDataStore {
   }
 
   func sleepHealthMonitorSnapshot(base snapshot: HealthMetricSnapshot) -> HealthMetricSnapshot {
+    if !usesPreviewPacketData && !previewMissingData {
+      ServerSleepFeed.shared.refreshIfStale()
+      if let night = ServerSleepFeed.shared.lastNight {
+        return HealthMetricSnapshot(
+          id: snapshot.id,
+          route: snapshot.route,
+          group: snapshot.group,
+          title: snapshot.title,
+          value: night.durationHoursText,
+          unit: "h",
+          status: night.summaryText,
+          freshness: "Last night",
+          provenance: "server-computed sleep night (\(night.quality ?? "unversioned"))",
+          source: .local("server-computed sleep night (self-hosted VPS /sleep/nights)"),
+          systemImage: snapshot.systemImage,
+          tint: snapshot.tint,
+          trend: snapshot.trend
+        )
+      }
+    }
     if let primarySleepDetail {
       return HealthMetricSnapshot(
         id: snapshot.id,
