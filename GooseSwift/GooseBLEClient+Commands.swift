@@ -1198,7 +1198,13 @@ extension GooseBLEClient {
     gen4HistoryDeadline = Date().addingTimeInterval(90)   // bound the ack loop
     record(level: .warn, source: "ble.gen4", title: "gen4.history.request",
            body: "pulling buffered HR history (GET_DATA_RANGE -> SEND_HISTORICAL_DATA), 90s window")
-    writeGen4Command(34, payload: [], label: "GET_DATA_RANGE")
+    // Reset any half-open transfer first: our earlier zero-filled ACKs left the
+    // band's transfer state machine holding the same page batch open (it kept
+    // answering PENDING/11 with no frames). ABORT(20) clears it.
+    writeGen4Command(20, payload: [], label: "ABORT_HISTORICAL_TRANSMITS")
+    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
+      self?.writeGen4Command(34, payload: [], label: "GET_DATA_RANGE")
+    }
     // Payload MUST be [0x00]: an empty payload is answered with zero frames
     // (reference-verified on a real WHOOP 4.0). The band serves roughly one
     // small page (~20 records) per request and its read pointer advances, so
@@ -1275,8 +1281,13 @@ extension GooseBLEClient {
       if due { gen4LastHistoryAck = now }
       gen4ProbeLock.unlock()
       if due {
+        // Echo the frame's own page counter (frame bytes 7-10, u32 LE at payload
+        // offset 3) in the ACK — a zero-filled ACK never commits the page and
+        // the band re-offers the same batch forever.
+        let counter: [UInt8] = bytes.count >= 11
+          ? [bytes[7], bytes[8], bytes[9], bytes[10]] : [0, 0, 0, 0]
         DispatchQueue.main.async { [weak self] in
-          self?.writeGen4Command(23, payload: [1, 0, 0, 0, 0, 0, 0, 0, 0],
+          self?.writeGen4Command(23, payload: [1] + counter + [0, 0, 0, 0],
                                  label: "HISTORICAL_DATA_RESULT(ack)")
         }
       }
