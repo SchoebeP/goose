@@ -2612,9 +2612,20 @@ fn compact_parsed_frame_summary(parsed: &ParsedFrame) -> serde_json::Value {
                 .map(|biometrics| {
                     let opt =
                         |value: Option<u16>| value.map_or("?".to_string(), |v| v.to_string());
+                    let opt_i =
+                        |value: Option<i32>| value.map_or("?".to_string(), |v| v.to_string());
+                    let rr_values = if biometrics.rr_intervals_raw.is_empty() {
+                        "-".to_string()
+                    } else {
+                        biometrics
+                            .rr_intervals_raw
+                            .iter()
+                            .map(|value| value.to_string())
+                            .collect::<Vec<_>>()
+                            .join(",")
+                    };
                     format!(
-                        " bio[rr_n={} spo2={}:{} temp={} resp={} sigq={} contact={}]",
-                        biometrics.rr_intervals_raw.len(),
+                        " bio[rr={rr_values} spo2={}:{} temp={} resp={} sigq={} contact={} ppg={}:{} grav={}:{}:{}mg amb={} led={}:{}]",
                         opt(biometrics.spo2_red_raw),
                         opt(biometrics.spo2_ir_raw),
                         opt(biometrics.skin_temp_raw),
@@ -2623,6 +2634,14 @@ fn compact_parsed_frame_summary(parsed: &ParsedFrame) -> serde_json::Value {
                         biometrics
                             .skin_contact
                             .map_or("?".to_string(), |v| v.to_string()),
+                        opt(biometrics.ppg_green_raw),
+                        opt(biometrics.ppg_red_ir_raw),
+                        opt_i(biometrics.gravity_x_milli_g),
+                        opt_i(biometrics.gravity_y_milli_g),
+                        opt_i(biometrics.gravity_z_milli_g),
+                        opt(biometrics.ambient_light_raw),
+                        opt(biometrics.led_drive_1_raw),
+                        opt(biometrics.led_drive_2_raw),
                     )
                 })
                 .unwrap_or_default();
