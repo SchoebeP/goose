@@ -161,6 +161,13 @@ struct RecoveryV2OverviewPage: View {
   }
 }
 
+/// Stress detail — Radiograph restyle. Same ledger shape as the other three
+/// detail screens: a serif reading up top (status carried by text, not
+/// gauge color), confidence/HR vitals, then the day's stress timeline chart
+/// and zone breakdown (both already ink-monochrome from an earlier retint —
+/// unwrapped from their rounded card chrome here rather than rewritten, see
+/// StressV2TimelineSection/StressV2BreakdownRow below), and trends.
+/// Presented sheets (date picker, per-metric trend chart) are unchanged.
 struct StressV2OverviewPage: View {
   @EnvironmentObject private var router: AppRouter
   @EnvironmentObject private var model: GooseAppModel
@@ -169,109 +176,65 @@ struct StressV2OverviewPage: View {
   @Environment(\.colorScheme) private var colorScheme
   @State private var showingDatePicker = false
   @State private var selectedTrend: HealthMetricSnapshot?
-  @State private var scrollOffsetY: CGFloat = 0
-
-  private let heroHeight: CGFloat = 334
-  private let heroBackgroundHeight: CGFloat = 560
 
   var body: some View {
+    // Constructed only to satisfy SleepV2CoachingCard's signature and the
+    // (still-shared) StressV2TimelineSection/BreakdownSection helpers below;
+    // this page's own markup no longer reads palette colors.
     let palette = SleepV2Palette(colorScheme: colorScheme, theme: .stress)
-    ZStack(alignment: .top) {
-      InkTheme.film
-        .ignoresSafeArea()
 
-      StressV2ScenicBackground(palette: palette)
-        .frame(height: heroBackgroundHeight)
-        .offset(y: min(scrollOffsetY, 0))
-        .ignoresSafeArea(edges: .top)
-        .allowsHitTesting(false)
+    ScrollView {
+      VStack(alignment: .leading, spacing: 0) {
+        dateRow
 
-      ScrollView {
-        LazyVStack(alignment: .leading, spacing: 0) {
-          SleepV2ScrollOffsetProbe()
-
-          StressV2Hero(
-            palette: palette,
-            title: "Stress",
-            dateLabel: dateLabel,
-            score: stressScore,
-            status: summary.status,
-            onDateTap: { showingDatePicker = true }
-          )
-          .frame(height: heroHeight)
-
-          VStack(alignment: .leading, spacing: 14) {
-            HStack(spacing: 12) {
-              SleepV2StatCard(
-                palette: palette,
-                systemImage: "checkmark.seal.fill",
-                label: "Confidence",
-                value: stressConfidenceText
-              )
-              SleepV2StatCard(
-                palette: palette,
-                systemImage: "heart.fill",
-                label: "Average HR",
-                value: averageHeartRateText
-              )
-            }
-            .frame(height: 96)
-
-            SleepV2CoachingCard(palette: palette, tip: coachTip) {
-              openCoachTip()
-            }
-
-            SleepV2SectionHeader(title: "Timeline", palette: palette)
-
-            StressV2TimelineSection(palette: palette, summary: summary, dateLabel: dateLabel)
-
-            SleepV2SectionHeader(title: "Breakdown", palette: palette)
-
-            StressV2BreakdownSection(palette: palette, summary: summary)
-
-            SleepV2SectionHeader(title: "Trends", palette: palette)
-
-            if trendRows.isEmpty {
-              StrainV2EmptyStateCard(
-                palette: palette,
-                systemImage: "chart.line.uptrend.xyaxis",
-                title: "No stress trends",
-                message: "Stress trends will appear after local heart-rate samples are captured for this day."
-              )
-            } else {
-              VStack(spacing: 14) {
-                ForEach(trendRows) { snapshot in
-                  RecoveryV2TrendCard(palette: palette, snapshot: snapshot) {
-                    selectedTrend = snapshot
-                  }
-                }
-              }
-            }
-          }
-          .padding(.horizontal, 18)
-          .padding(.bottom, 34)
+        VStack(alignment: .leading, spacing: 6) {
+          VitalReading(eyebrow: "Stress", value: "\(stressScore)", numeralSize: 60)
+          Text(summary.status)
+            .font(InkTheme.mono(12, weight: .semibold))
+            .foregroundStyle(InkTheme.graphite)
         }
+        .padding(.top, 14)
+
+        InkRule()
+          .padding(.top, InkTheme.sectionSpacing)
+
+        InkLedgerRow(label: "Confidence", value: stressConfidenceText)
+        InkRule()
+        InkLedgerRow(label: "Average HR", value: averageHeartRateText)
+        InkRule()
+
+        SleepV2CoachingCard(palette: palette, tip: coachTip) {
+          openCoachTip()
+        }
+
+        InkSectionHeader(title: "Timeline")
+          .padding(.top, InkTheme.sectionSpacing)
+        StressV2TimelineSection(palette: palette, summary: summary, dateLabel: dateLabel)
+        InkRule()
+
+        InkSectionHeader(title: "Breakdown")
+          .padding(.top, InkTheme.sectionSpacing)
+        StressV2BreakdownSection(palette: palette, summary: summary)
+        InkRule()
+
+        InkSectionHeader(title: "Trends")
+          .padding(.top, InkTheme.sectionSpacing)
+        trendsSection
       }
-      .coordinateSpace(name: SleepV2ScrollOffsetProbe.coordinateSpaceName)
-      .onPreferenceChange(SleepV2ScrollOffsetPreferenceKey.self) { value in
-        scrollOffsetY = value
-      }
+      .padding(.horizontal, InkTheme.screenMargin)
+      .padding(.bottom, 34)
     }
+    .inkScreen()
     .navigationTitle("Stress")
     .navigationBarTitleDisplayMode(.inline)
-    .toolbarBackground(.hidden, for: .navigationBar)
     .toolbar {
-      ToolbarItem(placement: .principal) {
-        Text("Stress")
-          .font(.headline.weight(.semibold))
-          .foregroundStyle(InkTheme.ink)
-      }
       ToolbarItem(placement: .topBarTrailing) {
         Button {
           showingDatePicker = true
         } label: {
           Image(systemName: "calendar")
         }
+        .foregroundStyle(InkTheme.ink)
         .accessibilityLabel("Choose Stress date")
       }
     }
@@ -280,6 +243,40 @@ struct StressV2OverviewPage: View {
     }
     .sheet(item: $selectedTrend) { snapshot in
       SleepV2BevelTrendSheet(snapshot: snapshot)
+    }
+  }
+
+  private var dateRow: some View {
+    Button {
+      showingDatePicker = true
+    } label: {
+      HStack(spacing: 6) {
+        Text(dateLabel).inkEyebrow()
+        Image(systemName: "chevron.down")
+          .font(.system(size: 9, weight: .bold))
+          .foregroundStyle(InkTheme.graphite)
+      }
+    }
+    .buttonStyle(.plain)
+    .padding(.top, 12)
+  }
+
+  @ViewBuilder
+  private var trendsSection: some View {
+    if trendRows.isEmpty {
+      Text("Stress trends will appear after local heart-rate samples are captured for this day.")
+        .font(InkTheme.footnote)
+        .foregroundStyle(InkTheme.graphite)
+        .padding(.vertical, 12)
+    } else {
+      VStack(alignment: .leading, spacing: 0) {
+        ForEach(trendRows) { snapshot in
+          InkMetricTrendRow(snapshot: snapshot) {
+            selectedTrend = snapshot
+          }
+          InkRule()
+        }
+      }
     }
   }
 
@@ -538,44 +535,46 @@ enum StressV2Format {
   }
 }
 
+/// Radiograph: unwrapped from the old rounded/shadowed SleepV2Panel card —
+/// the chart itself was already ink-monochrome, so only the container
+/// changed (full-bleed under the "Timeline" section header, no card).
 struct StressV2TimelineSection: View {
   let palette: SleepV2Palette
   let summary: StressAlgorithmSummary
   let dateLabel: String
 
   var body: some View {
-    SleepV2Panel(palette: palette, padding: 16, radius: 16) {
-      VStack(alignment: .leading, spacing: 14) {
-        HStack(alignment: .firstTextBaseline) {
-          VStack(alignment: .leading, spacing: 4) {
-            Text(dateLabel)
-              .font(.headline.weight(.semibold))
-              .foregroundStyle(InkTheme.ink)
-            Text(summary.freshness)
-              .font(.caption.weight(.semibold))
-              .foregroundStyle(InkTheme.graphite)
-          }
-
-          Spacer(minLength: 12)
-
-          Text("Duration \(StressV2Format.durationClockText(totalDurationMinutes))")
+    VStack(alignment: .leading, spacing: 14) {
+      HStack(alignment: .firstTextBaseline) {
+        VStack(alignment: .leading, spacing: 4) {
+          Text(dateLabel)
+            .font(.headline.weight(.semibold))
+            .foregroundStyle(InkTheme.ink)
+          Text(summary.freshness)
             .font(.caption.weight(.semibold))
             .foregroundStyle(InkTheme.graphite)
-            .lineLimit(1)
-            .minimumScaleFactor(0.78)
         }
 
-        StressV2TimelineChart(palette: palette, windows: summary.windows)
-          .frame(height: 190)
-        if summary.hasData {
-          Text(summary.inputSummary)
-            .font(.caption.weight(.medium))
-            .foregroundStyle(InkTheme.graphite)
-            .lineLimit(2)
-            .fixedSize(horizontal: false, vertical: true)
-        }
+        Spacer(minLength: 12)
+
+        Text("Duration \(StressV2Format.durationClockText(totalDurationMinutes))")
+          .font(.caption.weight(.semibold))
+          .foregroundStyle(InkTheme.graphite)
+          .lineLimit(1)
+          .minimumScaleFactor(0.78)
+      }
+
+      StressV2TimelineChart(palette: palette, windows: summary.windows)
+        .frame(height: 190)
+      if summary.hasData {
+        Text(summary.inputSummary)
+          .font(.caption.weight(.medium))
+          .foregroundStyle(InkTheme.graphite)
+          .lineLimit(2)
+          .fixedSize(horizontal: false, vertical: true)
       }
     }
+    .padding(.vertical, 14)
   }
 
   private var totalDurationMinutes: Double {
@@ -746,6 +745,9 @@ struct StressV2BreakdownSection: View {
   }
 }
 
+/// Radiograph: the per-zone rounded card background is gone — a flat row
+/// with a hairline-bottom, keeping only the capsule proportion bar (a chart
+/// element, in the same spirit as InkRangeBars/InkBars) as data viz.
 struct StressV2BreakdownRow: View {
   let palette: SleepV2Palette
   let label: String
@@ -768,7 +770,7 @@ struct StressV2BreakdownRow: View {
             .frame(width: proxy.size.width * CGFloat(min(max(zone.percent, 0), 1)))
         }
       }
-      .frame(height: 10)
+      .frame(height: 6)
 
       Text("\(Int((zone.percent * 100).rounded()))%")
         .font(.headline.weight(.semibold))
@@ -783,15 +785,6 @@ struct StressV2BreakdownRow: View {
         .frame(width: 74, alignment: .trailing)
         .minimumScaleFactor(0.78)
     }
-    .padding(.horizontal, 16)
-    .frame(height: 64)
-    .background(
-      RoundedRectangle(cornerRadius: 16, style: .continuous)
-        .fill(InkTheme.wash)
-    )
-    .overlay(
-      RoundedRectangle(cornerRadius: 16, style: .continuous)
-        .stroke(InkTheme.hairline, lineWidth: 1)
-    )
+    .padding(.vertical, 12)
   }
 }
