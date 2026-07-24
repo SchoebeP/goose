@@ -290,3 +290,108 @@ struct InkLedgerRow: View {
     .accessibilityElement(children: .combine)
   }
 }
+
+/// Tappable ledger row: mono label, optional serif value, trailing chevron.
+/// For rows that navigate or present something (alarm settings, an insights
+/// sheet, a band sync action) rather than just display a reading.
+struct InkDisclosureRow: View {
+  let label: String
+  var value: String? = nil
+  let action: () -> Void
+
+  var body: some View {
+    Button(action: action) {
+      HStack(alignment: .firstTextBaseline) {
+        Text(label).inkEyebrow()
+        Spacer(minLength: 12)
+        if let value {
+          Text(value)
+            .font(.system(size: 15, weight: .medium, design: .serif))
+            .foregroundStyle(InkTheme.ink)
+            .multilineTextAlignment(.trailing)
+            .lineLimit(1)
+        }
+        Image(systemName: "chevron.right")
+          .font(.system(size: 11, weight: .semibold))
+          .foregroundStyle(InkTheme.hairline)
+      }
+      .padding(.vertical, 9)
+      .contentShape(Rectangle())
+    }
+    .buttonStyle(.plain)
+    .accessibilityElement(children: .combine)
+  }
+}
+
+/// Small underlined mono action — the quiet inline-link idiom (retry, sync,
+/// view more) for actions that shouldn't compete with a screen's primary
+/// reading. Dims and disables when `enabled` is false.
+struct InkActionLink: View {
+  let title: String
+  var enabled: Bool = true
+  let action: () -> Void
+
+  var body: some View {
+    Button(action: action) {
+      Text(title)
+        .font(InkTheme.mono(12, weight: .bold))
+        .foregroundStyle(enabled ? InkTheme.ink : InkTheme.graphite)
+        .underline(enabled, color: InkTheme.arterial)
+    }
+    .buttonStyle(.plain)
+    .disabled(!enabled)
+  }
+}
+
+/// Compact single-metric trend row for pushed detail screens (Sleep,
+/// Recovery, Strain, Stress): eyebrow, latest reading, sparkline, tap-through
+/// chevron. Same visual language as Today's snapshot row, generalized to a
+/// plain action closure since detail screens present a sheet rather than
+/// navigate a route.
+struct InkMetricTrendRow: View {
+  let snapshot: HealthMetricSnapshot
+  let action: () -> Void
+
+  private var trendValues: [Double] {
+    snapshot.trend.points.map(\.value)
+  }
+
+  var body: some View {
+    Button(action: action) {
+      HStack(alignment: .center, spacing: 16) {
+        VStack(alignment: .leading, spacing: 5) {
+          Text(snapshot.title).inkEyebrow()
+          HStack(alignment: .firstTextBaseline, spacing: 5) {
+            Text(snapshot.value.isEmpty ? "--" : snapshot.value)
+              .font(InkTheme.displayNumeral(27))
+              .foregroundStyle(InkTheme.ink)
+              .monospacedDigit()
+            if !snapshot.unit.isEmpty {
+              Text(snapshot.unit)
+                .font(InkTheme.mono(11))
+                .foregroundStyle(InkTheme.graphite)
+            }
+          }
+          if !snapshot.status.isEmpty {
+            Text(snapshot.status)
+              .font(InkTheme.footnote)
+              .foregroundStyle(InkTheme.graphite)
+              .lineLimit(1)
+          }
+        }
+        Spacer(minLength: 10)
+        if trendValues.count > 1 {
+          InkSparkline(values: trendValues, height: 34)
+            .frame(width: 92)
+        }
+        Image(systemName: "chevron.right")
+          .font(.system(size: 11, weight: .semibold))
+          .foregroundStyle(InkTheme.hairline)
+      }
+      .padding(.vertical, 15)
+      .contentShape(Rectangle())
+    }
+    .buttonStyle(.plain)
+    .accessibilityElement(children: .combine)
+  }
+}
