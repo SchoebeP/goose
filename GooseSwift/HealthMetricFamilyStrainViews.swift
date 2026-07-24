@@ -8,6 +8,10 @@ struct HealthMetricFamilyView: View {
   @EnvironmentObject private var router: AppRouter
   let route: HealthRoute
   @ObservedObject var store: HealthDataStore
+  // Observed (not just referenced) so the generic Trends section re-renders
+  // the instant ServerMetricsFeed's longer-window fetch resolves, instead of
+  // waiting on unrelated state to redraw this view.
+  @ObservedObject private var metricsFeed = ServerMetricsFeed.shared
   var externalSelectedDate: Binding<Date>? = nil
   @State private var selectedTrend: HealthMetricSnapshot?
   @State private var selectedPrimarySleep: PrimarySleepDetail?
@@ -378,6 +382,10 @@ struct StrainV2OverviewPage: View {
   @ObservedObject var store: HealthDataStore
   @Binding var selectedDate: Date
   @Environment(\.colorScheme) private var colorScheme
+  // Observed (not just referenced) so the Trends section re-renders the
+  // instant ServerMetricsFeed's longer-window fetch resolves, instead of
+  // waiting on unrelated state to redraw this view.
+  @ObservedObject private var metricsFeed = ServerMetricsFeed.shared
   @State private var showingDatePicker = false
   @State private var showingInsightsSheet = false
   @State private var selectedTrend: HealthMetricSnapshot?

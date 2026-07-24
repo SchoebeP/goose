@@ -9,6 +9,10 @@ struct SleepV2OverviewPage: View {
   @ObservedObject var ble: GooseBLEClient
   @Binding var selectedDate: Date
   @Environment(\.colorScheme) private var colorScheme
+  // Observed (not just referenced) so the Trends section re-renders the
+  // instant ServerMetricsFeed's longer-window fetch resolves, instead of
+  // waiting on unrelated state to redraw this view.
+  @ObservedObject private var metricsFeed = ServerMetricsFeed.shared
   @State private var showingInsightsSheet = false
   @State private var showingAlarmSheet = false
 	  @State private var showingSleepNeededSheet = false
