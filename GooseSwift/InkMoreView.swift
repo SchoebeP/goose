@@ -57,10 +57,12 @@ struct InkMoreView: View {
     .padding(.top, 12)
   }
 
-  /// Connection Lab is raw BLE/diagnostic tooling — Dev only.
+  /// Connection Lab is raw BLE/diagnostic tooling — Dev only, and further
+  /// gated by the developer-tools toggle so turning it off truthfully hides
+  /// this row too (matching the "Show Developer Tools" help text).
   private var deviceRoutes: [MoreRoute] {
 #if DEBUG
-    [.profile, .device, .connectionLab]
+    developerSettings.isEnabled ? [.profile, .device, .connectionLab] : [.profile, .device]
 #else
     [.profile, .device]
 #endif

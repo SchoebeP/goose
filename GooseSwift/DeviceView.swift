@@ -23,6 +23,7 @@ private struct DeviceContentView: View {
   @ObservedObject var ble: GooseBLEClient
 #if DEBUG
   @State private var selectedPanel: DevicePanel = .status
+  @ObservedObject private var developerSettings = DeveloperSettings.shared
 #endif
 
   var body: some View {
@@ -39,16 +40,25 @@ private struct DeviceContentView: View {
           .padding(.bottom, 30)
 
 #if DEBUG
-          DeviceStatusTabs(selectedPanel: $selectedPanel)
-            .padding(.bottom, 46)
+          if developerSettings.isEnabled {
+            DeviceStatusTabs(selectedPanel: $selectedPanel)
+              .padding(.bottom, 46)
 
-          if selectedPanel == .status {
+            if selectedPanel == .status {
+              DeviceImageAndBattery(
+                batteryPercent: ble.batteryLevelPercent,
+                isCharging: ble.batteryIsCharging == true
+              )
+            } else {
+              DeviceAdvancedPanel(model: model, packetMonitor: packetMonitor, ble: ble)
+            }
+          } else {
+            // Developer tools off: no "Advanced" diagnostics tab — just the
+            // status view, same as Release always shows.
             DeviceImageAndBattery(
               batteryPercent: ble.batteryLevelPercent,
               isCharging: ble.batteryIsCharging == true
             )
-          } else {
-            DeviceAdvancedPanel(model: model, packetMonitor: packetMonitor, ble: ble)
           }
 #else
           // Clean builds: no "Advanced" diagnostics tab — just the status view.
