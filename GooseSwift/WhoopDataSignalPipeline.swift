@@ -90,6 +90,14 @@ final class WhoopDataSignalPipeline {
         capturedAt: sample.capturedAt,
         minimumInterval: 1
       )
+      // Forward the live raw-ADC skin temp so the server temp-deviation baseline
+      // gets recent nights (mirrors how R-R already flows). Only plausible on-wrist
+      // candidates go out; gated OFF by default in the forwarder until the live
+      // raw scale is device-verified against history_sample.skin_temp_raw.
+      if temperature.semanticStatus == "plausible_unverified_units",
+         let rawADC = temperature.rawU16LE {
+        WhoopCloudForwarder.shared.forwardSkinTemperature(rawADC: rawADC, at: sample.capturedAt)
+      }
       if shouldLog(sample, reason: "temperature.history_candidate") {
         ble.record(source: "whoop.data", title: "temperature.history_candidate", body: sample.logSummary)
       }

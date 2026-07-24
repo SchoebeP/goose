@@ -971,6 +971,7 @@ final class WhoopCloudForwarder {
   private let queue = DispatchQueue(label: "com.goose.swift.cloud-forward", qos: .utility)
   private let iso = ISO8601DateFormatter()
   private var lastSent = Date.distantPast
+  private var lastSkinTempSent = Date.distantPast
   private var frameBuffers: [String: [UInt8]] = [:]   // per-characteristic frame reassembly
   private var pendingFrames: [String] = []            // complete-frame hex awaiting POST
   private var lastFrameFlush = Date.distantPast
@@ -997,6 +998,45 @@ final class WhoopCloudForwarder {
         "rr_intervals_ms": rrMs,
         "wall_ts": self.iso.string(from: date),
       ]
+      req.httpBody = try? JSONSerialization.data(withJSONObject: body)
+      URLSession.shared.dataTask(with: req).resume()  // fire-and-forget
+    }
+  }
+
+  // MARK: Live skin-temperature forwarding (feeds the server temp-deviation baseline)
+
+  /// Opt-in flag for the live skin-temperature series (defaults OFF). The raw
+  /// value forwarded MUST be on the same raw-ADC scale as the server's
+  /// history_sample.skin_temp_raw (type-47 offset-72, ~800 counts). Until a live
+  /// packet/offset is device-verified to match that scale, leave this off so the
+  /// temp-deviation baseline is never fed mismatched counts. Flip via UserDefaults
+  /// "whoopSkinTempForwarding".
+  var isSkinTempForwardingEnabled: Bool {
+    UserDefaults.standard.object(forKey: "whoopSkinTempForwarding") as? Bool ?? false
+  }
+
+  /// Forward one live skin-temperature reading to /ingest/samples. `rawADC` is the
+  /// raw thermistor ADC count (NOT °C — the server stores raw counts and converts
+  /// only DIFFERENCES to °C). `skinContact` is the on-skin gate when known (0 =>
+  /// off-wrist); pass nil when the packet does not carry it (the server treats a
+  /// missing contact flag as on-wrist). Fire-and-forget; never blocks BLE.
+  func forwardSkinTemperature(rawADC: Int, skinContact: Int? = nil, at date: Date) {
+    guard isEnabled, isSkinTempForwardingEnabled, rawADC > 0 else { return }
+    queue.async {
+      // Skin temp drifts slowly; one post / 5 s is plenty and keeps it light.
+      guard date.timeIntervalSince(self.lastSkinTempSent) >= 5.0 else { return }
+      self.lastSkinTempSent = date
+      var req = URLRequest(url: self.endpoint)
+      req.httpMethod = "POST"
+      req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+      req.setValue(self.token, forHTTPHeaderField: "X-Ingest-Token")
+      var body: [String: Any] = [
+        "skin_temp_raw": rawADC,
+        "wall_ts": self.iso.string(from: date),
+      ]
+      if let skinContact {
+        body["skin_contact"] = skinContact
+      }
       req.httpBody = try? JSONSerialization.data(withJSONObject: body)
       URLSession.shared.dataTask(with: req).resume()  // fire-and-forget
     }
