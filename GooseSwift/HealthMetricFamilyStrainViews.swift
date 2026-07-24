@@ -376,6 +376,20 @@ struct StrainV2ActivityBackground: View {
   }
 }
 
+/// Strain detail — Radiograph restyle. Same ledger shape as Sleep/Recovery:
+/// a serif reading up top (status carried by text, not gauge color per the
+/// Radiograph rule that the reading itself always stays ink), then load
+/// vitals, an activities line, and trends. Presented sheets (date picker,
+/// data-gaps insights, per-metric trend chart) are unchanged.
+///
+/// The old StrainV2DailyLoadCard is intentionally not reproduced here: its
+/// Score/Target/Duration/Energy tiles duplicated the ledger rows above
+/// verbatim (same store calls), and its "heart rate zones" meter was 100%
+/// static placeholder — always "0 min" with five permanently-empty bars,
+/// with no data source behind it at all. Recreating a fake-progress widget
+/// in the new design would itself be a fresh honest-omission violation, so
+/// it was dropped rather than restyled; every real value it showed remains
+/// visible once, in the ledger.
 struct StrainV2OverviewPage: View {
   @EnvironmentObject private var router: AppRouter
   @EnvironmentObject private var model: GooseAppModel
@@ -390,135 +404,69 @@ struct StrainV2OverviewPage: View {
   @State private var showingInsightsSheet = false
   @State private var selectedTrend: HealthMetricSnapshot?
 
-  private let heroHeight: CGFloat = 320
-
   var body: some View {
+    // Constructed only to satisfy the still-old-styled presented sheet
+    // (data-gaps insights) and SleepV2CoachingCard's signature below; this
+    // page's own markup no longer reads palette colors.
     let palette = SleepV2Palette(colorScheme: colorScheme, theme: SleepV2PaletteTheme.strain)
 
-    ZStack(alignment: .top) {
-      InkTheme.film
-        .ignoresSafeArea()
+    ScrollView {
+      VStack(alignment: .leading, spacing: 0) {
+        dateRow
 
-      StrainV2ActivityBackground(palette: palette, showsDecorations: false)
-        .ignoresSafeArea(edges: .top)
-        .allowsHitTesting(false)
-
-      ScrollView {
-        LazyVStack(alignment: .leading, spacing: 0) {
-          ZStack(alignment: .top) {
-            StrainV2ActivityBackground(palette: palette)
-              .frame(height: heroHeight)
-              .allowsHitTesting(false)
-
-            StrainV2Hero(
-              palette: palette,
-              score: store.strainScore0To100(for: selectedDate),
-              status: store.strainStatusText(for: selectedDate),
-              dateLabel: dateLabel,
-              onDateTap: { showingDatePicker = true }
-            )
-          }
-          .frame(height: heroHeight)
-          .clipped()
-
-          VStack(alignment: .leading, spacing: 14) {
-            HStack(spacing: 12) {
-              SleepV2StatCard(
-                palette: palette,
-                systemImage: "target",
-                label: "Target Strain",
-                value: store.strainTargetDisplayText()
-              )
-              SleepV2StatCard(
-                palette: palette,
-                systemImage: "timer",
-                label: "Duration",
-                value: store.strainDurationDisplayText()
-              )
-            }
-            .frame(height: 96)
-
-            HStack(spacing: 12) {
-              SleepV2StatCard(
-                palette: palette,
-                systemImage: "flame.fill",
-                label: "Total Energy",
-                value: store.strainEnergyDisplayText(for: selectedDate)
-              )
-              SleepV2StatCard(
-                palette: palette,
-                systemImage: "shoeprints.fill",
-                label: "Steps",
-                value: store.strainActivityCountText(for: selectedDate)
-              )
-            }
-            .frame(height: 96)
-
-            SleepV2CoachingCard(palette: palette, tip: coachTip) {
-              openCoachTip()
-            }
-
-            SleepV2ActionRow(
-              palette: palette,
-              systemImage: "exclamationmark.triangle",
-              title: "View data gaps",
-              action: { showingInsightsSheet = true }
-            )
-
-            StrainV2DailyLoadCard(
-              palette: palette,
-              scoreText: store.strainScoreDisplayText(for: selectedDate),
-              targetText: store.strainTargetDisplayText(),
-              durationText: store.strainDurationDisplayText(),
-              energyText: store.strainEnergyDisplayText(for: selectedDate)
-            )
-
-            SleepV2SectionHeader(title: "Activities", palette: palette)
-            StrainV2EmptyStateCard(
-              palette: palette,
-              systemImage: "figure.run.circle",
-              title: "No activities",
-              message: store.strainEmptyStateSummary()
-            )
-
-            SleepV2SectionHeader(title: "Trends", palette: palette)
-            if trendRows.isEmpty {
-              StrainV2EmptyStateCard(
-                palette: palette,
-                systemImage: "chart.line.uptrend.xyaxis",
-                title: "No strain trends",
-                message: "Strain trends will appear after local activity and heart-rate history is available."
-              )
-            } else {
-              VStack(spacing: 14) {
-                ForEach(trendRows) { snapshot in
-                  SleepV2TrendRow(palette: palette, snapshot: snapshot) {
-                    selectedTrend = snapshot
-                  }
-                }
-              }
-            }
-          }
-          .padding(.horizontal, 18)
-          .padding(.bottom, 34)
+        VStack(alignment: .leading, spacing: 6) {
+          VitalReading(eyebrow: "Strain", value: strainScoreText, numeralSize: 60)
+          Text(store.strainStatusText(for: selectedDate))
+            .font(InkTheme.mono(12, weight: .semibold))
+            .foregroundStyle(InkTheme.graphite)
         }
+        .padding(.top, 14)
+
+        InkRule()
+          .padding(.top, InkTheme.sectionSpacing)
+
+        InkLedgerRow(label: "Target strain", value: store.strainTargetDisplayText())
+        InkRule()
+        InkLedgerRow(label: "Duration", value: store.strainDurationDisplayText())
+        InkRule()
+        InkLedgerRow(label: "Total energy", value: store.strainEnergyDisplayText(for: selectedDate))
+        InkRule()
+        InkLedgerRow(label: "Steps", value: store.strainActivityCountText(for: selectedDate))
+        InkRule()
+
+        SleepV2CoachingCard(palette: palette, tip: coachTip) {
+          openCoachTip()
+        }
+
+        InkDisclosureRow(label: "View data gaps") { showingInsightsSheet = true }
+        InkRule()
+
+        InkSectionHeader(title: "Activities")
+          .padding(.top, InkTheme.sectionSpacing)
+        Text(store.strainEmptyStateSummary())
+          .font(InkTheme.footnote)
+          .foregroundStyle(InkTheme.graphite)
+          .padding(.vertical, 12)
+        InkRule()
+
+        InkSectionHeader(title: "Trends")
+          .padding(.top, InkTheme.sectionSpacing)
+        trendsSection
       }
+      .padding(.horizontal, InkTheme.screenMargin)
+      .padding(.bottom, 34)
     }
+    .inkScreen()
     .navigationTitle("Strain")
     .navigationBarTitleDisplayMode(.inline)
-    .toolbarBackground(.hidden, for: .navigationBar)
     .toolbar {
-      ToolbarItem(placement: .principal) {
-        Text("Strain")
-          .font(.headline.weight(.semibold))
-          .foregroundStyle(InkTheme.ink)
-      }
       ToolbarItem(placement: .topBarTrailing) {
         Button {
           showingDatePicker = true
         } label: {
           Image(systemName: "calendar")
         }
+        .foregroundStyle(InkTheme.ink)
         .accessibilityLabel("Choose Strain date")
       }
     }
@@ -536,6 +484,47 @@ struct StrainV2OverviewPage: View {
     .sheet(item: $selectedTrend) { snapshot in
       SleepV2BevelTrendSheet(snapshot: snapshot)
     }
+  }
+
+  private var dateRow: some View {
+    Button {
+      showingDatePicker = true
+    } label: {
+      HStack(spacing: 6) {
+        Text(dateLabel).inkEyebrow()
+        Image(systemName: "chevron.down")
+          .font(.system(size: 9, weight: .bold))
+          .foregroundStyle(InkTheme.graphite)
+      }
+    }
+    .buttonStyle(.plain)
+    .padding(.top, 12)
+  }
+
+  @ViewBuilder
+  private var trendsSection: some View {
+    if trendRows.isEmpty {
+      Text("Strain trends will appear after local activity and heart-rate history is available.")
+        .font(InkTheme.footnote)
+        .foregroundStyle(InkTheme.graphite)
+        .padding(.vertical, 12)
+    } else {
+      VStack(alignment: .leading, spacing: 0) {
+        ForEach(trendRows) { snapshot in
+          InkMetricTrendRow(snapshot: snapshot) {
+            selectedTrend = snapshot
+          }
+          InkRule()
+        }
+      }
+    }
+  }
+
+  /// Same formatting as the old circular gauge's center label, preserved
+  /// exactly: one decimal-free integer string, "0" below zero.
+  private var strainScoreText: String {
+    let score = store.strainScore0To100(for: selectedDate)
+    return score > 0 ? String(format: "%.0f", score) : "0"
   }
 
   private var dateLabel: String {
