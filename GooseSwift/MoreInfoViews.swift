@@ -17,14 +17,14 @@ struct MorePrivacyView: View {
         // that does nothing.
         MoreInfoRow(
           title: "Delete your data",
-          value: "In-app deletion isn't built yet. Uninstalling the app removes its local database and everything captured — nothing is stored anywhere else.",
+          value: "In-app deletion isn't built yet. Uninstalling removes the on-device database only — data already synced to latenightgames.fr remains there until deleted server-side.",
           systemImage: "trash",
           status: .pending
         )
       } header: {
         Text("Data deletion")
       } footer: {
-        Text("No third-party cloud, telemetry, or analytics — your data never leaves this device except to your own self-hosted server, if you've set one up.")
+        Text("No third-party cloud, telemetry, or analytics SDKs. By default, though, this build syncs your HR/R-R samples, raw BLE frames, and diagnostic logs to latenightgames.fr — the developer's own server, not necessarily yours — whether or not a sync token is configured.")
       }
 
 #if DEBUG
