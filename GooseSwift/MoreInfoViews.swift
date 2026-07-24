@@ -7,7 +7,12 @@ struct MorePrivacyView: View {
   var body: some View {
     List {
       Section("Local Data") {
-        MoreInfoRow(title: "Database", value: store.databasePath, systemImage: "externaldrive", status: store.databaseExists ? .ready : .unavailable)
+        MoreInfoRow(
+          title: "Database",
+          value: "Stored in this app's private container on your device",
+          systemImage: "externaldrive",
+          status: store.databaseExists ? .ready : .unavailable
+        )
       }
 
       Section {
@@ -29,6 +34,9 @@ struct MorePrivacyView: View {
 
 #if DEBUG
       if DeveloperSettings.shared.isEnabled {
+        Section("Local Data (dev)") {
+          MoreInfoRow(title: "Database Path", value: store.databasePath, systemImage: "externaldrive", status: store.databaseExists ? .ready : .unavailable)
+        }
         Section("Export hygiene (dev)") {
           MoreInfoRow(title: "Raw Bundle", value: store.rawBundlePath, systemImage: "folder", status: store.rawBundlePath == "No bundle" ? .pending : .ready)
           MoreInfoRow(title: "Privacy Lint", value: store.privacyLintStatus, systemImage: "hand.raised", status: .pending)
