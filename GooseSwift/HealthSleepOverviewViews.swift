@@ -43,7 +43,7 @@ struct SleepV2OverviewPage: View {
       VStack(alignment: .leading, spacing: 0) {
         dateRow
 
-        VitalReading(eyebrow: "Sleep quality", value: "\(sleepScore)", unit: "%", numeralSize: 60)
+        VitalReading(eyebrow: "Sleep quality", value: sleepScore.map(String.init) ?? "--", unit: "%", numeralSize: 60)
           .padding(.top, 14)
 
         InkRule()
@@ -255,10 +255,12 @@ struct SleepV2OverviewPage: View {
     store.primarySleep()
   }
 
-  private var sleepScore: Int {
+  // No hardcoded fallback: when neither the selected snapshot nor
+  // primarySleep has a real score, this is nil and the caller renders "--"
+  // — we never fabricate a plausible-looking sleep quality number.
+  private var sleepScore: Int? {
     SleepV2Numbers.firstInt(in: selectedSnapshot.value)
       ?? SleepV2Numbers.firstInt(in: primarySleep?.scoreText ?? "")
-      ?? 92
   }
 
   private var dateLabel: String {
