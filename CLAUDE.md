@@ -5,6 +5,13 @@
 ## What this project is
 A **local-first** companion for a **WHOOP 4.0** band. It reads biometric data directly off the band over Bluetooth LE, stores it on hardware the owner controls, and serves it to a self-hosted web dashboard. **No WHOOP app, no WHOOP cloud, no data leaving the user's machines.**
 
+## Public-release readiness (standing requirement — as binding as the hard constraints)
+The end goal is to publish this project on the owner's GitHub. Every increment must keep the repo publishable and the app **prod-ready at any time**:
+- **Security first, equal to code quality.** Never commit tokens, keys, device IDs, personal biometric data, or `.db`/capture files — audit the diff before every commit. Secrets live only in gitignored files or on-device (the `Documents/ingest-token.txt` pattern). Treat git history as public: a secret that ever touched a commit is burned — rotate it immediately; deleting the file is not enough.
+- **Two app flavors: Dev and Clean (prod).** Clean is what a stranger would install: no debug/diagnostic screens, no raw-frame dumps, no experimental toggles, no half-built features. Dev keeps the Packet Inspector, raw views, and protocol tooling. Gate by build configuration or a single developer-mode switch — never by shipping dead UI in prod.
+- **No empty or useless fields in the Clean build.** A visible field with no real data behind it is a bug (the honest-omission rule applied to UI): Trends must render from the data that exists or say plainly what's missing and why; the More tab must earn every row. Known offenders to burn down: More-tab clutter, empty Trends, dash-filled fields.
+- **Public-repo quality bar.** Every change should survive a stranger's code review: tests, `ruff`/lint clean, clear naming, no scratch files, licenses honoured with attribution (see THIRD_PARTY_LICENSES.md).
+
 ## Hard constraints (never violate)
 - **Local only.** Data never leaves the user's own machines. No third-party cloud, telemetry, or analytics. Remote access is via the user's existing Tailscale network only — never expose ports to the public internet.
 - **No WHOOP dependency.** Do not call WHOOP servers or require the WHOOP app to be installed/running.
