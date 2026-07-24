@@ -100,7 +100,11 @@ extension HealthDataStore {
     fractionDigits: Int
   ) -> HealthTrendModel {
     let points = days.map { day in
-      HealthTrendPoint(label: String(day.date.suffix(5)), value: day.value)
+      HealthTrendPoint(
+        label: String(day.date.suffix(5)),
+        value: day.value,
+        date: ServerMetricsDay.date(fromDayKey: day.date)
+      )
     }
     let range = rangeText(values: days.map(\.value), unit: unit, fractionDigits: fractionDigits)
     return HealthTrendModel(

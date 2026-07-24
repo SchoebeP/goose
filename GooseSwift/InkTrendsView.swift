@@ -88,19 +88,47 @@ struct InkTrendsView: View {
   private var emptyState: some View {
     VStack(alignment: .leading, spacing: 8) {
       InkRule()
-      Text(metricsFeed.hasLoadedTrendOnce ? "Not enough history yet" : "Loading trends…")
+      Text(emptyStateTitle)
         .font(InkTheme.sectionTitle)
         .foregroundStyle(InkTheme.ink)
         .padding(.top, 14)
-      Text(
-        metricsFeed.hasLoadedTrendOnce
-          ? "Trends draw from server-computed nightly and daily readings. Wear the band and sync — lines appear after a few days."
-          : "Fetching your history from the server…"
-      )
-      .font(InkTheme.body)
-      .foregroundStyle(InkTheme.graphite)
-      .fixedSize(horizontal: false, vertical: true)
+      Text(emptyStateMessage)
+        .font(InkTheme.body)
+        .foregroundStyle(InkTheme.graphite)
+        .fixedSize(horizontal: false, vertical: true)
+      if metricsFeed.hasLoadedTrendOnce, metricsFeed.lastTrendFetchFailed {
+        Button {
+          metricsFeed.refreshTrend()
+        } label: {
+          Text("Retry")
+            .font(InkTheme.mono(12, weight: .bold))
+            .foregroundStyle(InkTheme.ink)
+            .underline(true, color: InkTheme.arterial)
+        }
+        .buttonStyle(.plain)
+        .padding(.top, 6)
+      }
     }
+  }
+
+  /// Three honest states, never conflated: still loading, loaded but the
+  /// server couldn't be reached (network/decode/non-2xx — a different
+  /// problem calling for a retry, not more waiting), and loaded with a real
+  /// history that's just too short yet.
+  private var emptyStateTitle: String {
+    guard metricsFeed.hasLoadedTrendOnce else { return "Loading trends…" }
+    return metricsFeed.lastTrendFetchFailed ? "Couldn't reach your server" : "Not enough history yet"
+  }
+
+  private var emptyStateMessage: String {
+    guard metricsFeed.hasLoadedTrendOnce else {
+      return "Fetching your history from the server…"
+    }
+    if metricsFeed.lastTrendFetchFailed {
+      return metricsFeed.lastTrendFetchFailureReason
+        ?? "The server didn't respond. Check that your VPS is reachable and try again."
+    }
+    return "Trends draw from server-computed nightly and daily readings. Wear the band and sync — lines appear after a few days."
   }
 }
 
@@ -108,13 +136,73 @@ private struct InkTrendSection: View {
   let snapshot: HealthMetricSnapshot
   let period: TrendPeriod
 
+  /// True only when every point in this trend carries a real calendar date
+  /// (server-computed daily trends always do — see `serverDailyTrend`).
+  /// Gates the date-window slicing and the honesty fixes below; trends
+  /// without real per-point dates (e.g. packet-derived hourly buckets) keep
+  /// their original point-count slice and labels untouched.
+  private var hasDatedPoints: Bool {
+    let points = snapshot.trend.points
+    return !points.isEmpty && points.allSatisfy { $0.date != nil }
+  }
+
+  /// Points inside this period's actual calendar-day window (reusing
+  /// `period.pointCount` as a day span — 7/30/180), anchored on each point's
+  /// real date. This is what makes W/M/6M honest: the server caps history at
+  /// 31 real days, so M and 6M now show that same true window instead of one
+  /// silently padding to look longer than the other. Falls back to the
+  /// previous trailing point-count slice for trends without real dates.
+  private var slicedPoints: [HealthTrendPoint] {
+    let points = snapshot.trend.points
+    guard hasDatedPoints, let latest = points.compactMap(\.date).max() else {
+      return Array(points.suffix(period.pointCount))
+    }
+    let calendar = Calendar.current
+    let windowStart = calendar.date(
+      byAdding: .day,
+      value: -(period.pointCount - 1),
+      to: calendar.startOfDay(for: latest)
+    ) ?? latest
+    return points.filter { point in
+      guard let date = point.date else { return false }
+      return date >= windowStart
+    }
+  }
+
   private var values: [Double] {
-    Array(snapshot.trend.points.map(\.value).suffix(period.pointCount))
+    slicedPoints.map(\.value)
   }
 
   private var latestText: String {
     guard let last = values.last else { return "--" }
-    return last == last.rounded() ? String(Int(last)) : String(format: "%.1f", last)
+    return numberText(last)
+  }
+
+  /// Min–max of the values actually drawn for this period. Recomputed from
+  /// the slice (rather than the snapshot's full-series range) only for
+  /// date-bounded server trends, so switching W/M/6M never leaves a range
+  /// label describing a wider window than what's on screen.
+  private var rangeLabel: String {
+    guard hasDatedPoints, let minValue = values.min(), let maxValue = values.max() else {
+      return snapshot.trend.rangeLabel
+    }
+    let unitSuffix = snapshot.unit.isEmpty ? "" : " \(snapshot.unit)"
+    return "\(numberText(minValue)) - \(numberText(maxValue))\(unitSuffix)"
+  }
+
+  /// Point count actually on screen for this period. Only overrides the
+  /// snapshot's own summary for date-bounded server trends, where
+  /// `trend.summary` otherwise describes the full fetched history rather
+  /// than this period's slice — e.g. never let "6M" claim more days than
+  /// the server (capped at 31) actually provided.
+  private var summaryText: String {
+    guard hasDatedPoints else { return snapshot.trend.summary }
+    let count = slicedPoints.count
+    return "\(count) server-computed daily value\(count == 1 ? "" : "s")"
+  }
+
+  private func numberText(_ value: Double) -> String {
+    value == value.rounded() ? String(Int(value)) : String(format: "%.1f", value)
   }
 
   var body: some View {
@@ -135,13 +223,13 @@ private struct InkTrendSection: View {
           }
         }
         Spacer()
-        Text(snapshot.trend.rangeLabel).inkEyebrow()
+        Text(rangeLabel).inkEyebrow()
       }
 
       InkSparkline(values: values, height: 72, showsNowDot: true)
 
-      if !snapshot.trend.summary.isEmpty {
-        Text(snapshot.trend.summary)
+      if !summaryText.isEmpty {
+        Text(summaryText)
           .font(InkTheme.footnote)
           .foregroundStyle(InkTheme.graphite)
           .lineLimit(2)

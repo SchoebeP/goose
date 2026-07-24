@@ -216,6 +216,18 @@ struct ServerMetricsDay: Decodable, Identifiable, Equatable {
     return formatter.string(from: date)
   }
 
+  /// Inverse of `dayKey(for:calendar:)`: parses a `date` field (yyyy-MM-dd,
+  /// this server's local calendar day) back into a `Date` at local midnight.
+  /// Used to slice trend history by real calendar-day windows instead of raw
+  /// point count — see `InkTrendSection` in InkTrendsView.swift.
+  static func date(fromDayKey key: String, calendar: Calendar = .current) -> Date? {
+    let formatter = DateFormatter()
+    formatter.calendar = calendar
+    formatter.timeZone = calendar.timeZone
+    formatter.dateFormat = "yyyy-MM-dd"
+    return formatter.date(from: key)
+  }
+
   static func parseUTC(_ text: String) -> Date? {
     if let date = isoFormatter.date(from: text) {
       return date
@@ -383,21 +395,46 @@ final class ServerMetricsFeed: ObservableObject {
   /// during the first fetch.
   @Published private(set) var hasLoadedTrendOnce = false
 
+  /// True when the most recent Trends fetch failed outright (network error,
+  /// non-2xx response, or an undecodable payload) rather than completing
+  /// with real data (which may legitimately be empty). Lets the Trends tab
+  /// show an honest "couldn't reach your server" state instead of
+  /// conflating that with "not enough history yet".
+  @Published private(set) var lastTrendFetchFailed = false
+
+  /// Human-readable reason for the last Trends fetch failure. Nil whenever
+  /// `lastTrendFetchFailed` is false.
+  @Published private(set) var lastTrendFetchFailureReason: String?
+
   func refreshTrend() {
     trendLastRequestedAt = Date()
     var req = URLRequest(url: trendURL, timeoutInterval: 20)
     req.setValue(token, forHTTPHeaderField: "X-Ingest-Token")
-    URLSession.shared.dataTask(with: req) { [weak self] data, response, _ in
+    URLSession.shared.dataTask(with: req) { [weak self] data, response, error in
       var sorted: [ServerMetricsDay]?
-      if let data,
-         (response as? HTTPURLResponse).map({ (200..<300).contains($0.statusCode) }) != false,
-         let r = try? JSONDecoder().decode(ServerMetricsDailyResponse.self, from: data) {
-        sorted = r.days.sorted { $0.date > $1.date }
+      var failureReason: String?
+      if let error {
+        failureReason = error.localizedDescription
+      } else if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
+        failureReason = "Server returned an error (HTTP \(http.statusCode))"
+      } else if let data {
+        if let r = try? JSONDecoder().decode(ServerMetricsDailyResponse.self, from: data) {
+          sorted = r.days.sorted { $0.date > $1.date }
+        } else {
+          failureReason = "Server sent a response we couldn't read"
+        }
+      } else {
+        failureReason = "No response from server"
       }
       Task { @MainActor in
         guard let self else { return }
         if let sorted {
           self.trendDays = sorted
+          self.lastTrendFetchFailed = false
+          self.lastTrendFetchFailureReason = nil
+        } else {
+          self.lastTrendFetchFailed = true
+          self.lastTrendFetchFailureReason = failureReason
         }
         self.hasLoadedTrendOnce = true
       }
