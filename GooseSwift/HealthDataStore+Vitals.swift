@@ -45,6 +45,53 @@ extension HealthDataStore {
     )
   }
 
+  /// Server-first Trends-tab row: same idea as `serverVitalHealthMonitorSnapshot`
+  /// above, but reads the Trends tab's own longer-window cache
+  /// (`ServerMetricsFeed.trendDays`, currently the server's 31-day cap)
+  /// instead of the 7-day "today" cache, and requires at least two days with
+  /// a real value before it counts as a trend (one point can't draw a line).
+  /// `status` receives the day the latest value came from (so callers can
+  /// read e.g. a server-computed band alongside the number) plus that value.
+  /// Returns nil when the server has fewer than two days of real data for
+  /// this metric — callers then fall back to their existing honest
+  /// local/bridge trend chain. Never fabricates a point.
+  func serverDailyTrendRow(
+    base snapshot: HealthMetricSnapshot,
+    unit: String,
+    fractionDigits: Int,
+    value: (ServerMetricsDay) -> Double?,
+    status: (ServerMetricsDay, Double) -> String
+  ) -> HealthMetricSnapshot? {
+    guard !usesPreviewPacketData, !previewMissingData else {
+      return nil
+    }
+    ServerMetricsFeed.shared.refreshTrendIfStale()
+    // Chronological (oldest -> newest) so trend points read left-to-right.
+    let daysWithValue: [(day: ServerMetricsDay, value: Double)] = ServerMetricsFeed.shared.trendDays
+      .sorted { $0.date < $1.date }
+      .compactMap { day in value(day).map { (day: day, value: $0) } }
+    guard daysWithValue.count >= 2,
+          let latest = daysWithValue.last,
+          let valueText = Self.numberText(latest.value, fractionDigits: fractionDigits) else {
+      return nil
+    }
+    return replacingHealthMonitorSnapshot(
+      snapshot,
+      value: valueText,
+      unit: unit,
+      status: status(latest.day, latest.value),
+      freshness: latest.day.date,
+      provenance: "server-computed (self-hosted VPS /metrics/daily)",
+      source: .local("server-computed (self-hosted VPS /metrics/daily)"),
+      trend: Self.serverDailyTrend(
+        base: snapshot.trend,
+        days: daysWithValue.map { (date: $0.day.date, value: $0.value) },
+        unit: unit,
+        fractionDigits: fractionDigits
+      )
+    )
+  }
+
   /// Trend model over server-computed daily values (chronological order).
   static func serverDailyTrend(
     base trend: HealthTrendModel,

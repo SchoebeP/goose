@@ -8,22 +8,40 @@ struct MorePrivacyView: View {
     List {
       Section("Local Data") {
         MoreInfoRow(title: "Database", value: store.databasePath, systemImage: "externaldrive", status: store.databaseExists ? .ready : .unavailable)
-        MoreInfoRow(title: "Raw Bundle", value: store.rawBundlePath, systemImage: "folder", status: store.rawBundlePath == "No bundle" ? .pending : .ready)
-        MoreInfoRow(title: "Privacy Lint", value: store.privacyLintStatus, systemImage: "hand.raised", status: .pending)
-        MoreInfoRow(title: "Sanitized Privacy", value: store.sanitizedPrivacyStatus, systemImage: "sparkles.rectangle.stack", status: .pending)
       }
 
-      Section("Links") {
-        Button {
-          store.validateExportArtifacts()
-        } label: {
-          Label("Validate Export And Lint", systemImage: "checkmark.seal")
+      Section {
+        // Real capability, stated plainly instead of a permanently disabled
+        // "Data Deletion" button: there is no in-app deletion yet, and the
+        // honest answer today is "uninstall the app" — never fake a control
+        // that does nothing.
+        MoreInfoRow(
+          title: "Delete your data",
+          value: "In-app deletion isn't built yet. Uninstalling the app removes its local database and everything captured — nothing is stored anywhere else.",
+          systemImage: "trash",
+          status: .pending
+        )
+      } header: {
+        Text("Data deletion")
+      } footer: {
+        Text("No third-party cloud, telemetry, or analytics — your data never leaves this device except to your own self-hosted server, if you've set one up.")
+      }
+
+#if DEBUG
+      if DeveloperSettings.shared.isEnabled {
+        Section("Export hygiene (dev)") {
+          MoreInfoRow(title: "Raw Bundle", value: store.rawBundlePath, systemImage: "folder", status: store.rawBundlePath == "No bundle" ? .pending : .ready)
+          MoreInfoRow(title: "Privacy Lint", value: store.privacyLintStatus, systemImage: "hand.raised", status: .pending)
+          MoreInfoRow(title: "Sanitized Privacy", value: store.sanitizedPrivacyStatus, systemImage: "sparkles.rectangle.stack", status: .pending)
+          Button {
+            store.validateExportArtifacts()
+          } label: {
+            Label("Validate Export And Lint", systemImage: "checkmark.seal")
+          }
+          .disabled(store.rawBundlePath == "No bundle")
         }
-        .disabled(store.rawBundlePath == "No bundle")
-
-        MoreActionRow(title: "Data Export Link", detail: "Use Raw Export after a local database exists", systemImage: "square.and.arrow.up", status: store.databaseExists ? .pending : .unavailable, disabled: true) {}
-        MoreActionRow(title: "Data Deletion Link", detail: store.deletionStatus, systemImage: "trash", status: .blocked, disabled: true) {}
       }
+#endif
     }
     .gooseListBackground()
     .navigationTitle("Privacy")
@@ -35,12 +53,10 @@ struct MoreSupportView: View {
 
   var body: some View {
     List {
-      Section("Paths") {
-        MoreInfoRow(title: "Support Bundle", value: store.supportBundlePath, systemImage: "folder.badge.gearshape", status: .pending)
-        MoreInfoRow(title: "Log Export", value: store.logExportStatus, systemImage: "doc.text", status: .pending)
+      Section {
         MoreInfoRow(title: "Local File", value: store.localExportStatus, systemImage: "doc", status: store.localExportURL == nil ? .pending : .ready)
-        MoreInfoRow(title: "Latest Raw Bundle", value: store.rawBundlePath, systemImage: "shippingbox", status: store.rawBundlePath == "No bundle" ? .pending : .ready)
-        MoreInfoRow(title: "Latest Zip", value: store.rawZipPath, systemImage: "doc.zipper", status: store.rawZipPath == "No zip" ? .pending : .ready)
+      } footer: {
+        Text("Save a copy of your local data to share with yourself — e.g. for a backup, or to attach when asking for help.")
       }
 
       Section("Actions") {
@@ -66,9 +82,19 @@ struct MoreSupportView: View {
             Label("AirDrop Export Manifest", systemImage: "list.bullet.rectangle")
           }
         }
-
-        MoreActionRow(title: "Create Support Bundle", detail: "Pending bundle composer bridge", systemImage: "lifepreserver", status: .unavailable, disabled: true) {}
       }
+
+#if DEBUG
+      if DeveloperSettings.shared.isEnabled {
+        Section("Diagnostic bundles (dev)") {
+          MoreInfoRow(title: "Support Bundle", value: store.supportBundlePath, systemImage: "folder.badge.gearshape", status: .pending)
+          MoreInfoRow(title: "Log Export", value: store.logExportStatus, systemImage: "doc.text", status: .pending)
+          MoreInfoRow(title: "Latest Raw Bundle", value: store.rawBundlePath, systemImage: "shippingbox", status: store.rawBundlePath == "No bundle" ? .pending : .ready)
+          MoreInfoRow(title: "Latest Zip", value: store.rawZipPath, systemImage: "doc.zipper", status: store.rawZipPath == "No zip" ? .pending : .ready)
+          MoreActionRow(title: "Create Support Bundle", detail: "Pending bundle composer bridge", systemImage: "lifepreserver", status: .unavailable, disabled: true) {}
+        }
+      }
+#endif
     }
     .gooseListBackground()
     .navigationTitle("Support")
@@ -81,17 +107,27 @@ struct MoreAboutView: View {
 
   var body: some View {
     List {
-      Section("Versions") {
+      Section("Version") {
         MoreInfoRow(title: "App Version", value: appVersion, systemImage: "app", status: .ready)
-        MoreInfoRow(title: "Rust Core", value: store.coreVersionStatus, systemImage: "shippingbox", status: store.coreVersionStatus.hasPrefix("Rust core") ? .ready : .pending)
-        MoreInfoRow(title: "Schema", value: store.schemaVersion, systemImage: "number", status: store.schemaVersion == "Unknown" ? .pending : .ready)
       }
 
-      Section("Runtime") {
-        MoreInfoRow(title: "Model", value: model.ble.activeDeviceName, systemImage: "sensor.tag.radiowaves.forward", status: model.ble.connectionState == "ready" ? .ready : .pending)
-        MoreInfoRow(title: "Hello", value: model.helloSummary, systemImage: "hand.wave", status: model.helloSummary.hasPrefix("GET_HELLO") ? .ready : .pending)
-      }
+#if DEBUG
+      // Internal build/runtime plumbing (embedded Rust core version, DB
+      // schema, raw BLE handshake) — meaningless to a stranger who installs
+      // Clean; band/connection status for a prod user already lives on the
+      // Device screen.
+      if DeveloperSettings.shared.isEnabled {
+        Section("Build (dev)") {
+          MoreInfoRow(title: "Rust Core", value: store.coreVersionStatus, systemImage: "shippingbox", status: store.coreVersionStatus.hasPrefix("Rust core") ? .ready : .pending)
+          MoreInfoRow(title: "Schema", value: store.schemaVersion, systemImage: "number", status: store.schemaVersion == "Unknown" ? .pending : .ready)
+        }
 
+        Section("Runtime (dev)") {
+          MoreInfoRow(title: "Model", value: model.ble.activeDeviceName, systemImage: "sensor.tag.radiowaves.forward", status: model.ble.connectionState == "ready" ? .ready : .pending)
+          MoreInfoRow(title: "Hello", value: model.helloSummary, systemImage: "hand.wave", status: model.helloSummary.hasPrefix("GET_HELLO") ? .ready : .pending)
+        }
+      }
+#endif
     }
     .gooseListBackground()
     .navigationTitle("About")

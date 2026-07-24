@@ -5,6 +5,10 @@ import SwiftUI
 struct InkTrendsView: View {
   @EnvironmentObject private var model: GooseAppModel
   @ObservedObject var healthStore: HealthDataStore
+  // Observed (not just referenced) so the screen re-renders the instant the
+  // server's Trends fetch resolves, instead of sitting on the empty state
+  // until something else happens to redraw this view.
+  @ObservedObject private var metricsFeed = ServerMetricsFeed.shared
   @State private var period: TrendPeriod = .week
 
   var body: some View {
@@ -55,8 +59,17 @@ struct InkTrendsView: View {
     }
   }
 
+  /// Every metric with a genuine multi-day server or local history: nightly
+  /// recovery vitals (HRV, RHR, resp, temp, recovery score), sleep (duration,
+  /// HR dip, and REM/deep once the backend's sleep-stage bugs are fixed),
+  /// strain, and the server's Baevsky stress index. Each source function
+  /// already drops metrics with no real data — nothing here is ever a
+  /// permanently-dashed placeholder.
   private var trendSections: some View {
-    let rows = healthStore.trendRows(for: .recovery) + healthStore.trendRows(for: .sleep)
+    let rows = healthStore.trendRows(for: .recovery)
+      + healthStore.trendRows(for: .sleep)
+      + healthStore.trendRows(for: .strain)
+      + healthStore.dailyStressIndexTrendRows()
     return VStack(alignment: .leading, spacing: 0) {
       if rows.allSatisfy({ $0.trend.points.count < 2 }) {
         emptyState
@@ -75,14 +88,18 @@ struct InkTrendsView: View {
   private var emptyState: some View {
     VStack(alignment: .leading, spacing: 8) {
       InkRule()
-      Text("Not enough nights yet")
+      Text(metricsFeed.hasLoadedTrendOnce ? "Not enough history yet" : "Loading trends…")
         .font(InkTheme.sectionTitle)
         .foregroundStyle(InkTheme.ink)
         .padding(.top, 14)
-      Text("Trends draw from nightly readings. Wear the band overnight and sync — lines appear after a few days.")
-        .font(InkTheme.body)
-        .foregroundStyle(InkTheme.graphite)
-        .fixedSize(horizontal: false, vertical: true)
+      Text(
+        metricsFeed.hasLoadedTrendOnce
+          ? "Trends draw from server-computed nightly and daily readings. Wear the band and sync — lines appear after a few days."
+          : "Fetching your history from the server…"
+      )
+      .font(InkTheme.body)
+      .foregroundStyle(InkTheme.graphite)
+      .fixedSize(horizontal: false, vertical: true)
     }
   }
 }

@@ -349,4 +349,66 @@ final class ServerMetricsFeed: ObservableObject {
     }
     refresh()
   }
+
+  // MARK: - Trends tab (longer window, independent of the 7-day "today" cache above)
+
+  /// The server caps `/ingest/metrics/daily` at this many days regardless of
+  /// what we request (`METRICS_MAX_DAYS` in the backend) — request exactly
+  /// that so the Trends tab gets everything the server can give without a
+  /// wasted round-trip. A 6-month period selector still works honestly: it
+  /// simply shows however many of these real days exist (never fabricated
+  /// padding), same client-side `.suffix(period.pointCount)` slicing pattern
+  /// already used by the trend cards.
+  private static let trendDayCount = 31
+
+  private let trendURL: URL = {
+    var components = URLComponents(string: "https://latenightgames.fr/whoop/ingest/metrics/daily")!
+    components.queryItems = [
+      URLQueryItem(name: "days", value: String(ServerMetricsFeed.trendDayCount)),
+      URLQueryItem(name: "tz", value: TimeZone.current.identifier),
+    ]
+    return components.url!
+  }()
+  private var trendLastRequestedAt: Date?
+
+  /// Up to `trendDayCount` most recent days, newest first. Powers the Trends
+  /// tab's multi-day charts (HRV, RHR, stress, strain, sleep duration, ...).
+  /// Kept separate from `days`/`today` above so existing 7-day consumers
+  /// (Today ledger, Health Monitor detail vitals) are never affected by this
+  /// tab's independent fetch cadence.
+  @Published private(set) var trendDays: [ServerMetricsDay] = []
+
+  /// False until the Trends cache's first fetch has completed (success, empty,
+  /// or failure) — lets the Trends tab show "loading" instead of "no history"
+  /// during the first fetch.
+  @Published private(set) var hasLoadedTrendOnce = false
+
+  func refreshTrend() {
+    trendLastRequestedAt = Date()
+    var req = URLRequest(url: trendURL, timeoutInterval: 20)
+    req.setValue(token, forHTTPHeaderField: "X-Ingest-Token")
+    URLSession.shared.dataTask(with: req) { [weak self] data, response, _ in
+      var sorted: [ServerMetricsDay]?
+      if let data,
+         (response as? HTTPURLResponse).map({ (200..<300).contains($0.statusCode) }) != false,
+         let r = try? JSONDecoder().decode(ServerMetricsDailyResponse.self, from: data) {
+        sorted = r.days.sorted { $0.date > $1.date }
+      }
+      Task { @MainActor in
+        guard let self else { return }
+        if let sorted {
+          self.trendDays = sorted
+        }
+        self.hasLoadedTrendOnce = true
+      }
+    }.resume()
+  }
+
+  /// Fetch at most once per `maxAge`; safe to call from trend-row builders on every render.
+  func refreshTrendIfStale(maxAge: TimeInterval = 300) {
+    if let trendLastRequestedAt, Date().timeIntervalSince(trendLastRequestedAt) < maxAge {
+      return
+    }
+    refreshTrend()
+  }
 }
