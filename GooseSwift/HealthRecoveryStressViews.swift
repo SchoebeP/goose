@@ -3,6 +3,11 @@ import Foundation
 import SwiftUI
 import UIKit
 
+/// Recovery detail — Radiograph restyle. Same ledger shape as Sleep: a
+/// serif reading up top, then vitals, timeline/insights (both honestly
+/// static today — no recovery-timeline or insights source exists yet), and
+/// trends. Presented sheets (date picker, per-metric trend chart) are
+/// unchanged.
 struct RecoveryV2OverviewPage: View {
   @EnvironmentObject private var router: AppRouter
   @EnvironmentObject private var model: GooseAppModel
@@ -15,137 +20,64 @@ struct RecoveryV2OverviewPage: View {
   @ObservedObject private var metricsFeed = ServerMetricsFeed.shared
   @State private var showingDatePicker = false
   @State private var selectedTrend: HealthMetricSnapshot?
-  @State private var scrollOffsetY: CGFloat = 0
-
-  private let heroHeight: CGFloat = 320
-  private let heroBackgroundHeight: CGFloat = 560
-  private let statColumns = [
-    GridItem(.flexible(), spacing: 12),
-    GridItem(.flexible(), spacing: 12),
-  ]
 
   var body: some View {
+    // Constructed only to satisfy SleepV2CoachingCard's signature below
+    // (its rendered body is EmptyView — coach was removed from this UI
+    // upstream); this page's own markup no longer reads palette colors.
     let palette = SleepV2Palette(colorScheme: colorScheme, theme: .recovery)
-    ScrollViewReader { _ in
-      ZStack(alignment: .top) {
-        InkTheme.film
-          .ignoresSafeArea()
 
-        RecoveryV2ScenicBackground(palette: palette)
-          .frame(height: heroBackgroundHeight)
-          .offset(y: min(scrollOffsetY, 0))
-          .ignoresSafeArea(edges: .top)
-          .allowsHitTesting(false)
+    ScrollView {
+      VStack(alignment: .leading, spacing: 0) {
+        dateRow
 
-        ScrollView {
-          LazyVStack(alignment: .leading, spacing: 0) {
-            SleepV2ScrollOffsetProbe()
+        VitalReading(eyebrow: "Recovery", value: "\(recoveryScore)", unit: "%", numeralSize: 60)
+          .padding(.top, 14)
 
-            SleepV2Hero(
-              palette: palette,
-              title: "Recovery",
-              dateLabel: dateLabel,
-              score: recoveryScore,
-              gaugeLabel: "Recovery",
-              onDateTap: { showingDatePicker = true }
-            )
-            .frame(height: heroHeight)
+        InkRule()
+          .padding(.top, InkTheme.sectionSpacing)
 
-            VStack(alignment: .leading, spacing: 14) {
-              LazyVGrid(columns: statColumns, spacing: 12) {
-                SleepV2StatCard(
-                  palette: palette,
-                  systemImage: "waveform.path.ecg",
-                  label: "Resting HRV",
-                  value: store.recoveryHRVDisplayText(for: selectedDate)
-                )
-                .frame(height: 96)
+        InkLedgerRow(label: "Resting HRV", value: store.recoveryHRVDisplayText(for: selectedDate))
+        InkRule()
+        InkLedgerRow(label: "Resting HR", value: store.recoveryRestingHRDisplayText(for: selectedDate))
+        InkRule()
+        InkLedgerRow(label: "Respiratory rate", value: store.recoveryRespiratoryRateDisplayText(for: selectedDate))
+        InkRule()
+        InkLedgerRow(label: "Oxygen saturation", value: store.recoveryOxygenSaturationDisplayText(for: selectedDate))
+        InkRule()
+        InkLedgerRow(label: "Wrist temperature", value: store.recoveryWristTemperatureDisplayText(for: selectedDate))
+        InkRule()
 
-                SleepV2StatCard(
-                  palette: palette,
-                  systemImage: "heart.fill",
-                  label: "Resting HR",
-                  value: store.recoveryRestingHRDisplayText(for: selectedDate)
-                )
-                .frame(height: 96)
-
-                SleepV2StatCard(
-                  palette: palette,
-                  systemImage: "lungs.fill",
-                  label: "Respiratory Rate",
-                  value: store.recoveryRespiratoryRateDisplayText(for: selectedDate)
-                )
-                .frame(height: 96)
-
-                SleepV2StatCard(
-                  palette: palette,
-                  systemImage: "drop.fill",
-                  label: "Oxygen Saturation",
-                  value: store.recoveryOxygenSaturationDisplayText(for: selectedDate)
-                )
-                .frame(height: 96)
-              }
-
-              SleepV2StatCard(
-                palette: palette,
-                systemImage: "thermometer.medium",
-                label: "Wrist Temperature",
-                value: store.recoveryWristTemperatureDisplayText(for: selectedDate)
-              )
-              .frame(height: 96)
-
-              SleepV2CoachingCard(palette: palette, tip: coachTip) {
-                openCoachTip()
-              }
-
-              SleepV2SectionHeader(title: "Timeline", palette: palette)
-
-              RecoveryV2EmptyStateCard(
-                palette: palette,
-                systemImage: "timeline.selection",
-                title: "No recovery timeline",
-                value: "0 events"
-              )
-
-              SleepV2SectionHeader(title: "Insights", palette: palette)
-
-              RecoveryV2EmptyStateCard(
-                palette: palette,
-                systemImage: "sparkles",
-                title: "No recovery insights",
-                value: "0 signals"
-              )
-
-              SleepV2SectionHeader(title: "Trends", palette: palette)
-
-              VStack(spacing: 14) {
-                ForEach(recoveryTrendRows) { snapshot in
-                  RecoveryV2TrendCard(palette: palette, snapshot: snapshot) {
-                    selectedTrend = snapshot
-                  }
-                }
-              }
-            }
-            .padding(.horizontal, 18)
-            .padding(.bottom, 34)
-          }
+        SleepV2CoachingCard(palette: palette, tip: coachTip) {
+          openCoachTip()
         }
-        .coordinateSpace(name: SleepV2ScrollOffsetProbe.coordinateSpaceName)
-        .onPreferenceChange(SleepV2ScrollOffsetPreferenceKey.self) { value in
-          scrollOffsetY = value
-        }
+
+        InkSectionHeader(title: "Timeline")
+          .padding(.top, InkTheme.sectionSpacing)
+        Text("No recovery timeline")
+          .font(InkTheme.footnote)
+          .foregroundStyle(InkTheme.graphite)
+          .padding(.vertical, 12)
+        InkRule()
+
+        InkSectionHeader(title: "Insights")
+          .padding(.top, InkTheme.sectionSpacing)
+        Text("No recovery insights")
+          .font(InkTheme.footnote)
+          .foregroundStyle(InkTheme.graphite)
+          .padding(.vertical, 12)
+        InkRule()
+
+        InkSectionHeader(title: "Trends")
+          .padding(.top, InkTheme.sectionSpacing)
+        trendsSection
       }
+      .padding(.horizontal, InkTheme.screenMargin)
+      .padding(.bottom, 34)
     }
+    .inkScreen()
     .navigationTitle("Recovery")
     .navigationBarTitleDisplayMode(.inline)
-    .toolbarBackground(.hidden, for: .navigationBar)
-    .toolbar {
-      ToolbarItem(placement: .principal) {
-        Text("Recovery")
-          .font(.headline.weight(.semibold))
-          .foregroundStyle(InkTheme.ink)
-      }
-    }
     .sheet(isPresented: $showingDatePicker) {
       ScoreDatePickerSheet(
         title: "Recovery",
@@ -156,6 +88,40 @@ struct RecoveryV2OverviewPage: View {
     }
     .sheet(item: $selectedTrend) { snapshot in
       SleepV2BevelTrendSheet(snapshot: snapshot)
+    }
+  }
+
+  private var dateRow: some View {
+    Button {
+      showingDatePicker = true
+    } label: {
+      HStack(spacing: 6) {
+        Text(dateLabel).inkEyebrow()
+        Image(systemName: "chevron.down")
+          .font(.system(size: 9, weight: .bold))
+          .foregroundStyle(InkTheme.graphite)
+      }
+    }
+    .buttonStyle(.plain)
+    .padding(.top, 12)
+  }
+
+  @ViewBuilder
+  private var trendsSection: some View {
+    if recoveryTrendRows.isEmpty {
+      Text("Recovery trends will appear after a few days of server-computed nightly readings.")
+        .font(InkTheme.footnote)
+        .foregroundStyle(InkTheme.graphite)
+        .padding(.vertical, 12)
+    } else {
+      VStack(alignment: .leading, spacing: 0) {
+        ForEach(recoveryTrendRows) { snapshot in
+          InkMetricTrendRow(snapshot: snapshot) {
+            selectedTrend = snapshot
+          }
+          InkRule()
+        }
+      }
     }
   }
 
@@ -173,10 +139,6 @@ struct RecoveryV2OverviewPage: View {
     return Calendar.current.isDate(selectedDate, inSameDayAs: Date())
       ? store.recoveryScoreDisplayValue()
       : 0
-  }
-
-  private var isSelectedDateToday: Bool {
-    Calendar.current.isDate(selectedDate, inSameDayAs: Date())
   }
 
   private var recoveryTrendRows: [HealthMetricSnapshot] {
