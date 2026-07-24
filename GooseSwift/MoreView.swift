@@ -16,6 +16,9 @@ struct MoreView: View {
   @AppStorage(OnboardingStorage.unitSystem) private var profileUnitSystemRaw = "imperial"
   @AppStorage(OnboardingStorage.heightMm) private var profileHeightMm = 0
   @AppStorage(OnboardingStorage.weightGrams) private var profileWeightGrams = 0
+#if DEBUG
+  @ObservedObject private var developerSettings = DeveloperSettings.shared
+#endif
 
   @MainActor
   init(healthStore: HealthDataStore) {
@@ -42,25 +45,39 @@ struct MoreView: View {
       }
 
       Section("Device") {
-        routeRows([.device, .connectionLab])
+        routeRows(deviceRoutes)
       }
 
       Section("Band") {
         MoreBandSummaryRow()
       }
 
-      Section("Capture & Sync") {
-        routeRows([.capture, .localStore, .healthSync, .rawExport])
-      }
+#if DEBUG
+      if developerSettings.isEnabled {
+        Section("Capture & Sync") {
+          routeRows([.capture, .localStore, .healthSync, .rawExport])
+        }
 
-      Section("Debug") {
-        routeRows([.algorithms, .debug, .developer])
+        Section("Debug") {
+          routeRows([.algorithms, .debug, .developer])
+        }
+      } else {
+        // Keep exactly one way back to the toggle — never strand the
+        // developer with dev tools hidden and no path to re-enable them.
+        Section("Debug") {
+          routeRows([.developer])
+        }
       }
+#endif
 
       Section("Profile & Info") {
-        Link(destination: URL(string: "https://latenightgames.fr/whoop/inspector")!) {
-          MorePacketInspectorRow()
+#if DEBUG
+        if developerSettings.isEnabled {
+          Link(destination: URL(string: "https://latenightgames.fr/whoop/inspector")!) {
+            MorePacketInspectorRow()
+          }
         }
+#endif
         routeRows([.privacy, .support, .about])
       }
     }
@@ -83,6 +100,15 @@ struct MoreView: View {
     store.routeStatus(ble: model.ble, model: model)
   }
 
+  /// Connection Lab is raw BLE/diagnostic tooling — Dev only.
+  private var deviceRoutes: [MoreRoute] {
+#if DEBUG
+    [.device, .connectionLab]
+#else
+    [.device]
+#endif
+  }
+
   @ViewBuilder
   private func routeRows(_ routes: [MoreRoute]) -> some View {
     ForEach(routes) { route in
@@ -100,6 +126,7 @@ struct MoreView: View {
       DeviceView()
     case .profile:
       MoreProfileView()
+#if DEBUG
     case .connectionLab:
       ConnectionView()
     case .capture:
@@ -116,14 +143,22 @@ struct MoreView: View {
       }
     case .debug:
       MoreDebugView(store: store)
+    case .developer:
+      MoreDeveloperView(routes: MoreRoute.developerToolRoutes, routeStatus: routeStatus)
+#endif
     case .privacy:
       MorePrivacyView(store: store)
     case .support:
       MoreSupportView(store: store)
     case .about:
       MoreAboutView(store: store)
-    case .developer:
-      MoreDeveloperView(routes: MoreRoute.developerToolRoutes, routeStatus: routeStatus)
+#if !DEBUG
+    case .connectionLab, .capture, .localStore, .healthSync, .rawExport, .algorithms, .debug, .developer:
+      // Compiled out of Release entirely (see the #if DEBUG block above) —
+      // this only exists to keep the switch exhaustive against MoreRoute.
+      // Unreachable: no row or link in a Clean build ever pushes these.
+      EmptyView()
+#endif
     }
   }
 

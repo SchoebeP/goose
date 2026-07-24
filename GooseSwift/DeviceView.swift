@@ -10,16 +10,20 @@ struct DeviceView: View {
   }
 }
 
+#if DEBUG
 private enum DevicePanel {
   case status
   case advanced
 }
+#endif
 
 private struct DeviceContentView: View {
   @EnvironmentObject private var model: GooseAppModel
   @EnvironmentObject private var packetMonitor: PacketMonitorModel
   @ObservedObject var ble: GooseBLEClient
+#if DEBUG
   @State private var selectedPanel: DevicePanel = .status
+#endif
 
   var body: some View {
     ZStack {
@@ -34,6 +38,7 @@ private struct DeviceContentView: View {
           )
           .padding(.bottom, 30)
 
+#if DEBUG
           DeviceStatusTabs(selectedPanel: $selectedPanel)
             .padding(.bottom, 46)
 
@@ -45,6 +50,13 @@ private struct DeviceContentView: View {
           } else {
             DeviceAdvancedPanel(model: model, packetMonitor: packetMonitor, ble: ble)
           }
+#else
+          // Clean builds: no "Advanced" diagnostics tab — just the status view.
+          DeviceImageAndBattery(
+            batteryPercent: ble.batteryLevelPercent,
+            isCharging: ble.batteryIsCharging == true
+          )
+#endif
         }
         .padding(.horizontal, 22)
         .padding(.top, 36)
@@ -103,6 +115,7 @@ private struct DeviceContentView: View {
   }
 }
 
+#if DEBUG
 private struct DeviceStatusTabs: View {
   @Binding var selectedPanel: DevicePanel
 
@@ -153,6 +166,7 @@ private struct DeviceTabButton: View {
     label == "ADVANCED" ? 76 : 52
   }
 }
+#endif
 
 private struct DeviceImageAndBattery: View {
   let batteryPercent: Int?
@@ -291,6 +305,8 @@ private struct BatteryRail: View {
   }
 }
 
+// Raw firmware/Rust/frame/event-log diagnostics + BLE action grid — Dev only.
+#if DEBUG
 private struct DeviceAdvancedPanel: View {
   @EnvironmentObject private var messageStore: GooseMessageStore
   @ObservedObject var model: GooseAppModel
@@ -644,6 +660,7 @@ private struct EventLogPreview: View {
     }
   }
 }
+#endif
 
 private func relativeSummary(for date: Date?) -> String? {
   guard let date else {

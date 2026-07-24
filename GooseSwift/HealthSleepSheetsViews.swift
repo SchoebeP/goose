@@ -489,14 +489,18 @@ struct SleepV2AlarmSheet: View {
       }
       .opacity(ble.canWriteAlarm ? 1 : 0.52)
 
-      DisclosureGroup(isExpanded: $showingDiagnostics) {
-        SleepV2AlarmDiagnostics(ble: ble, palette: palette)
-          .padding(.top, 10)
-      } label: {
-        Label("Band write diagnostics", systemImage: "stethoscope")
-          .font(.subheadline.weight(.semibold))
-          .foregroundStyle(InkTheme.ink)
+#if DEBUG
+      if DeveloperSettings.shared.isEnabled {
+        DisclosureGroup(isExpanded: $showingDiagnostics) {
+          SleepV2AlarmDiagnostics(ble: ble, palette: palette)
+            .padding(.top, 10)
+        } label: {
+          Label("Band write diagnostics", systemImage: "stethoscope")
+            .font(.subheadline.weight(.semibold))
+            .foregroundStyle(InkTheme.ink)
+        }
       }
+#endif
     }
     .padding(20)
     .background(InkTheme.wash, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
@@ -755,6 +759,9 @@ struct SleepV2AlarmTileBackground: View {
   }
 }
 
+// Raw BLE hex frame/response/event dump — Dev only (see the DisclosureGroup
+// gate in bandControlsCard above).
+#if DEBUG
 struct SleepV2AlarmDiagnostics: View {
   @ObservedObject var ble: GooseBLEClient
   let palette: SleepV2Palette
@@ -802,3 +809,4 @@ struct SleepV2AlarmDiagnosticRow: View {
     }
   }
 }
+#endif

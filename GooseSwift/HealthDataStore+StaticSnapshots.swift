@@ -17,6 +17,12 @@ extension HealthDataStore {
     snapshot(id: "calibration", route: .calibration, group: .algorithms, title: "Calibration", value: "--", unit: "", status: "No labels", freshness: "No run", provenance: "calibrationSummary()", source: .unavailable("calibration requires stored labels and local runs"), systemImage: "slider.horizontal.3", tint: .mint, trendValues: [], range: "No data"),
   ]
 
+  /// Engineering/RE cards (raw feature-extraction internals, algorithm-variant
+  /// picking, ML calibration) — never for "a stranger who installs Clean".
+  /// Filtered out of `landingSnapshots(...)` whenever `DeveloperSettings.shared.isEnabled`
+  /// is false, which is unconditionally the case in Release builds.
+  static let developerOnlyLandingRoutes: Set<HealthRoute> = [.packetInputs, .algorithms, .calibration]
+
   static let baseHealthMonitorSnapshots = [
     snapshot(id: "respiratory-rate", route: .healthMonitor, group: .vitals, title: "Respiratory Rate", value: "--", unit: "rpm", status: "Unavailable", freshness: "Packet proof pending", provenance: "vitalEventFeatureSummary()", source: .unavailable("respiratory packet proof pending"), systemImage: "lungs", tint: .green, trendValues: [], range: "No data"),
     snapshot(id: "resting-hr", route: .healthMonitor, group: .vitals, title: "Resting HR", value: "--", unit: "bpm", status: "Unavailable", freshness: "No local data", provenance: "restingHeartRateFeatureSummary()", source: .unavailable("resting HR requires HR samples"), systemImage: "heart", tint: .red, trendValues: [], range: "No data"),

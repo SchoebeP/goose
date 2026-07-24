@@ -373,6 +373,7 @@ struct HealthRouteContentView: View {
       CardioLoadView(store: store)
     case .energyBank:
       EnergyBankView(store: store)
+#if DEBUG
     case .packetInputs:
       PacketHealthView(store: store)
     case .algorithms:
@@ -381,6 +382,13 @@ struct HealthRouteContentView: View {
       ReferenceComparisonsView(store: store)
     case .calibration:
       CalibrationHealthView(store: store)
+#else
+    case .packetInputs, .algorithms, .referenceComparisons, .calibration:
+      // Compiled out of Release entirely — engineering/RE tooling. The Home
+      // ledger never links here in a Clean build either, see
+      // HealthDataStore+StaticSnapshots.swift's developerOnlyLandingRoutes.
+      EmptyView()
+#endif
     }
   }
 }
@@ -563,6 +571,9 @@ struct HealthMonitorView: View {
   }
 }
 
+// Raw feature-extraction/provenance internals — Dev only. Compiled out of
+// Release entirely (see the #if DEBUG in HealthRouteContentView above).
+#if DEBUG
 struct PacketHealthView: View {
   @EnvironmentObject private var model: GooseAppModel
   @ObservedObject var store: HealthDataStore
@@ -656,3 +667,4 @@ struct PacketHealthView: View {
     .navigationTitle("Packet Inputs")
   }
 }
+#endif

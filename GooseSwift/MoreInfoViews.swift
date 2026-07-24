@@ -173,6 +173,8 @@ struct MoreActionRow: View {
   }
 }
 
+// Only rendered by MoreDebugView's "Command Shortcuts" section — Dev only.
+#if DEBUG
 struct MoreCommandGroupRow: View {
   let group: MoreCommandGroup
 
@@ -198,6 +200,7 @@ struct MoreCommandGroupRow: View {
     .padding(.vertical, 3)
   }
 }
+#endif
 
 extension Date {
   func moreISO8601String() -> String {

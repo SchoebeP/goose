@@ -48,6 +48,12 @@ struct EnergyBankView: View {
   }
 }
 
+// AlgorithmsHealthView, ReferenceComparisonsView, and CalibrationHealthView
+// are engineering/RE tooling (algorithm-variant picking, ML calibration
+// labels/holdout) — Dev only. Compiled out of Release entirely; the routes
+// that reach them are also filtered out of the live Home ledger, see
+// HealthDataStore+StaticSnapshots.swift's developerOnlyLandingRoutes.
+#if DEBUG
 struct AlgorithmsHealthView: View {
   @ObservedObject var store: HealthDataStore
 
@@ -157,6 +163,7 @@ struct CalibrationHealthView: View {
     .navigationTitle("Calibration")
   }
 }
+#endif
 
 struct HealthHero: View {
   let snapshot: HealthMetricSnapshot

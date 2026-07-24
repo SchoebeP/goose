@@ -119,6 +119,9 @@ extension HealthDataStore {
         trend: snapshots[index].trend
       )
     }
+    if !DeveloperSettings.shared.isEnabled {
+      snapshots.removeAll { Self.developerOnlyLandingRoutes.contains($0.route) }
+    }
     return snapshots
   }
 

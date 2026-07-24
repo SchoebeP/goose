@@ -156,6 +156,7 @@
 		D10000000000000000000051 /* BLEUIStateAggregator.swift in Sources */ = {isa = PBXBuildFile; fileRef = D20000000000000000000051 /* BLEUIStateAggregator.swift */; };
 		D10000000000000000000052 /* PacketMonitorModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = D20000000000000000000052 /* PacketMonitorModel.swift */; };
 		D10000000000000000000053 /* GooseMessageStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = D20000000000000000000053 /* GooseMessageStore.swift */; };
+		D10000000000000000000054 /* DeveloperSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = D20000000000000000000054 /* DeveloperSettings.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -337,6 +338,7 @@
 		D20000000000000000000051 /* BLEUIStateAggregator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BLEUIStateAggregator.swift; sourceTree = "<group>"; };
 		D20000000000000000000052 /* PacketMonitorModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PacketMonitorModel.swift; sourceTree = "<group>"; };
 		D20000000000000000000053 /* GooseMessageStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GooseMessageStore.swift; sourceTree = "<group>"; };
+		D20000000000000000000054 /* DeveloperSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeveloperSettings.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -396,6 +398,7 @@
 				D20000000000000000000050 /* WhoopDataSignalPipeline.swift */,
 				D20000000000000000000052 /* PacketMonitorModel.swift */,
 				D20000000000000000000053 /* GooseMessageStore.swift */,
+				D20000000000000000000054 /* DeveloperSettings.swift */,
 				D2000000000000000000001C /* ActivityPersistenceTypes.swift */,
 				D2000000000000000000001D /* HealthPacketCaptureTypes.swift */,
 				D2000000000000000000001E /* WhoopEventSamples.swift */,
@@ -711,6 +714,7 @@
 				D10000000000000000000050 /* WhoopDataSignalPipeline.swift in Sources */,
 				D10000000000000000000052 /* PacketMonitorModel.swift in Sources */,
 				D10000000000000000000053 /* GooseMessageStore.swift in Sources */,
+				D10000000000000000000054 /* DeveloperSettings.swift in Sources */,
 				D1000000000000000000001C /* ActivityPersistenceTypes.swift in Sources */,
 				D1000000000000000000001D /* HealthPacketCaptureTypes.swift in Sources */,
 				D1000000000000000000001E /* WhoopEventSamples.swift in Sources */,

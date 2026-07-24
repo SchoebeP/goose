@@ -101,15 +101,19 @@ struct SleepAlarmBridgeSection: View {
         HealthInfoRow(row: HealthSummaryRow("Last alarm state", value: ble.alarmDisplaySummary, source: alarmSource, systemImage: "bell"))
         HealthInfoRow(row: HealthSummaryRow("Last response", value: ble.lastAlarmResponseSummary, source: .bridge("WHOOP command response"), systemImage: "checkmark.seal"))
         HealthInfoRow(row: HealthSummaryRow("Last event", value: ble.lastAlarmEventSummary, source: .bridge("WHOOP event stream"), systemImage: "waveform.path.ecg"))
-        if !ble.lastAlarmCommandFrameHex.isEmpty {
-          HealthInfoRow(row: HealthSummaryRow("Last write frame", value: String(ble.lastAlarmCommandFrameHex.prefix(38)), source: .bridge("V5 command frame"), systemImage: "doc.text.magnifyingglass"))
+#if DEBUG
+        if DeveloperSettings.shared.isEnabled {
+          if !ble.lastAlarmCommandFrameHex.isEmpty {
+            HealthInfoRow(row: HealthSummaryRow("Last write frame", value: String(ble.lastAlarmCommandFrameHex.prefix(38)), source: .bridge("V5 command frame"), systemImage: "doc.text.magnifyingglass"))
+          }
+          if !ble.lastAlarmResponsePayloadHex.isEmpty {
+            HealthInfoRow(row: HealthSummaryRow("Response hex", value: String(ble.lastAlarmResponsePayloadHex.prefix(38)), source: .bridge("WHOOP command response"), systemImage: "number"))
+          }
+          if !ble.lastAlarmEventPayloadHex.isEmpty {
+            HealthInfoRow(row: HealthSummaryRow("Event hex", value: String(ble.lastAlarmEventPayloadHex.prefix(38)), source: .bridge("WHOOP event stream"), systemImage: "number"))
+          }
         }
-        if !ble.lastAlarmResponsePayloadHex.isEmpty {
-          HealthInfoRow(row: HealthSummaryRow("Response hex", value: String(ble.lastAlarmResponsePayloadHex.prefix(38)), source: .bridge("WHOOP command response"), systemImage: "number"))
-        }
-        if !ble.lastAlarmEventPayloadHex.isEmpty {
-          HealthInfoRow(row: HealthSummaryRow("Event hex", value: String(ble.lastAlarmEventPayloadHex.prefix(38)), source: .bridge("WHOOP event stream"), systemImage: "number"))
-        }
+#endif
       }
 
       VStack(alignment: .leading, spacing: 10) {

@@ -7,6 +7,9 @@ struct InkMoreView: View {
   @EnvironmentObject private var router: AppRouter
   @ObservedObject var healthStore: HealthDataStore
   @StateObject private var store = MoreDataStore()
+#if DEBUG
+  @ObservedObject private var developerSettings = DeveloperSettings.shared
+#endif
 
   var body: some View {
     ScrollView {
@@ -15,10 +18,18 @@ struct InkMoreView: View {
         InkBandStatus(ble: model.ble)
           .padding(.top, 14)
 
-        routeGroup("Device", routes: [.profile, .device, .connectionLab])
-        routeGroup("Capture & sync", routes: [.capture, .localStore, .healthSync, .rawExport])
-        routeGroup("Debug", routes: [.algorithms, .debug, .developer])
-        inspectorLink
+        routeGroup("Device", routes: deviceRoutes)
+#if DEBUG
+        if developerSettings.isEnabled {
+          routeGroup("Capture & sync", routes: [.capture, .localStore, .healthSync, .rawExport])
+          routeGroup("Debug", routes: [.algorithms, .debug, .developer])
+          inspectorLink
+        } else {
+          // Keep exactly one way back to the toggle — never strand the
+          // developer with dev tools hidden and no path to re-enable them.
+          routeGroup("Debug", routes: [.developer])
+        }
+#endif
         routeGroup("Info", routes: [.privacy, .support, .about])
       }
       .padding(.horizontal, InkTheme.screenMargin)
@@ -44,6 +55,15 @@ struct InkMoreView: View {
         .foregroundStyle(InkTheme.ink)
     }
     .padding(.top, 12)
+  }
+
+  /// Connection Lab is raw BLE/diagnostic tooling — Dev only.
+  private var deviceRoutes: [MoreRoute] {
+#if DEBUG
+    [.profile, .device, .connectionLab]
+#else
+    [.profile, .device]
+#endif
   }
 
   private func routeGroup(_ title: String, routes: [MoreRoute]) -> some View {
@@ -84,6 +104,7 @@ struct InkMoreView: View {
       DeviceView()
     case .profile:
       MoreProfileView()
+#if DEBUG
     case .connectionLab:
       ConnectionView()
     case .capture:
@@ -100,17 +121,25 @@ struct InkMoreView: View {
       }
     case .debug:
       MoreDebugView(store: store)
+    case .developer:
+      MoreDeveloperView(
+        routes: MoreRoute.developerToolRoutes,
+        routeStatus: store.routeStatus(ble: model.ble, model: model)
+      )
+#endif
     case .privacy:
       MorePrivacyView(store: store)
     case .support:
       MoreSupportView(store: store)
     case .about:
       MoreAboutView(store: store)
-    case .developer:
-      MoreDeveloperView(
-        routes: MoreRoute.developerToolRoutes,
-        routeStatus: store.routeStatus(ble: model.ble, model: model)
-      )
+#if !DEBUG
+    case .connectionLab, .capture, .localStore, .healthSync, .rawExport, .algorithms, .debug, .developer:
+      // Compiled out of Release entirely (see the #if DEBUG block above) —
+      // this only exists to keep the switch exhaustive against MoreRoute.
+      // Unreachable: no row or link in a Clean build ever pushes these.
+      EmptyView()
+#endif
     }
   }
 }
