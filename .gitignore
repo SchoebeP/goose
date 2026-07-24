@@ -29,3 +29,20 @@ build-sim/
 build-device/
 build-release/
 build/
+
+# --- secrets (NEVER commit; this repo is PUBLIC) ---
+**/.env
+*.token
+ingest-token.txt
+
+# --- real biometric / captured data: stays on the owner's machines only ---
+# Root enabler of the goose-raw-export leak — keep these broad.
+*.sqlite
+*.sqlite3
+*.db
+*.csv
+*.jsonl
+goose-raw-export-*/
+**/goose-raw-export-*/
+# ...but legitimate, non-personal decode fixtures may live here:
+!Rust/core/fixtures/**
