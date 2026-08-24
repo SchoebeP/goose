@@ -3,9 +3,19 @@ import SwiftUI
 
 struct MorePrivacyView: View {
   @ObservedObject var store: MoreDataStore
+  /// Mirrors WhoopCloudForwarder's "whoopCloudForwarding" user default
+  /// (default on = the owner's nightly VPS sync stays functional).
+  @AppStorage("whoopCloudForwarding") private var cloudForwarding = true
 
   var body: some View {
     List {
+      Section("Network Sync") {
+        Toggle("Stream to self-hosted ingest", isOn: $cloudForwarding)
+        Text("When on, this build streams your HR/R-R samples, raw BLE frames, and diagnostic logs over HTTPS to latenightgames.fr — the developer's own self-hosted server, not necessarily yours. No data goes to WHOOP or any other third party. Turning this off makes the app fully local-only.")
+          .font(.caption)
+          .foregroundStyle(.secondary)
+      }
+
       Section("Local Data") {
         MoreInfoRow(title: "Database", value: store.databasePath, systemImage: "externaldrive", status: store.databaseExists ? .ready : .unavailable)
         MoreInfoRow(title: "Raw Bundle", value: store.rawBundlePath, systemImage: "folder", status: store.rawBundlePath == "No bundle" ? .pending : .ready)

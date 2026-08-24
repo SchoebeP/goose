@@ -219,8 +219,10 @@ extension HealthDataStore {
     guard let bpm else {
       return "No HR extraction"
     }
+    // Mirror the provenance rule: a "waiting" source is not yet trusted.
+    let trust = source == "waiting" ? "unproven" : "trusted"
     let freshness = Self.relativeText(for: updatedAt) ?? "Now"
-    return "\(bpm) bpm | trusted | \(freshness)"
+    return "\(bpm) bpm | \(trust) | \(freshness)"
   }
 
   func latestHeartRateProvenanceSummary(source: String) -> String {
@@ -916,31 +918,28 @@ extension HealthDataStore {
   }
 
   func calibrationSummary() -> String {
-    calibrationRunComplete ? "ready | 4 train / 2 holdout | improved" : "No run"
+    // No calibration pipeline is wired to this screen yet (the Rust engine
+    // exists in Rust/core/src/calibration.rs but has no bridge call) — never
+    // show invented holdout numbers.
+    "Holdout not computed"
   }
 
   func calibratedScoreSummary() -> String {
-    calibrationRunComplete ? "71.5 raw -> 74.2 / 100" : "No run"
+    "Not computed"
   }
 
   func calibrationIssues() -> [String] {
     if !calibrationLabelsImported {
       return ["Import labels before calibration"]
     }
-    if !calibrationRunComplete {
-      return ["Run calibration to generate holdout evidence"]
-    }
-    return []
+    return ["Calibration pipeline not wired — no holdout evidence exists"]
   }
 
   func calibrationNextActionSummary() -> String {
     if !calibrationLabelsImported {
       return "Import labels"
     }
-    if !calibrationRunComplete {
-      return "Calibrate"
-    }
-    return "Review calibrated \(calibrationTargetFamily) score"
+    return "Wire the Rust calibration engine (bridge pending)"
   }
 
   func packetInputSource(_ detail: String) -> HealthDataSource {
