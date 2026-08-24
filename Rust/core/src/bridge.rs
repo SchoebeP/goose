@@ -2528,7 +2528,20 @@ pub unsafe extern "C" fn goose_bridge_handle_json(request_json: *const c_char) -
             ));
         }
     };
-    string_to_c_string(handle_bridge_request_json(request))
+    // A panicking bridge method must degrade to an error JSON, never abort the
+    // host app — the release profile builds with panic = "unwind" so this
+    // catch_unwind can intercept before anything crosses the FFI boundary.
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        handle_bridge_request_json(request)
+    }));
+    match result {
+        Ok(response) => string_to_c_string(response),
+        Err(_) => response_to_c_string(&bridge_error(
+            "unknown",
+            "panic",
+            "bridge method panicked; request rejected",
+        )),
+    }
 }
 
 #[unsafe(no_mangle)]

@@ -153,5 +153,7 @@ tempfile = "3.13"
 opt-level = 3
 lto = "thin"
 codegen-units = 1
-panic = "abort"
+# unwind (not abort): lets bridge.rs catch_unwind turn library panics into
+# error JSON instead of killing the host iOS app.
+panic = "unwind"
 strip = "debuginfo"
