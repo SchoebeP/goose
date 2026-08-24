@@ -155,16 +155,32 @@ struct GooseDebugCommandResponse: Identifiable, Equatable {
 ///   defaults: Settings → set "whoopIngestToken", or
 ///   `xcrun simctl spawn booted defaults write com.pschoebela.goosewhoop whoopIngestToken <new>`
 enum IngestCredentials {
+  /// Rotation override: Documents/ingest-token.txt, pushed onto the device
+  /// over USB/Wi-Fi (devicectl) — survives relaunches, never touches the repo.
+  private static let fileToken: String? = {
+    guard let documents = FileManager.default.urls(
+      for: .documentDirectory, in: .userDomainMask).first else { return nil }
+    let value = try? String(contentsOf: documents.appendingPathComponent("ingest-token.txt"))
+      .trimmingCharacters(in: .whitespacesAndNewlines)
+    return (value?.isEmpty == false) ? value : nil
+  }()
+
   static var token: String {
     if let override = UserDefaults.standard.string(forKey: "whoopIngestToken"),
        !override.isEmpty {
+      // Persist launch-argument overrides (-whoopIngestToken X) so background
+      // relaunches — which carry no launch arguments — keep the rotated token.
+      if UserDefaults.standard.persistentDomain(
+        forName: Bundle.main.bundleIdentifier ?? "")?["whoopIngestToken"] as? String != override {
+        UserDefaults.standard.set(override, forKey: "whoopIngestToken")
+      }
       return override
     }
-    return fallbackToken
+    if let fileToken { return fileToken }
+    // No compiled-in token: the previous value shipped in a public repo and was
+    // rotated dead on 2026-07-23. Without an override the feeds simply stay
+    // silent rather than shipping a secret in source.
+    return ""
   }
-
-  /// COMPROMISED: this value shipped in a public repo. Rotate it on the VPS,
-  /// set the replacement via "whoopIngestToken", then delete this fallback.
-  private static let fallbackToken = "c0067852565b4d0d46606172de35c6ba120112c447e1f25b"
 }
 
