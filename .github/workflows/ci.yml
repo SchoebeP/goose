@@ -1,0 +1,23 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  rust-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: Rust/core
+      - name: cargo test
+        working-directory: Rust/core
+        run: cargo test --quiet
+  # NOTE: no secret-scan job yet on purpose — git history contains one known
+  # burned ingest token (redacted everywhere, rotated dead server-side
+  # 2026-07-23). Add gitleaks after a history-rewrite decision; until then it
+  # would fail every run on that single known finding.

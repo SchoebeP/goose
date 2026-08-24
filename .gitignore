@@ -20,6 +20,7 @@ tmp/
 # local-only
 .env
 .idea/
+.claude/
 build-device/
 build-release/
 .superpowers/

@@ -1,5 +1,37 @@
 # Changelog
 
+## 0.3.1 — 2026-08-24 (review branch `review-fixes-20260824`, unreleased)
+
+Full-project review remediations (see `REVIEW.md`). Closes out the two
+"documented partials" from the 0.3.0 audit.
+
+### Security & privacy
+- **Compiled ingest token fallback deleted** — the 0.3.0 note was premature:
+  the COMPROMISED token still shipped via `IngestCredentials.fallbackToken`.
+  Now resolves UserDefaults → `Documents/ingest-token.txt` → empty
+  (feeds stay silent instead of shipping a secret). Token also redacted from
+  `docs/audit-2026-06-10.md` evidence quotes.
+- Cloud-forwarding disclosure + working on/off toggle added to Privacy screen.
+- Coach tool output no longer carries raw frame hex (`body_hex=` stripped);
+  assistant markdown renders inline-only so model text can't fetch remote images.
+
+### Reliability (BLE & core)
+- App-side GEN4 frame reassembly now validates the header CRC8 and trims
+  stalled buffers (>16 KB) — payload `0xAA` bytes can no longer desync the
+  scanner into chimera frames; partial buffers are cleared on disconnect.
+- Rust bridge: release profile builds with `panic = "unwind"` and the FFI
+  entry wraps dispatch in `catch_unwind` — a library panic now returns an
+  error JSON instead of killing the app. Toolchain pinned (1.96.0).
+- R21 IMU history channels decode as signed int16 (matches the Rust decoder);
+  overnight SQLite mirror retries failed flushes with capped backoff.
+
+### Honesty
+- Calibration screen no longer shows fabricated holdout numbers ("71.5 → 74.2")
+  — reports "not computed" until the Rust calibration engine is bridged.
+- Strain coach prompt no longer instructs the model to use "WHOOP's 0-21 strain
+  semantics"; live-HR summary only says "trusted" when the source is proven;
+  passive-activity average HR no longer collapses for sub-second windows.
+
 ## 0.3.0 — 2026-06-10
 
 Security + hardening release: a 67-finding multi-agent audit, all remediated
