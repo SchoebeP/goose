@@ -444,6 +444,9 @@ final class GooseAppModel: ObservableObject {
     return formatter
   }()
   static let maximumBufferedFrameBytes = 64 * 1024
+  /// Cap for stalled app-side reassembly buffers (false-header poison) —
+  /// mirrors the cloud forwarder's trim threshold.
+  static let frameReassemblyPoisonLimitBytes = 16 * 1024
   static let packetImportRevisionInterval: TimeInterval = 5
   static let healthPacketCaptureUIUpdateInterval: TimeInterval = 1
   static let healthPacketCaptureSummaryLogInterval: TimeInterval = 10

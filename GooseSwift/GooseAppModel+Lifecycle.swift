@@ -109,6 +109,14 @@ extension GooseAppModel {
 
   func handleBLEConnectionStateChange(_ state: String) {
     syncLiveHeartRateActivity()
+    if state != "ready" {
+      // A partial frame stranded by a dropped link must not absorb the next
+      // connection's bytes into a chimera frame — drop all partial state on
+      // disconnect (mirrors resetFrameReassembly() on the cloud path).
+      notificationIngestQueue.async { [weak self] in
+        self?.frameReassemblyBuffers.removeAll()
+      }
+    }
     if overnightGuardActive {
       if state == "ready" {
         resumeOvernightGuardStreamsIfReady(reason: "ble_ready")

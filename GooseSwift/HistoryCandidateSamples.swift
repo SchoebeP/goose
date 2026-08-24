@@ -351,7 +351,7 @@ struct R21MotionCandidate {
     var values: [Int] = []
     values.reserveCapacity(availableCount)
     for index in 0..<availableCount {
-      guard let value = intFromUInt16(body, offset: offset + index * 2) else {
+      guard let value = intFromInt16(body, offset: offset + index * 2) else {
         continue
       }
       values.append(value)
@@ -400,6 +400,16 @@ struct R21MotionCandidate {
       return nil
     }
     return Int(UInt16(data[offset]) | (UInt16(data[offset + 1]) << 8))
+  }
+
+  private static func intFromInt16(_ data: Data, offset: Int) -> Int? {
+    guard data.count >= offset + 2 else {
+      return nil
+    }
+    // R21 IMU sample channels are signed little-endian (matches the Rust
+    // decoder's read_i16_le over the same offsets) — unsigned wraps negatives.
+    let raw = UInt16(data[offset]) | (UInt16(data[offset + 1]) << 8)
+    return Int(Int16(bitPattern: raw))
   }
 
   private static func intValue(_ value: Any?) -> Int? {

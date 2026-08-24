@@ -818,6 +818,16 @@ extension GooseAppModel {
         break
       }
 
+      // A payload byte that happens to be 0xAA must not desync the scanner —
+      // validate the GEN4 length CRC before trusting a header candidate
+      // (same gate as the cloud reassembler in GooseBLEClient+Parsing.swift).
+      if event.rustDeviceType == "GEN4",
+         GooseBLEClient.crc8Gen4([bytes[1], bytes[2]]) != bytes[3] {
+        droppedBytes += 1
+        bytes.removeFirst()
+        continue
+      }
+
       let declaredLength: Int
       if event.rustDeviceType == "GEN4" {
         declaredLength = Int(bytes[1]) | Int(bytes[2]) << 8
@@ -838,6 +848,18 @@ extension GooseAppModel {
       }
       frames.append(Data(bytes[0..<expectedLength]))
       bytes.removeFirst(expectedLength)
+    }
+
+    // Poison trim: a stalled buffer (false header awaiting bytes that never
+    // arrive) must not grow without bound — resync to the next sync candidate.
+    if bytes.count > Self.frameReassemblyPoisonLimitBytes {
+      if let next = bytes.dropFirst().firstIndex(of: 0xaa) {
+        droppedBytes += next
+        bytes.removeFirst(next)
+      } else {
+        droppedBytes += bytes.count
+        bytes.removeAll()
+      }
     }
 
     if bytes.isEmpty {
