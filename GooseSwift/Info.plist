@@ -69,5 +69,7 @@
 	<array>
 		<string>UIInterfaceOrientationPortrait</string>
 	</array>
+	<key>WHOOP_INGEST_TOKEN</key>
+	<string>$(WHOOP_INGEST_TOKEN)</string>
 </dict>
 </plist>

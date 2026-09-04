@@ -24,3 +24,5 @@ build-device/
 build-release/
 .superpowers/
 imu.png
+# Local build secrets (INGEST token) — never commit
+GooseSwift/GooseSecrets.xcconfig

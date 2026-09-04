@@ -174,7 +174,7 @@ struct SleepV2Hero: View {
   let palette: SleepV2Palette
   let title: String
   let dateLabel: String
-  let score: Int
+  let score: Int?
   var gaugeLabel: String = "Quality"
   let onDateTap: () -> Void
 
@@ -247,11 +247,11 @@ struct SleepV2ScenicBackground: View {
 
 struct SleepV2ScoreGauge: View {
   let palette: SleepV2Palette
-  let score: Int
+  let score: Int?
   let label: String
 
   private var progress: CGFloat {
-    CGFloat(min(max(score, 0), 100)) / 100
+    CGFloat(min(max(score ?? 0, 0), 100)) / 100
   }
 
 	  var body: some View {
@@ -292,7 +292,7 @@ struct SleepV2ScoreGauge: View {
 
 	        VStack(spacing: 4) {
 	          HStack(alignment: .firstTextBaseline, spacing: 1) {
-	            Text("\(score)")
+	            Text(score.map(String.init) ?? "--")
 	              .font(.system(size: 45, weight: .semibold, design: .rounded))
 	            Text("%")
 	              .font(.system(size: 18, weight: .semibold, design: .rounded))

@@ -162,13 +162,16 @@ struct RecoveryV2OverviewPage: View {
     )
   }
 
-  private var recoveryScore: Int {
+  private var recoveryScore: Int? {
+    // U2: honest score — nil (no data) instead of a hard 0/placeholder.
     if let selectedScore = SleepV2Numbers.firstInt(in: selectedSnapshot.value) {
       return selectedScore
     }
-    return Calendar.current.isDate(selectedDate, inSameDayAs: Date())
-      ? store.recoveryScoreDisplayValue()
-      : 0
+    guard Calendar.current.isDate(selectedDate, inSameDayAs: Date()) else {
+      return nil
+    }
+    let v = store.recoveryScoreValue()   // nil when no trusted data exists
+    return v.map { Int($0.rounded()) }
   }
 
   private var isSelectedDateToday: Bool {

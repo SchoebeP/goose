@@ -279,7 +279,7 @@ struct SleepV2TrendRow: View {
     if isSleepScore {
       SleepV2MiniScoreRing(
         palette: palette,
-        score: scoreValue ?? 0,
+        score: scoreValue,
         tint: titleColor
       )
     } else {
@@ -307,7 +307,7 @@ struct SleepV2TrendRow: View {
 
 struct SleepV2MiniScoreRing: View {
   let palette: SleepV2Palette
-  let score: Int
+  let score: Int?
   let tint: Color
 
   var body: some View {
@@ -323,10 +323,10 @@ struct SleepV2MiniScoreRing: View {
         .stroke(Color(red: 1.0, green: 0.55, blue: 0.45), style: StrokeStyle(lineWidth: 9, lineCap: .round))
         .rotationEffect(.degrees(-90))
       Circle()
-        .trim(from: 0, to: CGFloat(min(max(score, 0), 100)) / 100)
+        .trim(from: 0, to: CGFloat(min(max(score ?? 0, 0), 100)) / 100)
         .stroke(tint, style: StrokeStyle(lineWidth: 10, lineCap: .round))
         .rotationEffect(.degrees(-90))
-      Text("\(score)")
+      Text(score.map(String.init) ?? "--")
         .font(.title3.weight(.bold))
         .fontDesign(.rounded)
         .foregroundStyle(palette.text)

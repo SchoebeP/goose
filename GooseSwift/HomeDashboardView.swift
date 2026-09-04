@@ -26,6 +26,16 @@ struct HomeDashboardView: View {
           stress: landingSnapshot(for: .stress),
           openStress: { openHealth(.stress) }
         )
+
+        HomeSleepSection(
+          sleep: landingSnapshot(for: .sleep),
+          openSleep: { openHealth(.sleep) }
+        )
+
+        HomeSkinTempSection(
+          store: healthStore,
+          openCalibration: { openHealth(.calibration) }
+        )
       }
       .padding(.horizontal, 16)
       .padding(.vertical, 18)
@@ -388,7 +398,8 @@ final class MinutelyHRFeed: ObservableObject {
     components.queryItems = [URLQueryItem(name: "tz", value: TimeZone.current.identifier)]
     return components.url!
   }()
-  private let token = "c0067852565b4d0d46606172de35c6ba120112c447e1f25b"
+  // SEC1: token lives in Info.plist (never in source/history).
+  private let token = Bundle.main.object(forInfoDictionaryKey: "WHOOP_INGEST_TOKEN") as? String ?? ""
 
   func refresh() {
     var req = URLRequest(url: url, timeoutInterval: 15)
@@ -538,7 +549,8 @@ final class MinutelyStepsFeed: ObservableObject {
     components.queryItems = [URLQueryItem(name: "tz", value: TimeZone.current.identifier)]
     return components.url!
   }()
-  private let token = "c0067852565b4d0d46606172de35c6ba120112c447e1f25b"
+  // SEC1: token lives in Info.plist (never in source/history).
+  private let token = Bundle.main.object(forInfoDictionaryKey: "WHOOP_INGEST_TOKEN") as? String ?? ""
 
   func refresh() {
     var req = URLRequest(url: url, timeoutInterval: 15)

@@ -5,8 +5,16 @@ import UIKit
 
 struct SleepV2SleepWindowCard: View {
   let palette: SleepV2Palette
+  var lastSleep: PrimarySleepDetail?
   let onWakeTap: () -> Void
   let onSleepNeeded: () -> Void
+
+  // U3: schedule tiles show the LAST REAL night's times when one exists,
+  // honest "--" otherwise — never the old hardcoded 21:20/21:50/05:30/7h39m.
+  private var windDown: String { lastSleep?.startLabel ?? "--" }
+  private var bedtime: String { lastSleep?.startLabel ?? "--" }
+  private var wakeUp: String { lastSleep?.endLabel ?? "--" }
+  private var sleepNeeded: String { lastSleep?.durationText ?? "--" }
 
   var body: some View {
     VStack(alignment: .leading, spacing: 18) {
@@ -31,14 +39,14 @@ struct SleepV2SleepWindowCard: View {
         SleepV2ScheduleTimeTile(
           palette: palette,
           systemImage: "wind",
-          title: "Wind down",
-          value: "21:20"
+          title: "Dernier coucher",
+          value: windDown
         )
         SleepV2ScheduleTimeTile(
           palette: palette,
           systemImage: "bed.double.fill",
-          title: "Target bedtime",
-          value: "21:50"
+          title: "Endormissement",
+          value: bedtime
         )
       }
 
@@ -49,7 +57,7 @@ struct SleepV2SleepWindowCard: View {
           palette: palette,
           systemImage: "moon.stars.fill",
           title: "Tonight's sleep needed",
-          value: "7h 39m",
+          value: sleepNeeded,
           action: onSleepNeeded
         )
 
@@ -60,8 +68,8 @@ struct SleepV2SleepWindowCard: View {
         SleepV2ScheduleActionRow(
           palette: palette,
           systemImage: "alarm.fill",
-          title: "Wake up at",
-          value: "05:30",
+          title: "Réveil",
+          value: wakeUp,
           action: onWakeTap
         )
       }
@@ -239,11 +247,11 @@ struct SleepV2ScheduleTimeline: View {
   var body: some View {
     VStack(alignment: .leading, spacing: 10) {
       HStack {
-        Text("21:20")
+        Text(windDown)
         Spacer()
-        Text("21:50")
+        Text(bedtime)
         Spacer()
-        Text("05:30")
+        Text(wakeUp)
       }
       .font(.caption.weight(.semibold))
       .fontDesign(.rounded)
@@ -363,7 +371,7 @@ struct SleepV2ClockDial: View {
           Image(systemName: "moon.stars.fill")
             .font(.title3.weight(.semibold))
             .foregroundStyle(palette.accent)
-          Text("7h 39m")
+          Text(sleepNeeded)
             .font(.title2.weight(.semibold))
             .fontDesign(.rounded)
             .foregroundStyle(palette.text)

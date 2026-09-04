@@ -81,6 +81,7 @@ struct SleepV2OverviewPage: View {
 
 	              SleepV2SleepWindowCard(
                 palette: palette,
+                lastSleep: primarySleep,
                 onWakeTap: { showingAlarmSheet = true },
                 onSleepNeeded: { showingSleepNeededSheet = true }
               )
@@ -189,10 +190,11 @@ struct SleepV2OverviewPage: View {
     store.primarySleep()
   }
 
-  private var sleepScore: Int {
+  private var sleepScore: Int? {
+    // U2: honest score — only a value derived from real packets; never the
+    // old fabricated fallback of 92 (recovery-todo: fixtures must go).
     SleepV2Numbers.firstInt(in: selectedSnapshot.value)
       ?? SleepV2Numbers.firstInt(in: primarySleep?.scoreText ?? "")
-      ?? 92
   }
 
   private var dateLabel: String {

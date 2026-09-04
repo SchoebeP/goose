@@ -105,6 +105,8 @@
 		D10000000000000000000021 /* PassiveActivityDetector.swift in Sources */ = {isa = PBXBuildFile; fileRef = D20000000000000000000021 /* PassiveActivityDetector.swift */; };
 		D10000000000000000000022 /* HomeDashboardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D20000000000000000000022 /* HomeDashboardView.swift */; };
 		D10000000000000000000023 /* HomeScoreViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = D20000000000000000000023 /* HomeScoreViews.swift */; };
+		D10000000000000000000097 /* HomeSkinTempSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = D20000000000000000000097 /* HomeSkinTempSection.swift */; };
+		D10000000000000000000099 /* HomeSleepSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = D20000000000000000000099 /* HomeSleepSection.swift */; };
 		D10000000000000000000024 /* HomeHealthMonitorViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = D20000000000000000000024 /* HomeHealthMonitorViews.swift */; };
 		D10000000000000000000025 /* HomeTimelineViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = D20000000000000000000025 /* HomeTimelineViews.swift */; };
 		D10000000000000000000026 /* HomeFormatting.swift in Sources */ = {isa = PBXBuildFile; fileRef = D20000000000000000000026 /* HomeFormatting.swift */; };
@@ -278,6 +280,9 @@
 		D20000000000000000000021 /* PassiveActivityDetector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PassiveActivityDetector.swift; sourceTree = "<group>"; };
 		D20000000000000000000022 /* HomeDashboardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeDashboardView.swift; sourceTree = "<group>"; };
 		D20000000000000000000023 /* HomeScoreViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeScoreViews.swift; sourceTree = "<group>"; };
+		D20000000000000000000097 /* HomeSkinTempSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeSkinTempSection.swift; sourceTree = "<group>"; };
+		D20000000000000000000099 /* HomeSleepSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeSleepSection.swift; sourceTree = "<group>"; };
+		D20000000000000000000098 /* GooseSecrets.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = GooseSecrets.xcconfig; sourceTree = "<group>"; };
 		D20000000000000000000024 /* HomeHealthMonitorViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeHealthMonitorViews.swift; sourceTree = "<group>"; };
 		D20000000000000000000025 /* HomeTimelineViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeTimelineViews.swift; sourceTree = "<group>"; };
 		D20000000000000000000026 /* HomeFormatting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeFormatting.swift; sourceTree = "<group>"; };
@@ -399,6 +404,9 @@
 				A20000000000000000000010 /* AppShellView.swift */,
 				D20000000000000000000022 /* HomeDashboardView.swift */,
 				D20000000000000000000023 /* HomeScoreViews.swift */,
+				D20000000000000000000097 /* HomeSkinTempSection.swift */,
+				D20000000000000000000099 /* HomeSleepSection.swift */,
+				D20000000000000000000098 /* GooseSecrets.xcconfig */,
 				D20000000000000000000024 /* HomeHealthMonitorViews.swift */,
 				D20000000000000000000025 /* HomeTimelineViews.swift */,
 				D20000000000000000000026 /* HomeFormatting.swift */,
@@ -704,6 +712,8 @@
 				A1000000000000000000000C /* AppShellView.swift in Sources */,
 				D10000000000000000000022 /* HomeDashboardView.swift in Sources */,
 				D10000000000000000000023 /* HomeScoreViews.swift in Sources */,
+				D10000000000000000000097 /* HomeSkinTempSection.swift in Sources */,
+				D10000000000000000000099 /* HomeSleepSection.swift in Sources */,
 				D10000000000000000000024 /* HomeHealthMonitorViews.swift in Sources */,
 				D10000000000000000000025 /* HomeTimelineViews.swift in Sources */,
 				D10000000000000000000026 /* HomeFormatting.swift in Sources */,
@@ -825,6 +835,7 @@
 		A80000000000000000000001 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				baseConfigurationReference = D20000000000000000000098 /* GooseSecrets.xcconfig */;
 				ALWAYS_SEARCH_USER_PATHS = NO;
 				CLANG_ANALYZER_NONNULL = YES;
 				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
@@ -886,6 +897,7 @@
 		A80000000000000000000002 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				baseConfigurationReference = D20000000000000000000098 /* GooseSecrets.xcconfig */;
 				ALWAYS_SEARCH_USER_PATHS = NO;
 				CLANG_ANALYZER_NONNULL = YES;
 				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
@@ -940,6 +952,7 @@
 		A80000000000000000000003 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				baseConfigurationReference = D20000000000000000000098 /* GooseSecrets.xcconfig */;
 				ARCHS = arm64;
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
@@ -983,6 +996,7 @@
 		A80000000000000000000004 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				baseConfigurationReference = D20000000000000000000098 /* GooseSecrets.xcconfig */;
 				ARCHS = arm64;
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
@@ -1026,6 +1040,7 @@
 		B80000000000000000000001 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				baseConfigurationReference = D20000000000000000000098 /* GooseSecrets.xcconfig */;
 				APPLICATION_EXTENSION_API_ONLY = YES;
 				ARCHS = arm64;
 				CLANG_ENABLE_MODULES = YES;
@@ -1056,6 +1071,7 @@
 		B80000000000000000000002 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				baseConfigurationReference = D20000000000000000000098 /* GooseSecrets.xcconfig */;
 				APPLICATION_EXTENSION_API_ONLY = YES;
 				ARCHS = arm64;
 				CLANG_ENABLE_MODULES = YES;
