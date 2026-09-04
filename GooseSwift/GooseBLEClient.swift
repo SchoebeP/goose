@@ -248,6 +248,9 @@ final class GooseBLEClient: NSObject, ObservableObject {
   var gen4HeartRateFrameCount = 0
   var gen4LastProbeLogAt = Date.distantPast
   var lastBatteryLevelSample: (percent: Int, capturedAt: Date)?
+  // Low-battery local notification state (the 4.0 dies silently — warn before it does).
+  var lowBatteryNotifiedPercent: Int?
+  var lowBatteryNotifiedAt: Date?
   var inferredBatteryChargingUntil: Date?
   var rememberedDeviceID: UUID?
   var rememberedDeviceName: String?

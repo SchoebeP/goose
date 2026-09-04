@@ -1,6 +1,7 @@
 import CoreBluetooth
 import Foundation
 import OSLog
+import UserNotifications
 
 
 extension GooseBLEClient {
@@ -42,6 +43,45 @@ extension GooseBLEClient {
       title: sourceTitle,
       body: "\(normalizedLevel)% charging=\(batteryIsCharging.map { $0 ? "true" : "false" } ?? "unknown") status=\(batteryPowerStatus)"
     )
+    notifyLowBatteryIfNeeded(level: normalizedLevel, charging: batteryIsCharging == true)
+  }
+
+  /// The 4.0's battery dies without any user-visible sign until the stream goes
+  /// dark (it silently dropped from ~29% to dead in July 2026). Post a local
+  /// notification at ≤20%, re-notify at ≤10% or after another −5 points, and
+  /// clear the state once recharged above 25% (5pt hysteresis). Never fires
+  /// while charging; respects a denied authorization silently.
+  func notifyLowBatteryIfNeeded(level: Int, charging: Bool) {
+    guard level <= 20, !charging else {
+      if lowBatteryNotifiedPercent != nil, level > 25 {
+        lowBatteryNotifiedPercent = nil
+        lowBatteryNotifiedAt = nil
+        record(source: "ble.metadata", title: "battery.low.reset",
+               body: "\(level)% — alert state cleared")
+      }
+      return
+    }
+    let previous = lowBatteryNotifiedPercent
+    let shouldNotify = previous == nil || level <= 10 || level <= previous! - 5
+    guard shouldNotify else { return }
+    lowBatteryNotifiedPercent = level
+    lowBatteryNotifiedAt = Date()
+    let content = UNMutableNotificationContent()
+    content.title = "Bracelet presque à plat"
+    content.body = "Batterie WHOOP à \(level)% — recharge-la, elle coupe sans prévenir."
+    content.sound = .default
+    let request = UNNotificationRequest(
+      identifier: "goose.low-battery.\(level)",
+      content: content,
+      trigger: nil  // deliver immediately, even in background
+    )
+    UNUserNotificationCenter.current().add(request) { error in
+      if let error {
+        self.logger.error("low-battery notification failed: \(error.localizedDescription)")
+      }
+    }
+    record(source: "ble.metadata", title: "battery.low.notified",
+           body: "\(level)% (previous=\(previous.map(String.init) ?? "nil"))")
   }
 
   func updateBatteryChargingInference(
