@@ -10,32 +10,67 @@ struct HomeDashboardView: View {
   @State private var showingCardioLoadSheet = false
   @State private var selectedHealthMonitorTrend: HealthMetricSnapshot?
   @StateObject private var stepsFeed = MinutelyStepsFeed()
+  @StateObject private var hrFeed = MinutelyHRFeed()
 
+  // Simple v1: exactly the owner's four metrics, one screen, no scroll maze.
+  // HR hero (live) → 2-up grid (Steps | Sleep) → Skin temp. Each taps into
+  // its detail. Stress/HRV/charts live in Trends, not here.
   var body: some View {
     ScrollView {
-      LazyVStack(alignment: .leading, spacing: 18) {
-        HomeLiveHeartRateWidget()
+      VStack(alignment: .leading, spacing: 14) {
+        NavigationLink {
+          HRDayDetailView(minutes: hrFeed.minutes)
+        } label: {
+          HomeLiveHeartRateWidget()
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Fréquence cardiaque")
 
-        HomeStatCardRow(stepsFeed: stepsFeed)
+        HStack(spacing: 12) {
+          NavigationLink {
+            StepsDayDetailView(minutes: stepsFeed.minutes)
+          } label: {
+            metricCard(
+              icon: "shoeprints.fill", tint: GooseTheme.Accent.activity,
+              title: "Pas",
+              value: stepsFeed.loaded ? stepsFeed.total.formatted() : "—",
+              unit: stepsFeed.loaded ? "pas" : ""
+            )
+          }
+          .buttonStyle(.plain)
+          .accessibilityLabel("Pas du jour")
 
-        HomeMinutelyHRSection()
+          Button {
+            openHealth(.sleep)
+          } label: {
+            metricCard(
+              icon: "bed.double.fill", tint: .purple,
+              title: "Sommeil",
+              value: healthStore.primarySleep()?.durationText ?? "--",
+              unit: ""
+            )
+          }
+          .buttonStyle(.plain)
+          .accessibilityLabel("Sommeil")
+        }
 
-        HomeMinutelyStepsSection(feed: stepsFeed)
-
-        HomeStressEnergySection(
-          stress: landingSnapshot(for: .stress),
-          openStress: { openHealth(.stress) }
-        )
-
-        HomeSleepSection(
-          sleep: landingSnapshot(for: .sleep),
-          openSleep: { openHealth(.sleep) }
-        )
-
-        HomeSkinTempSection(
-          store: healthStore,
-          openCalibration: { openHealth(.calibration) }
-        )
+        Button {
+          openHealth(.calibration)
+        } label: {
+          HStack {
+            metricCard(
+              icon: "thermometer.medium", tint: .orange,
+              title: "Température cutanée",
+              value: tempValueText,
+              unit: tempValueText == "--" ? "" : "°C"
+            )
+            Image(systemName: "chevron.right")
+              .font(.caption.weight(.bold))
+              .foregroundStyle(.tertiary)
+          }
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Température cutanée")
       }
       .padding(.horizontal, 16)
       .padding(.vertical, 18)
@@ -74,6 +109,7 @@ struct HomeDashboardView: View {
       healthStore.loadBridgeCatalogsIfNeeded()
       model.refreshActivityTimeline(for: selectedDate)
       stepsFeed.refresh()
+      hrFeed.refresh()
     }
     .onChange(of: selectedDate) { _, newValue in
       model.refreshActivityTimeline(for: newValue)
@@ -92,6 +128,41 @@ struct HomeDashboardView: View {
     .sheet(item: $selectedHealthMonitorTrend) { snapshot in
       SleepV2BevelTrendSheet(snapshot: snapshot)
     }
+  }
+
+  private var tempValueText: String {
+    let t = healthStore.recoveryWristTemperatureDisplayText()
+    guard t != "--" else { return "--" }
+    return t.replacingOccurrences(of: " C", with: "")
+  }
+
+  private func metricCard(icon: String, tint: Color, title: String,
+                          value: String, unit: String) -> some View {
+    VStack(alignment: .leading, spacing: 8) {
+      HStack(spacing: 6) {
+        Image(systemName: icon)
+          .font(.subheadline.weight(.semibold))
+          .foregroundStyle(tint)
+        Text(title)
+          .font(.subheadline.weight(.semibold))
+          .foregroundStyle(.secondary)
+      }
+      HStack(alignment: .firstTextBaseline, spacing: 3) {
+        Text(value)
+          .font(.system(size: 28, weight: .bold, design: .rounded))
+          .monospacedDigit()
+          .lineLimit(1)
+          .minimumScaleFactor(0.6)
+        if !unit.isEmpty {
+          Text(unit)
+            .font(.caption)
+            .foregroundStyle(.secondary)
+        }
+      }
+    }
+    .frame(maxWidth: .infinity, alignment: .leading)
+    .padding(14)
+    .gooseCard()
   }
 
   private var scoreSnapshots: [HealthMetricSnapshot] {
@@ -543,6 +614,7 @@ private struct StepsResponse: Decodable {
 final class MinutelyStepsFeed: ObservableObject {
   @Published var minutes: [StepMinute] = []
   @Published var total: Int = 0
+  @Published var loaded = false   // U7: "0" only shown once a response arrived
   // Same local-midnight day window as the HR feed (see above).
   private let url: URL = {
     var components = URLComponents(string: "https://latenightgames.fr/whoop/ingest/steps/minutely")!
@@ -557,7 +629,7 @@ final class MinutelyStepsFeed: ObservableObject {
     req.setValue(token, forHTTPHeaderField: "X-Ingest-Token")
     URLSession.shared.dataTask(with: req) { [weak self] data, _, _ in
       guard let data, let r = try? JSONDecoder().decode(StepsResponse.self, from: data) else { return }
-      Task { @MainActor in self?.minutes = r.minutes; self?.total = r.total }
+      Task { @MainActor in self?.minutes = r.minutes; self?.total = r.total; self?.loaded = true }
     }.resume()
   }
 }
