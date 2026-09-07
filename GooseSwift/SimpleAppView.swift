@@ -96,6 +96,9 @@ struct SimpleAppView: View {
   @EnvironmentObject private var model: GooseAppModel
   @StateObject private var feed = SimpleVPSFeed()
   @State private var showDevice = false
+  @StateObject private var workout = SimpleWorkoutSession()
+  @State private var showWorkout = false
+  @State private var showMoreTypes = false
   @State private var sleepSheet = false
   @State private var tempSheet = false
   /// Ticker so the orange "sync conseillée" hint and the "il y a X" labels
@@ -108,11 +111,17 @@ struct SimpleAppView: View {
       ScrollView {
         VStack(alignment: .leading, spacing: 14) {
           statusBar
+          if workout.isActive {
+            workoutChip
+          }
           hrHero
           HStack(spacing: 12) { stepsCard; sleepCard }
           tempCard
         }
         .padding(16)
+      }
+      .safeAreaInset(edge: .bottom) {
+        launcherBar
       }
       .background(Color.black.ignoresSafeArea())
       .navigationTitle("Goose")
@@ -149,6 +158,14 @@ struct SimpleAppView: View {
       guard newState == "ready" else { return }
       maybeAutoStartHistoricalSync(reason: "reconnected")
     }
+    .onReceive(model.ble.$liveHeartRateBPM) { bpm in
+      if workout.isActive, let bpm {
+        workout.ingestHeartRate(bpm: bpm)
+      }
+    }
+    .sheet(isPresented: $showWorkout) {
+      WorkoutRecordView(session: workout)
+    }
     .sheet(isPresented: $showDevice) { SimpleDeviceSheet() }
     .sheet(isPresented: $sleepSheet) { SimpleNightsSheet(nights: feed.nights) }
     .sheet(isPresented: $tempSheet) { SimpleTempSheet(deviation: feed.lastTempDeviation) }
@@ -169,6 +186,93 @@ struct SimpleAppView: View {
     guard !model.ble.isHistoricalSyncing else { return }
     guard SyncSection.isStale(model.ble.lastHistoricalSyncCompletedAt) else { return }
     model.ble.beginHistoricalSync(trigger: "simple_ui_\(reason)", automatic: true)
+  }
+
+  // MARK: sticky launcher bar (Course | + | Muscu)
+
+  private var launcherBar: some View {
+    HStack(spacing: 0) {
+      launcherButton(type: .run)
+      plusButton
+      launcherButton(type: .gym)
+    }
+    .padding(.horizontal, 12)
+    .padding(.top, 10)
+    .padding(.bottom, 6)
+    .background(.ultraThinMaterial)
+  }
+
+  private func launcherButton(type: SimpleWorkoutType) -> some View {
+    Button {
+      workout.start(type: type)
+      showWorkout = true
+    } label: {
+      VStack(spacing: 4) {
+        Image(systemName: type.iconName)
+          .font(.title3.weight(.semibold))
+        Text(type.displayName)
+          .font(.caption.weight(.semibold))
+      }
+      .foregroundStyle(.blue)
+      .frame(maxWidth: .infinity)
+      .padding(.vertical, 6)
+    }
+    .buttonStyle(.plain)
+    .disabled(workout.isActive)
+  }
+
+  private var plusButton: some View {
+    Menu {
+      ForEach([SimpleWorkoutType.bike, .swim, .other]) { t in
+        Button {
+          workout.start(type: t)
+          showWorkout = true
+        } label: {
+          Label(t.displayName, systemImage: t.iconName)
+        }
+      }
+    } label: {
+      VStack(spacing: 4) {
+        Image(systemName: "plus.circle.fill")
+          .font(.title3.weight(.semibold))
+        Text("Plus")
+          .font(.caption.weight(.semibold))
+      }
+      .foregroundStyle(.blue)
+      .frame(maxWidth: .infinity)
+      .padding(.vertical, 6)
+    }
+    .disabled(workout.isActive)
+  }
+
+  // MARK: in-workout chip (above the HR card)
+
+  private var workoutChip: some View {
+    Button { showWorkout = true } label: {
+      HStack(spacing: 8) {
+        Image(systemName: "figure.run")
+        Text("Séance en cours")
+          .font(.subheadline.weight(.semibold))
+        Spacer()
+        Text(timerText(workout.durationSeconds))
+          .font(.subheadline.bold().monospacedDigit())
+        if let bpm = model.ble.liveHeartRateBPM {
+          Text("·  FC \(bpm)")
+            .font(.subheadline.weight(.semibold))
+        }
+        Image(systemName: "chevron.right")
+          .font(.caption)
+      }
+      .foregroundStyle(.white)
+      .padding(.horizontal, 14)
+      .padding(.vertical, 10)
+      .background(RoundedRectangle(cornerRadius: 14).fill(Color.blue))
+    }
+    .buttonStyle(.plain)
+  }
+
+  private func timerText(_ s: Int) -> String {
+    String(format: "%02d:%02d", s / 3600, (s % 3600) / 60)
   }
 
   // MARK: status
