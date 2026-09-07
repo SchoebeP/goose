@@ -76,7 +76,7 @@ final class SimpleVPSFeed: ObservableObject {
     get("/workouts?days=30") { [weak self] (r: WorkoutsPayload?) in
       self?.workouts = r?.workouts ?? []
     }
-    Task { @MainActor in self?.lastSync = Date() }
+    Task { @MainActor in self.lastSync = Date() }
   }
 
   private struct HRPayload: Decodable { let minutes: [SimpleHRMinute] }
@@ -191,6 +191,13 @@ struct SimpleAppView: View {
   // the engine's own opt-in flag (autoHistoricalSyncOnReady) stays untouched.
   private func maybeAutoStartHistoricalSync(reason: String) {
     guard connected else { return }
+    // GEN4 band: the auto trigger drives the 4.0 backfill engine directly —
+    // beginHistoricalSync is V5-only and would just log a failure.
+    if model.ble.isGen4Band {
+      guard SyncSection.isStale(model.ble.lastGen4BackfillCompletedAt) else { return }
+      model.ble.requestGen4HistoricalBackfillIfNeeded()
+      return
+    }
     guard !model.ble.isHistoricalSyncing else { return }
     guard SyncSection.isStale(model.ble.lastHistoricalSyncCompletedAt) else { return }
     model.ble.beginHistoricalSync(trigger: "simple_ui_\(reason)", automatic: true)

@@ -697,6 +697,7 @@ extension GooseBLEClient {
     // Clear stale per-connection GEN4 state so the enable + history pull re-run.
     gen4StartedPulseStream = false
     gen4StartedHistoricalBackfill = false
+    isGen4Backfilling = false
     gen4HistoryDeadline = nil
     gen4ReEnableTimer?.invalidate()
     gen4ReEnableTimer = nil
@@ -1160,18 +1161,52 @@ extension GooseBLEClient {
   /// band paginates: each type-47 frame is ACKed with HISTORICAL_DATA_RESULT(23)
   /// in gen4ObserveRawNotification to pull the next chunk. UNVERIFIED against the
   /// 4.0 firmware — logged at .warn so we can confirm it live via the log stream.
-  func requestGen4HistoricalBackfillIfNeeded() {
+  func requestGen4HistoricalBackfillIfNeeded(force: Bool = false) {
     guard connectionState == "ready",
           let ch = commandCharacteristic, isGen4CommandCharacteristic(ch) else { return }
-    guard !gen4StartedHistoricalBackfill else { return }
+    guard force || !gen4StartedHistoricalBackfill else { return }
+    if isGen4Backfilling { return }   // already running — keep the single engine
     gen4StartedHistoricalBackfill = true
+    isGen4Backfilling = true
+    gen4BackfillStatus = "syncing"
     gen4HistoryDeadline = Date().addingTimeInterval(90)   // bound the ack loop
     record(level: .warn, source: "ble.gen4", title: "gen4.history.request",
-           body: "pulling buffered HR history (GET_DATA_RANGE -> SEND_HISTORICAL_DATA), 90s window")
+           body: "pulling buffered HR history (GET_DATA_RANGE -> SEND_HISTORICAL_DATA), 90s window force=\(force)")
     writeGen4Command(34, payload: [], label: "GET_DATA_RANGE")
     DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in
       self?.writeGen4Command(22, payload: [], label: "SEND_HISTORICAL_DATA")
     }
+    // Close the window: with no type-47 frame the band had nothing buffered —
+    // that's a completed (empty) backfill, not a failure.
+    DispatchQueue.main.asyncAfter(deadline: .now() + 91) { [weak self] in
+      self?.finishGen4BackfillIfRunning()
+    }
+  }
+
+  /// Close out the GEN4 backfill window. A run with ≥1 type-47 frame = synced;
+  /// zero frames = the band simply had nothing buffered (still a success).
+  func finishGen4BackfillIfRunning() {
+    guard isGen4Backfilling else { return }
+    isGen4Backfilling = false
+    gen4HistoryDeadline = nil
+    let packets = gen4BackfillPacketCount
+    gen4BackfillStatus = "synced"
+    lastGen4BackfillCompletedAt = Date()
+    record(source: "ble.gen4", title: "gen4.history.completed",
+           body: "packets=\(packets)")
+  }
+
+  /// User/USB-facing entry for the Réglages button: reuse the same one-shot
+  /// engine, but allow a re-run even if this connection already backfilled.
+  func beginGen4HistoricalBackfill() {
+    guard connectionState == "ready" else {
+      gen4BackfillStatus = "failed"
+      record(level: .warn, source: "ble.gen4", title: "gen4.history.blocked",
+             body: "needs ready connection; current state \(connectionState)")
+      return
+    }
+    gen4StartedHistoricalBackfill = false
+    requestGen4HistoricalBackfillIfNeeded(force: true)
   }
 
   private func writeGen4Command(_ command: UInt8, payload: [UInt8], label: String) {
@@ -1228,6 +1263,7 @@ extension GooseBLEClient {
     if type == 47 {
       gen4ProbeLock.lock()
       let now = Date()
+      gen4BackfillPacketCount += 1   // every buffered-history frame counts, ACKed or not
       // ACK only inside the bounded backfill window, throttled to ≤2/sec, so a
       // long historical stream can't pressure the command channel into a timeout.
       let withinWindow = (gen4HistoryDeadline.map { now < $0 }) ?? false

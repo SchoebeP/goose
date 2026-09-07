@@ -43,17 +43,50 @@ struct SyncSection: View {
 
   var body: some View {
     Section("Sync historique") {
-      // Last sync + packet count, live.
+      // Last sync + packet count, live. On a GEN4 band (WHOOP 4.0) the fd4b
+      // engine is unreachable — show the 4.0 backfill's own state instead,
+      // so the section reflects reality instead of a permanent "jamais".
+      let gen4 = model.ble.isGen4Band
       HStack {
         Text("Dernière sync")
         Spacer()
-        Text(lastSyncText)
+        Text(SimpleRelativeTimeFormatter.text(
+          since: gen4 ? model.ble.lastGen4BackfillCompletedAt
+                      : model.ble.lastHistoricalSyncCompletedAt))
           .foregroundStyle(.secondary)
           .monospacedDigit()
       }
       .accessibilityIdentifier("sync.last")
 
-      if model.ble.isHistoricalSyncing {
+      if gen4 {
+        // GEN4 live/idle state from the 4.0 backfill engine.
+        if model.ble.isGen4Backfilling {
+          HStack(spacing: 8) {
+            ProgressView()
+              .controlSize(.small)
+            VStack(alignment: .leading, spacing: 2) {
+              Text("Backfill 4.0 en cours…")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+              if model.ble.gen4BackfillPacketCount > 0 {
+                Text("\(model.ble.gen4BackfillPacketCount) paquets reçus")
+                  .font(.caption)
+                  .foregroundStyle(.tertiary)
+              }
+            }
+          }
+          .accessibilityIdentifier("sync.live")
+        } else if model.ble.gen4BackfillPacketCount > 0 {
+          HStack {
+            Text("Paquets")
+            Spacer()
+            Text("\(model.ble.gen4BackfillPacketCount)")
+              .foregroundStyle(.secondary)
+              .monospacedDigit()
+          }
+          .accessibilityIdentifier("sync.packets")
+        }
+      } else if model.ble.isHistoricalSyncing {
         // Live state while syncing: spinner + engine status + packet count.
         HStack(spacing: 8) {
           ProgressView()
@@ -82,24 +115,20 @@ struct SyncSection: View {
       }
 
       Button {
-        // UI-only trigger. Exact engine signature (verified in
-        // GooseBLEClient+HistoricalCommands.swift): beginHistoricalSync(
-        //   trigger: String, automatic: Bool, firstCommandOverride: ... = nil,
-        //   rangeOnly: Bool = false, acknowledgeHistoricalDataResult: Bool = true)
-        // The engine guards itself against re-entry (skips when already
-        // syncing) and against a non-ready link — the UI only disables the
-        // button for comfort.
-        model.ble.beginHistoricalSync(trigger: "simple_ui_manual", automatic: false)
+        // UI-only trigger. GEN4 band → the 4.0 backfill engine (the V5
+        // beginHistoricalSync would refuse a 61080002 characteristic).
+        // V5 band → the fd4b engine. Both guard themselves against re-entry.
+        if gen4 {
+          model.ble.beginGen4HistoricalBackfill()
+        } else {
+          model.ble.beginHistoricalSync(trigger: "simple_ui_manual", automatic: false)
+        }
       } label: {
         Text("Synchroniser maintenant")
       }
-      .disabled(model.ble.isHistoricalSyncing)
+      .disabled(gen4 ? model.ble.isGen4Backfilling : model.ble.isHistoricalSyncing)
       .accessibilityIdentifier("sync.now")
     }
-  }
-
-  private var lastSyncText: String {
-    SimpleRelativeTimeFormatter.text(since: model.ble.lastHistoricalSyncCompletedAt)
   }
 
   private var statusLine: String {

@@ -243,6 +243,11 @@ struct SleepV2ScheduleTimeTile: View {
 
 struct SleepV2ScheduleTimeline: View {
   let palette: SleepV2Palette
+  var lastSleep: PrimarySleepDetail?
+
+  private var windDown: String { lastSleep?.startLabel ?? "--" }
+  private var bedtime: String { lastSleep?.startLabel ?? "--" }
+  private var wakeUp: String { lastSleep?.endLabel ?? "--" }
 
   var body: some View {
     VStack(alignment: .leading, spacing: 10) {
@@ -339,6 +344,9 @@ struct SleepV2ScheduleActionRow: View {
 
 struct SleepV2ClockDial: View {
   let palette: SleepV2Palette
+  var lastSleep: PrimarySleepDetail?
+
+  private var sleepNeeded: String { lastSleep?.durationText ?? "--" }
 
   var body: some View {
     GeometryReader { proxy in

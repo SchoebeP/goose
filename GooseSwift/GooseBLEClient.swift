@@ -40,6 +40,13 @@ final class GooseBLEClient: NSObject, ObservableObject {
   @Published var historicalSyncStatus = "idle"
   @Published var historicalPacketCount = 0
   @Published var lastHistoricalSyncCompletedAt: Date?
+  // GEN4 (WHOOP 4.0) backfill state — the V5-shaped published vars above are
+  // driven by the fd4b path only; the 4.0 uses its own engine (see
+  // requestGen4HistoricalBackfillIfNeeded) so the UI tracks it separately.
+  @Published var isGen4Backfilling = false
+  @Published var gen4BackfillPacketCount = 0
+  @Published var gen4BackfillStatus = "idle"   // idle | syncing | synced | failed
+  @Published var lastGen4BackfillCompletedAt: Date?
   @Published var lastHistoricalRangeCommandStatus = "No GET_DATA_RANGE response"
   @Published var alarmCommandStatus = "No alarm command sent"
   @Published var lastAlarmCommandFrameHex = ""
