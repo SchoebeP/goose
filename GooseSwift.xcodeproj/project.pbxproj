@@ -106,6 +106,7 @@
 		D10000000000000000000022 /* HomeDashboardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D20000000000000000000022 /* HomeDashboardView.swift */; };
 		D10000000000000000000023 /* HomeScoreViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = D20000000000000000000023 /* HomeScoreViews.swift */; };
 		D10000000000000000000096 /* SimpleAppView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D20000000000000000000096 /* SimpleAppView.swift */; };
+		D1000000000000000000007A /* WorkoutHistoryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2000000000000000000007A /* WorkoutHistoryView.swift */; };
 		D10000000000000000000097 /* HomeSkinTempSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = D20000000000000000000097 /* HomeSkinTempSection.swift */; };
 		D10000000000000000000099 /* HomeSleepSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = D20000000000000000000099 /* HomeSleepSection.swift */; };
 		D10000000000000000000024 /* HomeHealthMonitorViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = D20000000000000000000024 /* HomeHealthMonitorViews.swift */; };
@@ -282,6 +283,7 @@
 		D20000000000000000000022 /* HomeDashboardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeDashboardView.swift; sourceTree = "<group>"; };
 		D20000000000000000000023 /* HomeScoreViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeScoreViews.swift; sourceTree = "<group>"; };
 		D20000000000000000000096 /* SimpleAppView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SimpleAppView.swift; sourceTree = "<group>"; };
+		D2000000000000000000007A /* WorkoutHistoryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkoutHistoryView.swift; sourceTree = "<group>"; };
 		D20000000000000000000097 /* HomeSkinTempSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeSkinTempSection.swift; sourceTree = "<group>"; };
 		D20000000000000000000099 /* HomeSleepSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeSleepSection.swift; sourceTree = "<group>"; };
 		D20000000000000000000098 /* GooseSecrets.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = GooseSecrets.xcconfig; sourceTree = "<group>"; };
@@ -407,6 +409,7 @@
 				D20000000000000000000022 /* HomeDashboardView.swift */,
 				D20000000000000000000023 /* HomeScoreViews.swift */,
 				D20000000000000000000096 /* SimpleAppView.swift */,
+				D2000000000000000000007A /* WorkoutHistoryView.swift */,
 				D20000000000000000000097 /* HomeSkinTempSection.swift */,
 				D20000000000000000000099 /* HomeSleepSection.swift */,
 				D20000000000000000000098 /* GooseSecrets.xcconfig */,
@@ -716,6 +719,7 @@
 				D10000000000000000000022 /* HomeDashboardView.swift in Sources */,
 				D10000000000000000000023 /* HomeScoreViews.swift in Sources */,
 				D10000000000000000000096 /* SimpleAppView.swift in Sources */,
+				D1000000000000000000007A /* WorkoutHistoryView.swift in Sources */,
 				D10000000000000000000097 /* HomeSkinTempSection.swift in Sources */,
 				D10000000000000000000099 /* HomeSleepSection.swift in Sources */,
 				D10000000000000000000024 /* HomeHealthMonitorViews.swift in Sources */,
