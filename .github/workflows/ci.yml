@@ -1,0 +1,56 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  rust-core:
+    name: Rust core — test / clippy / fmt
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: Rust/core
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: Rust/core
+      - name: Format check
+        run: cargo fmt --check
+      - name: Clippy (deny warnings)
+        run: cargo clippy --all-targets -- -D warnings
+      - name: Tests
+        run: cargo test --all
+
+  swift-syntax:
+    name: Swift sanity
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Brace balance check on all Swift sources
+        run: |
+          bad=0
+          for f in GooseSwift/*.swift; do
+            python3 - "$f" <<'PY' || bad=1
+          import sys
+          src = open(sys.argv[1], encoding="utf-8").read()
+          # strip string literals and line comments crudely, then count braces
+          import re
+          src = re.sub(r'"(\\.|[^"\\])*"', '""', src)
+          src = re.sub(r'//[^\n]*', '', src)
+          if src.count("{") != src.count("}"):
+              print(f"UNBALANCED braces: {sys.argv[1]} {{={src.count('{')} }}={src.count('}')}")
+              sys.exit(1)
+          PY
+          done
+          exit $bad
+      # Full Xcode build (simulator, no signing) runs on macOS runners:
+      #   runs-on: macos-14
+      #   xcodebuild -project GooseSwift.xcodeproj -scheme GooseSwift
+      #     -destination 'platform=iOS Simulator,name=iPhone 15' build
+      # Left as a follow-up: needs a shared scheme committed from Xcode first.

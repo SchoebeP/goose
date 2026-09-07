@@ -8,15 +8,8 @@ struct RootView: View {
   var body: some View {
     ZStack(alignment: .top) {
       Group {
-        if onboardingComplete {
-          AppShellView()
-        } else {
-          OnboardingView {
-            onboardingRedoRequested = false
-            onboardingComplete = true
-            model.completeOnboarding()
-          }
-        }
+        // Branch `simple`: one screen, no onboarding, no tabs.
+        SimpleAppView()
       }
       SyncToastHost(ble: model.ble)
     }
