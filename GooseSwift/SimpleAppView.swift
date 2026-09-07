@@ -98,6 +98,9 @@ struct SimpleAppView: View {
   @State private var showDevice = false
   @State private var sleepSheet = false
   @State private var tempSheet = false
+  /// Ticker so the orange "sync conseillée" hint and the "il y a X" labels
+  /// stay fresh while the screen is open without any manual refresh.
+  @State private var relativeTimeTick = 0
   private let refresh = Timer.publish(every: 30, on: .main, in: .common).autoconnect()
 
   var body: some View {
@@ -129,11 +132,43 @@ struct SimpleAppView: View {
         try? await UNUserNotificationCenter.current()
           .requestAuthorization(options: [.alert, .badge, .sound])
       }
+      // Auto-sync trigger #1: app open. The same guard as on reconnection —
+      // connected + stale (>12 h) + not already syncing — is applied by
+      // maybeAutoStartHistoricalSync below.
+      maybeAutoStartHistoricalSync(reason: "app_open")
     }
-    .onReceive(refresh) { _ in feed.refreshAll() }
+    .onReceive(refresh) { _ in
+      feed.refreshAll()
+      relativeTimeTick += 1
+    }
+    // Auto-sync trigger #2: every BLE reconnection. connectionState is
+    // @Published on GooseBLEClient and re-published through GooseAppModel,
+    // so SwiftUI observes it; onChange fires only on an actual transition
+    // to "ready" (a fresh link), not on every unrelated state write.
+    .onChange(of: model.ble.connectionState) { _, newState in
+      guard newState == "ready" else { return }
+      maybeAutoStartHistoricalSync(reason: "reconnected")
+    }
     .sheet(isPresented: $showDevice) { SimpleDeviceSheet() }
     .sheet(isPresented: $sleepSheet) { SimpleNightsSheet(nights: feed.nights) }
     .sheet(isPresented: $tempSheet) { SimpleTempSheet(deviation: feed.lastTempDeviation) }
+  }
+
+  // MARK: auto historical sync (UI-side trigger of the existing engine)
+  //
+  // Mechanism: at app open (onAppear) AND on every BLE transition to "ready"
+  // (onChange of model.ble.connectionState), if the bracelet is connected,
+  // no historical sync is already running, and the last completed sync is
+  // older than 12 h (or never happened), we call the engine's
+  // beginHistoricalSync(trigger:automatic:) with automatic: true. The engine
+  // itself re-checks connection/readiness and ignores the call if one is in
+  // flight, so double triggers are harmless. This is deliberately UI-side:
+  // the engine's own opt-in flag (autoHistoricalSyncOnReady) stays untouched.
+  private func maybeAutoStartHistoricalSync(reason: String) {
+    guard connected else { return }
+    guard !model.ble.isHistoricalSyncing else { return }
+    guard SyncSection.isStale(model.ble.lastHistoricalSyncCompletedAt) else { return }
+    model.ble.beginHistoricalSync(trigger: "simple_ui_\(reason)", automatic: true)
   }
 
   // MARK: status
@@ -292,6 +327,7 @@ private struct SimpleDeviceSheet: View {
           Button("Reconnecter") { model.ble.reconnectRemembered() }
           Button("Oublier ce bracelet", role: .destructive) { model.ble.forgetRememberedDevice() }
         }
+        SyncSection()
         Section("À propos") {
           Text("Goose lit ton bracelet WHOOP en local et stocke tout sur ton serveur. Les métriques sont les nôtres — jamais celles de WHOOP.")
             .font(.footnote)
