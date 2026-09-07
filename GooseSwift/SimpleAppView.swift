@@ -52,6 +52,7 @@ final class SimpleVPSFeed: ObservableObject {
   @Published var nights: [SimpleSleepNight] = []
   @Published var lastTempDeviation: Double?
   @Published var lastSync: Date?
+  @Published var workouts: [SimpleWorkout] = []
 
   private let base = "https://latenightgames.fr/whoop/ingest"
   private let token = Bundle.main.object(forInfoDictionaryKey: "WHOOP_INGEST_TOKEN") as? String ?? ""
@@ -72,6 +73,9 @@ final class SimpleVPSFeed: ObservableObject {
     get("/metrics/daily?days=7&tz=\(tz)") { [weak self] (r: DailyPayload?) in
       self?.lastTempDeviation = r?.days.last { $0.skin_temp?.deviation_c != nil }?.skin_temp?.deviation_c
     }
+    get("/workouts?days=30") { [weak self] (r: WorkoutsPayload?) in
+      self?.workouts = r?.workouts ?? []
+    }
     Task { @MainActor in self?.lastSync = Date() }
   }
 
@@ -79,6 +83,7 @@ final class SimpleVPSFeed: ObservableObject {
   private struct StepsPayload: Decodable { let minutes: [SimpleStepMinute]; let total: Int }
   private struct NightsPayload: Decodable { let nights: [SimpleSleepNight] }
   private struct DailyPayload: Decodable { let days: [SimpleDailyDay] }
+  private struct WorkoutsPayload: Decodable { let workouts: [SimpleWorkout] }
 
   private func get<T: Decodable>(_ path: String, then: @escaping (T?) -> Void) {
     var req = URLRequest(url: URL(string: base + path)!, timeoutInterval: 15)
@@ -117,6 +122,9 @@ struct SimpleAppView: View {
           hrHero
           HStack(spacing: 12) { stepsCard; sleepCard }
           tempCard
+          if !workout.isActive {
+            workoutsCard
+          }
         }
         .padding(16)
       }
@@ -381,6 +389,40 @@ struct SimpleAppView: View {
   private var tempText: String {
     guard let d = feed.lastTempDeviation else { return "--" }
     return String(format: "%+.1f", d)
+  }
+
+  // MARK: workouts card ('Mes séances')
+
+  @ViewBuilder
+  private var workoutsCard: some View {
+    if let last = feed.workouts.first {
+      NavigationLink {
+        WorkoutHistoryView()
+      } label: {
+        VStack(alignment: .leading, spacing: 8) {
+          Label("Mes séances", systemImage: WorkoutTypeFormatter.iconName(for: last.type))
+            .font(.subheadline.weight(.semibold))
+            .foregroundStyle(.red)
+
+          HStack(spacing: 6) {
+            Text("\(WorkoutTypeFormatter.displayName(for: last.type)) · \(WorkoutTypeFormatter.relativeTimeText(from: last.started_at)) · \(WorkoutTypeFormatter.durationText(last.duration_s))\(last.avg_bpm.map { " · FC \($0)" } ?? "")")
+              .font(.subheadline.weight(.medium))
+              .lineLimit(1)
+              .foregroundStyle(.primary)
+
+            Spacer()
+
+            Image(systemName: "chevron.right")
+              .font(.caption)
+              .foregroundStyle(.tertiary)
+          }
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 18).fill(Color(.secondarySystemBackground)))
+      }
+      .buttonStyle(.plain)
+    }
   }
 
   private func smallCard(icon: String, tint: Color, title: String, value: String, unit: String) -> some View {
