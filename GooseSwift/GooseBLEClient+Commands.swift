@@ -1169,7 +1169,9 @@ extension GooseBLEClient {
     gen4StartedHistoricalBackfill = true
     isGen4Backfilling = true
     gen4BackfillStatus = "syncing"
-    gen4HistoryDeadline = Date().addingTimeInterval(120)  // bound the ack loop
+    gen4BackfillBytes = 0
+    gen4BackfillStartedAt = Date()
+    gen4HistoryDeadline = Date().addingTimeInterval(Self.gen4BackfillWindow)   // bound the ack loop
     record(level: .warn, source: "ble.gen4", title: "gen4.history.request",
            body: "pulling buffered HR history (34 empty + 34 range + 22), 120s window force=\(force)")
     writeGen4Command(34, payload: [], label: "GET_DATA_RANGE")
@@ -1191,7 +1193,7 @@ extension GooseBLEClient {
     }
     // Close the window: with no type-47 frame the band had nothing buffered —
     // that's a completed (empty) backfill, not a failure.
-    DispatchQueue.main.asyncAfter(deadline: .now() + 120) { [weak self] in
+    DispatchQueue.main.asyncAfter(deadline: .now() + Self.gen4BackfillWindow + 30) { [weak self] in
       self?.finishGen4BackfillIfRunning()
     }
   }
@@ -1280,6 +1282,7 @@ extension GooseBLEClient {
       gen4ProbeLock.lock()
       let now = Date()
       gen4BackfillPacketCount += 1   // every buffered-history frame counts, ACKed or not
+      gen4BackfillBytes += value.count
       // ACK only inside the bounded backfill window, throttled to ≤2/sec, so a
       // long historical stream can't pressure the command channel into a timeout.
       let withinWindow = (gen4HistoryDeadline.map { now < $0 }) ?? false

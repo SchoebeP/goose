@@ -47,6 +47,12 @@ final class GooseBLEClient: NSObject, ObservableObject {
   @Published var gen4BackfillPacketCount = 0
   @Published var gen4BackfillStatus = "idle"   // idle | syncing | synced | failed
   @Published var lastGen4BackfillCompletedAt: Date?
+  // Wire bytes + start time for the progress bar. The band never discloses the
+  // total it holds, so there is no true % — progress = elapsed time in the
+  // bounded 90 s pull window, plus live bytes + rate.
+  @Published var gen4BackfillBytes = 0
+  @Published var gen4BackfillStartedAt: Date?
+  static let gen4BackfillWindow: TimeInterval = 90
   @Published var lastHistoricalRangeCommandStatus = "No GET_DATA_RANGE response"
   @Published var alarmCommandStatus = "No alarm command sent"
   @Published var lastAlarmCommandFrameHex = ""

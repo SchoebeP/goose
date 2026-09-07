@@ -59,23 +59,12 @@ struct SyncSection: View {
       .accessibilityIdentifier("sync.last")
 
       if gen4 {
-        // GEN4 live/idle state from the 4.0 backfill engine.
+        // GEN4 live/idle state from the 4.0 backfill engine. The band never
+        // announces its buffered total, so there is no real % — the bar shows
+        // elapsed time against the bounded pull window, plus bytes + rate.
         if model.ble.isGen4Backfilling {
-          HStack(spacing: 8) {
-            ProgressView()
-              .controlSize(.small)
-            VStack(alignment: .leading, spacing: 2) {
-              Text("Backfill 4.0 en cours…")
-                .font(.footnote)
-                .foregroundStyle(.secondary)
-              if model.ble.gen4BackfillPacketCount > 0 {
-                Text("\(model.ble.gen4BackfillPacketCount) paquets reçus")
-                  .font(.caption)
-                  .foregroundStyle(.tertiary)
-              }
-            }
-          }
-          .accessibilityIdentifier("sync.live")
+          Gen4BackfillProgressView()
+            .accessibilityIdentifier("sync.live")
         } else if model.ble.gen4BackfillPacketCount > 0 {
           HStack {
             Text("Paquets")
@@ -139,5 +128,71 @@ struct SyncSection: View {
     case "failed": return "Échec de la dernière tentative"
     default: return status
     }
+  }
+}
+
+// MARK: - GEN4 backfill progress (time-based bar + bytes + rate + ETA)
+
+/// The band never discloses how much history it holds, so a true % is
+/// impossible. The pull is bounded by a fixed window (90 s), so progress =
+/// elapsed/window; ETA = time left in the window. Bytes and rate come from the
+/// type-47 frames actually received — that's the honest throughput signal.
+struct Gen4BackfillProgressView: View {
+  @EnvironmentObject private var model: GooseAppModel
+  private let tick = Timer.publish(every: 0.5, on: .main, in: .common).autoconnect()
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 6) {
+      HStack(spacing: 8) {
+        ProgressView()
+          .controlSize(.small)
+        Text("Backfill 4.0 en cours…")
+          .font(.footnote)
+          .foregroundStyle(.secondary)
+        Spacer()
+        Text(etaText)
+          .font(.caption.weight(.semibold))
+          .monospacedDigit()
+          .foregroundStyle(.secondary)
+      }
+      ProgressView(value: progressFraction)
+        .progressViewStyle(.linear)
+      HStack {
+        Text("\(model.ble.gen4BackfillPacketCount) paquets")
+        Spacer()
+        Text(bytesLine)
+      }
+      .font(.caption)
+      .monospacedDigit()
+      .foregroundStyle(.tertiary)
+    }
+    .onReceive(tick) { _ in now = Date() }
+  }
+
+  @State private var now = Date()
+
+  private var elapsed: TimeInterval {
+    guard let start = model.ble.gen4BackfillStartedAt else { return 0 }
+    return now.timeIntervalSince(start)
+  }
+
+  private var progressFraction: Double {
+    min(1, max(0.02, elapsed / GooseBLEClient.gen4BackfillWindow))
+  }
+
+  private var etaText: String {
+    let remaining = max(0, GooseBLEClient.gen4BackfillWindow - elapsed)
+    return remaining < 1 ? "presque fini" : "≈ \(Int(remaining.rounded())) s restantes"
+  }
+
+  /// "12.4 Ko reçus · 8.1 Ko/s" — total wire bytes plus average rate over the
+  /// run (average is stabler than an instantaneous delta for BLE bursts).
+  private var bytesLine: String {
+    let bytes = model.ble.gen4BackfillBytes
+    let seconds = max(0.5, elapsed)
+    let rate = Double(bytes) / seconds
+    let total = ByteCountFormatter.string(fromByteCount: Int64(bytes), countStyle: .binary)
+    let perSec = ByteCountFormatter.string(fromByteCount: Int64(rate), countStyle: .binary)
+    return "\(total) reçus · \(perSec)/s"
   }
 }
