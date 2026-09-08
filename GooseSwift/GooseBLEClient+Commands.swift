@@ -1124,8 +1124,16 @@ extension GooseBLEClient {
   }
 
   /// Send the enable sequence with the proven inter-command timing.
+  /// Zulusierra MITM refinement (2026-09-08): the official app opens with
+  /// GET_HELLO_HARVARD(35) — timestamp exchange + 133B status incl. serial —
+  /// BEFORE anything else. We greet the band the same way on bond.
   func startGen4PulseStreamSequence(reason: String, bond: Bool) {
     record(source: "ble.gen4", title: "gen4.pulse.enable.start", body: "reason=\(reason) bond=\(bond)")
+    if bond {
+      // Zulusierra step 1: HELLO handshake (empty payload — response is the
+      // 133B device-status frame we already parse as a large type-36 event).
+      writeGen4Command(35, payload: [], label: "GET_HELLO_HARVARD(bond)")
+    }
     // Always read battery via GET_BATTERY (the reliable uint16/10 source); this
     // also serves as the bond write on connect, and refreshes battery every
     // re-enable (~60 s). On the initial bond, wait for it to settle first.
@@ -1188,9 +1196,18 @@ extension GooseBLEClient {
       self?.writeGen4Command(34, payload: [], label: "GET_DATA_RANGE")
       self?.gen4Journal("📤 J'ai demandé : « donne-moi ce que tu as en mémoire »")
     }
+    // Zulusierra MITM (2026-09): the official app requests history with
+    // REQUEST_HISTORICAL_DATA 0x16 (=22), NOT GET_DATA_RANGE. Try the official
+    // form too — whichever command this firmware answers, we win.
+    DispatchQueue.main.asyncAfter(deadline: .now() + 1.6) { [weak self] in
+      self?.writeGen4Command(22, payload: [], label: "REQUEST_HISTORICAL_DATA(official-app form)")
+    }
     // The proven 23/07 form was cmd22 with empty payload right after cmd34.
     DispatchQueue.main.asyncAfter(deadline: .now() + 2.2) { [weak self] in
-      self?.writeGen4Command(22, payload: [], label: "SEND_HISTORICAL_DATA")
+      self?.writeGen4Command(34, payload: [], label: "GET_DATA_RANGE(2nd)")
+    }
+    DispatchQueue.main.asyncAfter(deadline: .now() + 2.8) { [weak self] in
+      self?.writeGen4Command(22, payload: [], label: "SEND_HISTORICAL_DATA(2nd)")
       self?.gen4Journal("📤 J'ai demandé : « envoie-le moi »")
       self?.gen4Journal("⏳ J'attends sa réponse… (si rien n'arrive dans ~90 s, il n'a rien en mémoire)")
     }
