@@ -1169,24 +1169,21 @@ extension GooseBLEClient {
     gen4StartedHistoricalBackfill = true
     isGen4Backfilling = true
     gen4BackfillStatus = "syncing"
-    gen4HistoryDeadline = Date().addingTimeInterval(120)  // bound the ack loop
+    gen4HistoryDeadline = Date().addingTimeInterval(90)  // bound the ack loop
     record(level: .warn, source: "ble.gen4", title: "gen4.history.request",
-           body: "pulling buffered HR history (34 empty + 34 range + 22), 120s window force=\(force)")
-    writeGen4Command(34, payload: [], label: "GET_DATA_RANGE")
-    // GEN4 backfill fix (2026-09-07): on 23/07 this exact sequence pulled 580
-    // type-47 frames, then stopped forever. Community projects (openwhoop) send
-    // GET_DATA_RANGE with a [start, end] unix range — retry BOTH variants:
-    // empty (the proven 23/07 form) and a 7-day window payload, 1.2 s apart.
-    let now = UInt32(Date().timeIntervalSince1970)
-    let weekAgo = now - 7 * 24 * 3600
-    let rangePayload: [UInt8] = [
-      UInt8(weekAgo & 0xff), UInt8((weekAgo >> 8) & 0xff), UInt8((weekAgo >> 16) & 0xff), UInt8((weekAgo >> 24) & 0xff),
-      UInt8(now & 0xff), UInt8((now >> 8) & 0xff), UInt8((now >> 16) & 0xff), UInt8((now >> 24) & 0xff),
-    ]
-    DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { [weak self] in
-      self?.writeGen4Command(34, payload: rangePayload, label: "GET_DATA_RANGE(range)")
+           body: "Atria test: kill realtime FIRST, then pull history, then restore. force=\(force)")
+
+    // ATRIA FIX (GOAL_strap_steps_drain): the firmware only serves history
+    // while the realtime stream is OFF. Kill it, wait for the band to settle,
+    // pull, then restore the stream via the normal 60 s re-enable path.
+    writeGen4Command(3, payload: [0x00], label: "TOGGLE_REALTIME_HR(off)")
+
+    // +1 s: band settles out of realtime before we ask for history.
+    DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
+      self?.writeGen4Command(34, payload: [], label: "GET_DATA_RANGE")
     }
-    DispatchQueue.main.asyncAfter(deadline: .now() + 2.4) { [weak self] in
+    // The proven 23/07 form was cmd22 with empty payload right after cmd34.
+    DispatchQueue.main.asyncAfter(deadline: .now() + 2.2) { [weak self] in
       self?.writeGen4Command(22, payload: [], label: "SEND_HISTORICAL_DATA")
     }
     // Close the window: with no type-47 frame the band had nothing buffered —
@@ -1198,6 +1195,7 @@ extension GooseBLEClient {
 
   /// Close out the GEN4 backfill window. A run with ≥1 type-47 frame = synced;
   /// zero frames = the band simply had nothing buffered (still a success).
+  /// Restores the realtime HR stream the Atria sequence switched off.
   func finishGen4BackfillIfRunning() {
     guard isGen4Backfilling else { return }
     isGen4Backfilling = false
@@ -1206,7 +1204,10 @@ extension GooseBLEClient {
     gen4BackfillStatus = "synced"
     lastGen4BackfillCompletedAt = Date()
     record(source: "ble.gen4", title: "gen4.history.completed",
-           body: "packets=\(packets)")
+           body: "packets=\(packets) — restoring realtime stream")
+    // Atria sequence switched realtime off; bring it back (the 60 s re-enable
+    // timer would also restore it, but this is immediate and explicit).
+    writeGen4Command(3, payload: [0x01], label: "TOGGLE_REALTIME_HR(on)")
   }
 
   /// User/USB-facing entry for the Réglages button: reuse the same one-shot
