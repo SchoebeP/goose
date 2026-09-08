@@ -648,8 +648,17 @@ extension GooseBLEClient {
     }
     if activePeripheral?.identifier == peripheral.identifier,
        connectionState == "connecting" || connectionState == "discovering" || connectionState == "ready" {
-      record(level: .debug, source: "ble", title: "connect.skipped", body: "already \(connectionState)")
-      return
+      // "ready" only means the GATT layer is set up — the link underneath can
+      // still be a ghost (overnight 03:22 relaunch: 'already connected' on a
+      // dead restore, no write ever attempted). A silent link must not block
+      // a retry; only a link with fresh data counts as connected.
+      let linkLooksAlive = Date().timeIntervalSince(lastDataFrameAt) < 120
+      if connectionState != "ready" || linkLooksAlive {
+        record(level: .debug, source: "ble", title: "connect.skipped", body: "already \(connectionState)")
+        return
+      }
+      record(level: .warn, source: "ble", title: "connect.zombie_override",
+             body: "ready but silent — allowing reconnect attempt")
     }
     whoopCandidateIDs.insert(peripheral.identifier)
     resetLiveDeviceFieldsIfNeeded(for: peripheral)
@@ -702,10 +711,27 @@ extension GooseBLEClient {
     gen4ReEnableTimer?.invalidate()
     gen4ReEnableTimer = nil
     // Cancel the zombie connection. didDisconnectPeripheral fires the normal
-    // auto-reconnect, which rediscovers services with valid handles.
-    if let peripheral = activePeripheral, let central {
-      central.cancelPeripheralConnection(peripheral)
+    // auto-reconnect, which rediscovers services with valid handles. On iOS 17+
+    // cancelPeripheralConnection may NOT fire didDisconnect if the link is
+    // already gone — set a bounded fallback so the machine can't strand here.
+    guard let peripheral = activePeripheral, let central else { return }
+    central.cancelPeripheralConnection(peripheral)
+    deadLinkFallbackWorkItem?.cancel()
+    let fallback = DispatchWorkItem { [weak self, weak peripheral] in
+      guard let self, let peripheral else { return }
+      guard self.activePeripheral?.identifier == peripheral.identifier,
+            self.connectionState != "ready" || Date().timeIntervalSince(self.lastDataFrameAt) > 60 else {
+        return
+      }
+      self.record(level: .warn, source: "ble", title: "connection.recover_fallback",
+                  body: "cancel did not produce a disconnect — attempting direct reconnect")
+      self.activePeripheral = nil
+      self.commandCharacteristic = nil
+      self.updateConnectionState("disconnected")
+      self.connect(peripheral, reason: "auto.dead_link_fallback")
     }
+    deadLinkFallbackWorkItem = fallback
+    DispatchQueue.main.asyncAfter(deadline: .now() + 20, execute: fallback)
   }
 
   func attemptAutomaticReconnect(reason: String) {
@@ -714,7 +740,19 @@ extension GooseBLEClient {
       return
     }
     guard activePeripheral == nil else {
-      updateReconnectState("already connected")
+      // "Connected" only counts if data is actually flowing. A restored or
+      // cached peripheral can sit in activePeripheral with a dead link (the
+      // overnight 01:53/03:22 relaunches both bailed out here) — that ghost
+      // must not block a recovery attempt.
+      let linkLooksAlive = Date().timeIntervalSince(lastDataFrameAt) < 120
+        || connectionState == "connecting" || connectionState == "discovering"
+      if linkLooksAlive {
+        updateReconnectState("already connected")
+      } else {
+        record(level: .warn, source: "ble", title: "reconnect.ghost_link",
+               body: "state=\(connectionState) but no data — treating as disconnected")
+        recoverFromDeadLink(reason: "auto-reconnect saw a silent link")
+      }
       return
     }
     guard !autoReconnectInFlight else {

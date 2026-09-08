@@ -297,6 +297,7 @@ final class GooseBLEClient: NSObject, ObservableObject {
     gen4JournalOther = 0
   }
   var lastDeadLinkRecovery = Date.distantPast // throttle for zombie-connection recovery
+  var deadLinkFallbackWorkItem: DispatchWorkItem?
   var lastDataFrameAt = Date.distantPast      // last raw notification — stall watchdog
   var gen4ReEnableTimer: Timer?
   let gen4ProbeLock = NSLock()
@@ -314,6 +315,8 @@ final class GooseBLEClient: NSObject, ObservableObject {
   var autoReconnectTargetID: UUID?
   var autoReconnectInFlight = false
   var startupReconnectAttempted = false
+  var connectFailureCount = 0
+  var connectRetryWorkItem: DispatchWorkItem?
   var pendingConnectionReason: String?
   var pendingAutomaticHistoricalSyncReason: String?
   var clientHelloSentForCurrentConnection = false
