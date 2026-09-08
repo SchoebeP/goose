@@ -3,11 +3,22 @@ import SwiftUI
 /// Full-screen workout recording: big live timer, live HR with z1–z5 zone bar,
 /// running avg/min/max, Pause + red Stop. HR comes live from the BLE client;
 /// samples are compiled by SimpleWorkoutSession (1/sec, paused excluded).
+///
+/// LOT 1 (animations): FC card expands on appear, heart pulses at the real
+/// bpm rate, zone halo tints the screen, zone cursor already slides (kept).
+/// LOT 2 (data): live 5-min HR curve, kcal estimate, GPS distance/pace for runs.
 struct WorkoutRecordView: View {
   @EnvironmentObject private var model: GooseAppModel
   @ObservedObject var session: SimpleWorkoutSession
   @Environment(\.dismiss) private var dismiss
   private let ticker = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
+
+  /// LOT 1: card-expansion spring state.
+  @State private var expanded = false
+  /// LOT 1: heart pulse phase driver.
+  @State private var heartBeat = false
+  /// LOT 2: GPS tracker (only started for runs).
+  @StateObject private var gps = WorkoutGPSTracker()
 
   /// HRmax default 190 — configurable via UserDefaults "hrMax".
   private var hrMax: Int {
@@ -21,27 +32,71 @@ struct WorkoutRecordView: View {
     return bpm
   }
 
+  private var isRun: Bool { session.workoutType == .run }
+
+  /// LOT 2: kcal estimate (linear HR model, same constant as the VPS webhook —
+  /// ~7.5 kcal/min at 150 bpm). Honest: labelled "est.".
+  private var kcalEstimate: Int {
+    let avg = Double(session.avgBPM ?? liveBPM ?? 0)
+    guard avg > 0 else { return 0 }
+    let perMin = max(0.0733 * avg - 3.5, 0)
+    return Int((perMin * Double(session.durationSeconds) / 60).rounded())
+  }
+
   var body: some View {
     NavigationStack {
       ScrollView {
         VStack(spacing: 14) {
           timerCard
           hrCard
+          if isRun { gpsCards }
           statsRow
           controls
         }
         .padding(16)
       }
+      .background(zoneHalo.ignoresSafeArea())
       .background(Color.black.ignoresSafeArea())
       .navigationTitle(session.workoutType?.displayName ?? "Séance")
       .navigationBarTitleDisplayMode(.inline)
       .toolbar {
         ToolbarItem(placement: .topBarLeading) {
-          Button("Réduire") { dismiss() }
+          Button("Réduire") {
+            gps.stop()
+            dismiss()
+          }
+        }
+      }
+      .onAppear {
+        withAnimation(.spring(response: 0.35, dampingFraction: 0.7)) { expanded = true }
+        if isRun { gps.start() }
+      }
+      .onReceive(ticker) { _ in
+        // LOT 1: drive the heart pulse once per live beat interval.
+        if let bpm = liveBPM, bpm > 30 {
+          let interval = 60.0 / Double(bpm)
+          if Date().timeIntervalSince(lastPulseAt) >= interval {
+            lastPulseAt = Date()
+            heartBeat.toggle()
+          }
         }
       }
     }
     .preferredColorScheme(.dark)
+  }
+
+  /// LOT 1: last time the heart pulsed (to pace it at the real bpm).
+  @State private var lastPulseAt = .distantPast
+
+  /// LOT 1: subtle radial tint behind everything, colored by current zone.
+  private var zoneHalo: some View {
+    ZStack {
+      Color.black
+      RadialGradient(
+        colors: [zoneColor.opacity(0.12), .clear],
+        center: .top, startRadius: 40, endRadius: 480)
+        .animation(.easeInOut(duration: 0.6), value: zoneName)
+    }
   }
 
   // MARK: timer
@@ -66,7 +121,7 @@ struct WorkoutRecordView: View {
     return "début \(f.string(from: Date().addingTimeInterval(-Double(session.durationSeconds))))"
   }
 
-  // MARK: live HR
+  // MARK: live HR (LOT 1 animations)
 
   private var hrCard: some View {
     VStack(alignment: .leading, spacing: 10) {
@@ -74,19 +129,37 @@ struct WorkoutRecordView: View {
         .font(.subheadline.weight(.semibold))
         .foregroundStyle(.red)
       HStack(alignment: .firstTextBaseline, spacing: 6) {
+        // LOT 1: heart pulses at the REAL bpm rate (1 scale cycle per beat).
+        Image(systemName: "heart.fill")
+          .foregroundStyle(.red)
+          .font(.title3)
+          .scaleEffect(heartBeat && liveBPM != nil ? 1.15 : 1.0)
+          .animation(.easeInOut(duration: pulseHalfSeconds), value: heartBeat)
         Text(liveBPM.map(String.init) ?? "—")
           .font(.system(size: 62, weight: .bold, design: .rounded))
           .monospacedDigit()
+          .contentTransition(.numericText())
+          .animation(.easeOut(duration: 0.3), value: liveBPM)
         Text("bpm").font(.subheadline).foregroundStyle(.secondary)
         Spacer()
         Text("zone \(zoneName)")
           .font(.headline)
           .foregroundStyle(zoneColor)
+          .animation(.easeInOut(duration: 0.4), value: zoneName)
       }
       zoneBar
+      liveCurve
     }
     .padding(16)
     .background(RoundedRectangle(cornerRadius: 18).fill(Color(.secondarySystemBackground)))
+    .scaleEffect(expanded ? 1.0 : 0.92)
+    .opacity(expanded ? 1.0 : 0.6)
+  }
+
+  /// LOT 1: half a heartbeat, in seconds (drives the pulse animation curve).
+  private var pulseHalfSeconds: Double {
+    guard let bpm = liveBPM, bpm > 30 else { return 0.4 }
+    return min(max(30.0 / Double(bpm), 0.18), 0.6)
   }
 
   private var zoneBar: some View {
@@ -105,11 +178,72 @@ struct WorkoutRecordView: View {
           Circle()
             .fill(Color.white)
             .frame(width: 14, height: 14)
+            .shadow(color: zoneColor, radius: 6)
             .offset(x: proxy.size.width * frac - 7)
+            .animation(.easeOut(duration: 0.4), value: frac)
         }
       }
     }
     .frame(height: 16)
+  }
+
+  /// LOT 2: the last 5 minutes of HR, drawn as a red curve with a soft fill.
+  private var liveCurve: some View {
+    Group {
+      if session.samples.count >= 2 {
+        Canvas { ctx, size in
+          let window: TimeInterval = 300   // 5 min
+          let iso = ISO8601DateFormatter()
+          let now = Date()
+          let parsed: [(Date, Int)] = session.samples.compactMap { s in
+            guard let d = iso.date(from: s.ts) else { return nil }
+            return (d, s.bpm)
+          }
+          let pts = parsed.filter { now.timeIntervalSince($0.0) <= window }
+          guard pts.count >= 2 else { return }
+          let lo = pts.map(\.1).min()!
+          let hi = max(pts.map(\.1).max()!, lo + 1)
+          let t0 = pts[0].0
+          let span = max(now.timeIntervalSince(t0), 1)
+          func pt(_ p: (Date, Int)) -> CGPoint {
+            let x = size.width * (now.timeIntervalSince(p.0) / span)
+            let y = size.height * (1 - (Double(p.1) - Double(lo)) / Double(hi - lo))
+            return CGPoint(x: size.width - x, y: y)
+          }
+          var path = Path()
+          path.move(to: pt(pts[0]))
+          for s in pts.dropFirst() { path.addLine(to: pt(s)) }
+          ctx.stroke(path, with: .color(.red), style: StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round))
+          var fill = path
+          fill.addLine(to: CGPoint(x: size.width, y: size.height))
+          fill.addLine(to: CGPoint(x: size.width - size.width, y: size.height))
+          fill.closeSubpath()
+          ctx.fill(fill, with: .linearGradient(
+            Gradient(colors: [.red.opacity(0.28), .clear]),
+            startPoint: .top, endPoint: .bottom))
+        }
+        .frame(height: 54)
+      } else {
+        Text("la courbe apparaît après quelques secondes…")
+          .font(.caption2)
+          .foregroundStyle(.secondary)
+      }
+    }
+  }
+
+  /// LOT 2: GPS distance + pace cards (runs only; hidden if permission denied).
+  @ViewBuilder private var gpsCards: some View {
+    if gps.authorized && gps.started {
+      HStack(spacing: 10) {
+        statBox("Distance", gps.distanceKm.map { String(format: "%.2f km", $0) } ?? "—")
+        statBox("Allure", gps.paceText ?? "—")
+        statBox("kcal (est.)", "\(kcalEstimate)")
+      }
+    } else {
+      HStack(spacing: 10) {
+        statBox("kcal (est.)", "\(kcalEstimate)")
+      }
+    }
   }
 
   private var zoneName: String {
@@ -143,31 +277,20 @@ struct WorkoutRecordView: View {
       statBox("Min", session.minBPM.map(String.init) ?? "—")
     }
   }
-
-  private func statBox(_ label: String, _ value: String) -> some View {
-    VStack(spacing: 2) {
-      Text(label).font(.caption).foregroundStyle(.secondary)
-      Text(value).font(.title2.bold().monospacedDigit())
-    }
-    .frame(maxWidth: .infinity)
-    .padding(.vertical, 12)
-    .background(RoundedRectangle(cornerRadius: 14).fill(Color(.secondarySystemBackground)))
-  }
-
   private var controls: some View {
-    VStack(spacing: 8) {
+    HStack(spacing: 14) {
       Button {
-        if session.isPaused { session.resume() } else { session.pause() }
+        session.isPaused ? session.resume() : session.pause()
       } label: {
-        Text(session.isPaused ? "Reprendre" : "Pause")
+        Label(session.isPaused ? "Reprendre" : "Pause",
+              systemImage: session.isPaused ? "play.fill" : "pause.fill")
           .font(.headline)
           .frame(maxWidth: .infinity)
           .padding(.vertical, 14)
-          .background(RoundedRectangle(cornerRadius: 14).fill(Color(.tertiarySystemBackground)))
+          .background(RoundedRectangle(cornerRadius: 14).fill(Color(.secondarySystemBackground)))
       }
-      .buttonStyle(.plain)
-
       Button {
+        gps.stop()
         session.stop()
         dismiss()
       } label: {
@@ -178,11 +301,20 @@ struct WorkoutRecordView: View {
           .padding(.vertical, 14)
           .background(RoundedRectangle(cornerRadius: 14).fill(.red))
       }
-      .buttonStyle(.plain)
     }
   }
 
+  private func statBox(_ label: String, _ value: String) -> some View {
+    VStack(spacing: 3) {
+      Text(value).font(.headline).monospacedDigit()
+      Text(label).font(.caption2).foregroundStyle(.secondary)
+    }
+    .frame(maxWidth: .infinity)
+    .padding(.vertical, 12)
+    .background(RoundedRectangle(cornerRadius: 14).fill(Color(.secondarySystemBackground)))
+  }
+
   private func timeString(_ s: Int) -> String {
-    String(format: "%02d:%02d:%02d", s / 3600, (s % 3600) / 60, s % 60)
+    String(format: "%d:%02d:%02d", s / 3600, (s % 3600) / 60, s % 60)
   }
 }
