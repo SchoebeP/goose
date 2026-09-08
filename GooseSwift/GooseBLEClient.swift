@@ -252,6 +252,8 @@ final class GooseBLEClient: NSObject, ObservableObject {
   var gen4StartedPulseStream = false
   var gen4StartedHistoricalBackfill = false   // one-shot HR history pull per connection
   var gen4LastHistoryAck = Date.distantPast   // throttle for HISTORICAL_DATA_RESULT acks
+  var gen4HistoryToken: [UInt8]?              // OpenStrap: 8-byte marker token to echo
+  var gen4HistoryTokenAt: Date?
   var gen4HistoryDeadline: Date?              // hard stop for the ack loop (write-pressure guard)
   var lastDeadLinkRecovery = Date.distantPast // throttle for zombie-connection recovery
   var lastDataFrameAt = Date.distantPast      // last raw notification — stall watchdog

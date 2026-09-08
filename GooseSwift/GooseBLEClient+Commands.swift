@@ -1276,18 +1276,43 @@ extension GooseBLEClient {
     }
 
     // type-47 HISTORICAL_DATA: the band is streaming buffered history. ACK with
-    // HISTORICAL_DATA_RESULT(23) to pull the next chunk (throttled so a burst of
-    // frames doesn't flood the command channel). The frames themselves are
-    // forwarded to the VPS by ingestRawFrame above.
+    // HISTORICAL_DATA_RESULT(23) to pull the next chunk. OpenStrap finding (2026-09):
+    // each batch is followed by a MARKER frame carrying an 8-byte token — the ACK
+    // must echo that token back EXACTLY, using a withResponse write. A blind
+    // fixed payload (what we did before) makes the band stop serving history.
     if type == 47 {
       gen4ProbeLock.lock()
       let now = Date()
-      gen4BackfillPacketCount += 1   // every buffered-history frame counts, ACKed or not
+      gen4BackfillPacketCount += 1
       gen4BackfillBytes += value.count
-      // ACK only inside the bounded backfill window, throttled to ≤2/sec, so a
-      // long historical stream can't pressure the command channel into a timeout.
       let withinWindow = (gen4HistoryDeadline.map { now < $0 }) ?? false
-      let due = withinWindow && now.timeIntervalSince(gen4LastHistoryAck) >= 0.5
+      gen4ProbeLock.unlock()
+      if !withinWindow { return }
+
+      // Token capture: an 8-byte token arrives in a type-47 MARKER (sub/id byte
+      // differs from data frames; data frames carry epoch@11). If bytes[8..16]
+      // look like a token (no plausible epoch), stash it for the next ACK.
+      let bytes = [UInt8](value)
+      let plausibleEpoch = bytes.count >= 15 && (bytes[11] > 0x20 || bytes[12] > 0x20)
+      if !plausibleEpoch && bytes.count >= 16 {
+        let token = Array(bytes[8..<16])
+        gen4ProbeLock.lock()
+        gen4HistoryToken = token
+        gen4HistoryTokenAt = now
+        gen4ProbeLock.unlock()
+        record(level: .warn, source: "ble.gen4", title: "gen4.history.token",
+               body: "marker token captured: \(Data(token).hexString)")
+        // OpenStrap: ACK the marker immediately with the echoed token.
+        DispatchQueue.main.async { [weak self] in
+          self?.writeGen4Command(23, payload: token,
+                                 label: "HISTORICAL_DATA_RESULT(token-echo)")
+        }
+        return
+      }
+
+      // Regular data frame: throttled batch ACK (≤2/sec).
+      gen4ProbeLock.lock()
+      let due = now.timeIntervalSince(gen4LastHistoryAck) >= 0.5
       if due { gen4LastHistoryAck = now }
       gen4ProbeLock.unlock()
       if due {

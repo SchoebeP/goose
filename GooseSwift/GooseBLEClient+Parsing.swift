@@ -1025,19 +1025,25 @@ final class WhoopCloudForwarder {
   func forward(bpm: Int, rrMs: [Double], at date: Date) {
     guard isEnabled, bpm > 0 else { return }
     queue.async {
-      // throttle to at most ~1 post/sec to keep it light
-      guard date.timeIntervalSince(self.lastSent) >= 0.9 else { return }
-      self.lastSent = date
+      // SOPRA-STYLE BATCHING (pat): accumulate samples and flush as ONE POST
+      // every ≥30 s (or 60+ samples, whichever first). Same data, 30-60x fewer
+      // HTTP round-trips. Timestamps are per-sample so the server keeps the
+      // true curve — no averaging, no data invention.
+      self.pendingSamples.append((bpm: bpm, rrMs: rrMs, date: date))
+      let due = date.timeIntervalSince(self.lastBatchSent) >= 30
+      if !due && self.pendingSamples.count < 60 { return }
+      self.lastBatchSent = date
+      let batch = self.pendingSamples
+      self.pendingSamples = []
+      guard !batch.isEmpty else { return }
       var req = URLRequest(url: self.endpoint)
       req.httpMethod = "POST"
       req.setValue("application/json", forHTTPHeaderField: "Content-Type")
       req.setValue(self.token, forHTTPHeaderField: "X-Ingest-Token")
-      let body: [String: Any] = [
-        "bpm": bpm,
-        "rr_intervals_ms": rrMs,
-        "wall_ts": self.iso.string(from: date),
-      ]
-      req.httpBody = try? JSONSerialization.data(withJSONObject: body)
+      let samples: [[String: Any]] = batch.map { s in
+        ["bpm": s.bpm, "rr_intervals_ms": s.rrMs, "wall_ts": self.iso.string(from: s.date)]
+      }
+      req.httpBody = try? JSONSerialization.data(withJSONObject: ["batch": samples])
       URLSession.shared.dataTask(with: req).resume()  // fire-and-forget
     }
   }
