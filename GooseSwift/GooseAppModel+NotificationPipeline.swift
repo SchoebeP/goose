@@ -3,6 +3,11 @@ import UIKit
 
 
 extension GooseAppModel {
+  // P1 perf fix: cumulative dropped-bytes log throttle state (1 log/60 s max).
+  private static let droppedLogCounterLock = NSLock()
+  private static var droppedLogCounter = 0
+  private static var lastDroppedLogAt = Date.distantPast
+
   func handleNotification(_ event: GooseNotificationEvent) {
     // NOTE: do NOT skip GEN4 here — the Rust pipeline also produces the live HR
     // for the 4.0 (recordLiveHeartRate source "rust.k10"). Skipping it blanked the
@@ -41,12 +46,24 @@ extension GooseAppModel {
 
     let event = result.event
     if result.droppedBytes > 0 {
-      ble.record(
-        level: .warn,
-        source: "rust",
-        title: "notification.frame.reassembly.dropped",
-        body: "\(event.characteristicUUID) dropped=\(result.droppedBytes) buffered=\(result.bufferedBytes)"
-      )
+      // P1 perf fix (2026-09-08): this fired PER NOTIFICATION (~87 logs/min = 87
+      // POSTs/min to the VPS). Throttle to 1 log/60 s with a cumulative counter.
+      droppedLogCounterLock.lock()
+      droppedLogCounter += Int(result.droppedBytes)
+      let now = Date()
+      let shouldLog = now.timeIntervalSince(lastDroppedLogAt) >= 60
+      if shouldLog { lastDroppedLogAt = now }
+      let total = droppedLogCounter
+      if shouldLog { droppedLogCounter = 0 }
+      droppedLogCounterLock.unlock()
+      if shouldLog {
+        ble.record(
+          level: .warn,
+          source: "rust",
+          title: "notification.frame.reassembly.dropped",
+          body: "\(event.characteristicUUID) droppedThisWindow=\(total) last=\(result.droppedBytes) buffered=\(result.bufferedBytes)"
+        )
+      }
     }
     if result.usedBufferedData && !result.frames.isEmpty {
       ble.record(
@@ -100,12 +117,24 @@ extension GooseAppModel {
 
     let event = result.event
     if result.droppedBytes > 0 {
-      ble.record(
-        level: .warn,
-        source: "rust",
-        title: "notification.frame.reassembly.dropped",
-        body: "\(event.characteristicUUID) dropped=\(result.droppedBytes) buffered=\(result.bufferedBytes)"
-      )
+      // P1 perf fix (2026-09-08): this fired PER NOTIFICATION (~87 logs/min = 87
+      // POSTs/min to the VPS). Throttle to 1 log/60 s with a cumulative counter.
+      droppedLogCounterLock.lock()
+      droppedLogCounter += Int(result.droppedBytes)
+      let now = Date()
+      let shouldLog = now.timeIntervalSince(lastDroppedLogAt) >= 60
+      if shouldLog { lastDroppedLogAt = now }
+      let total = droppedLogCounter
+      if shouldLog { droppedLogCounter = 0 }
+      droppedLogCounterLock.unlock()
+      if shouldLog {
+        ble.record(
+          level: .warn,
+          source: "rust",
+          title: "notification.frame.reassembly.dropped",
+          body: "\(event.characteristicUUID) droppedThisWindow=\(total) last=\(result.droppedBytes) buffered=\(result.bufferedBytes)"
+        )
+      }
     }
     if result.usedBufferedData && !result.frames.isEmpty {
       ble.record(
