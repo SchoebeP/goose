@@ -75,6 +75,7 @@ struct SyncSection: View {
           }
           .accessibilityIdentifier("sync.packets")
         }
+        SyncJournalView()
       } else if model.ble.isHistoricalSyncing {
         // Live state while syncing: spinner + engine status + packet count.
         HStack(spacing: 8) {
@@ -137,6 +138,9 @@ struct SyncSection: View {
 /// impossible. The pull is bounded by a fixed window (90 s), so progress =
 /// elapsed/window; ETA = time left in the window. Bytes and rate come from the
 /// type-47 frames actually received — that's the honest throughput signal.
+/// The human-readable protocol journal PERSISTS after the run (kept on the
+/// BLE client, not reset by finishGen4BackfillIfRunning) so the user can read
+/// what happened — including the total data received per type.
 struct Gen4BackfillProgressView: View {
   @EnvironmentObject private var model: GooseAppModel
   private let tick = Timer.publish(every: 0.5, on: .main, in: .common).autoconnect()
@@ -194,5 +198,31 @@ struct Gen4BackfillProgressView: View {
     let total = ByteCountFormatter.string(fromByteCount: Int64(bytes), countStyle: .binary)
     let perSec = ByteCountFormatter.string(fromByteCount: Int64(rate), countStyle: .binary)
     return "\(total) reçus · \(perSec)/s"
+  }
+}
+
+// MARK: - Persistent human-readable journal (Journal de synchronisation)
+
+/// A persistent log of what the band said during the last sync — survives the
+/// end of the backfill (lives on GooseBLEClient, reset only on the NEXT sync).
+/// Every line is plain French, no hex, no jargon.
+struct SyncJournalView: View {
+  @EnvironmentObject private var model: GooseAppModel
+
+  var body: some View {
+    Section("Journal de synchronisation") {
+      if model.ble.gen4SyncJournal.isEmpty {
+        Text("Aucune synchronisation enregistrée")
+          .font(.footnote)
+          .foregroundStyle(.tertiary)
+      } else {
+        ForEach(Array(model.ble.gen4SyncJournal.suffix(14).enumerated()), id: \.offset) { _, line in
+          Text(line)
+            .font(.footnote)
+            .foregroundStyle(.secondary)
+            .lineLimit(2)
+        }
+      }
+    }
   }
 }

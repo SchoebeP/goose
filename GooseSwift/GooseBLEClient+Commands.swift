@@ -1174,19 +1174,25 @@ extension GooseBLEClient {
     gen4HistoryDeadline = Date().addingTimeInterval(Self.gen4BackfillWindow)   // bound the ack loop
     record(level: .warn, source: "ble.gen4", title: "gen4.history.request",
            body: "Atria test: kill realtime FIRST, then pull history, then restore. force=\(force)")
+    gen4JournalReset()
+    gen4Journal("⏳ J'ai demandé l'historique au bracelet (données qu'il garde quand l'app est loin).")
 
     // ATRIA FIX (GOAL_strap_steps_drain): the firmware only serves history
     // while the realtime stream is OFF. Kill it, wait for the band to settle,
     // pull, then restore the stream via the normal 60 s re-enable path.
     writeGen4Command(3, payload: [0x00], label: "TOGGLE_REALTIME_HR(off)")
+    gen4Journal("🔴 J'ai coupé le flux temps réel (le bracelet ne peut parler historique que dans cet état).")
 
     // +1 s: band settles out of realtime before we ask for history.
     DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
       self?.writeGen4Command(34, payload: [], label: "GET_DATA_RANGE")
+      self?.gen4Journal("📤 J'ai demandé : « donne-moi ce que tu as en mémoire »")
     }
     // The proven 23/07 form was cmd22 with empty payload right after cmd34.
     DispatchQueue.main.asyncAfter(deadline: .now() + 2.2) { [weak self] in
       self?.writeGen4Command(22, payload: [], label: "SEND_HISTORICAL_DATA")
+      self?.gen4Journal("📤 J'ai demandé : « envoie-le moi »")
+      self?.gen4Journal("⏳ J'attends sa réponse… (si rien n'arrive dans ~90 s, il n'a rien en mémoire)")
     }
     // Close the window: with no type-47 frame the band had nothing buffered —
     // that's a completed (empty) backfill, not a failure.
@@ -1203,10 +1209,18 @@ extension GooseBLEClient {
     isGen4Backfilling = false
     gen4HistoryDeadline = nil
     let packets = gen4BackfillPacketCount
+    let bytes = gen4BackfillBytes
     gen4BackfillStatus = "synced"
     lastGen4BackfillCompletedAt = Date()
     record(source: "ble.gen4", title: "gen4.history.completed",
            body: "packets=\(packets) — restoring realtime stream")
+    gen4Journal("🔴 Je rallume le flux temps réel…")
+    if packets == 0 {
+      gen4Journal("📭 Le bracelet n'avait rien en mémoire (il streame en continu — tout part déjà vers le serveur en temps réel, rien n'est perdu).")
+    } else {
+      let total = ByteCountFormatter.string(fromByteCount: Int64(bytes), countStyle: .binary)
+      gen4Journal("✅ Terminé : \(packets) paquets reçus (\(total)). Les données partent vers le serveur.")
+    }
     // Atria sequence switched realtime off; bring it back (the 60 s re-enable
     // timer would also restore it, but this is immediate and explicit).
     writeGen4Command(3, payload: [0x01], label: "TOGGLE_REALTIME_HR(on)")
@@ -1241,6 +1255,7 @@ extension GooseBLEClient {
     let level: GooseLogLevel = (command == 34 || command == 22 || command == 23) ? .warn : .info
     record(level: level, source: "ble.gen4", title: "gen4.command.sent",
            body: "\(label) cmd=\(command) seq=\(sequence) wt=\(writeType == .withResponse ? "resp" : "noresp") frame=\(frame.hexString)")
+    gen4Trace("→ \(label) [cmd\(command)]")
   }
 
   // MARK: Probe — count optical/HR frames so the device test is observable
@@ -1268,11 +1283,15 @@ extension GooseBLEClient {
     if type == 36 && bytes[6] == 26 && bytes.count >= 11 {
       let raw = Int(bytes[9]) | (Int(bytes[10]) << 8)
       let pct = Int((Double(raw) / 10.0).rounded())
+      gen4Trace("← batterie \(pct)% [rép cmd26]")
       DispatchQueue.main.async { [weak self] in
         self?.record(source: "ble.metadata", title: "battery.gen4_cmd.raw",
                      body: "raw=\(raw) -> \(pct)% frame=\(value.hexString.prefix(28))")
         self?.applyBatteryLevel(pct, capturedAt: Date(), sourceTitle: "battery.gen4_cmd")
       }
+    } else if type == 36 {
+      // Any other command response — show WHICH command the band answered.
+      gen4Trace("← rép cmd\(bytes[6]) (\(value.count) octets)")
     }
 
     // type-47 HISTORICAL_DATA: the band is streaming buffered history. ACK with
@@ -1302,6 +1321,8 @@ extension GooseBLEClient {
         gen4ProbeLock.unlock()
         record(level: .warn, source: "ble.gen4", title: "gen4.history.token",
                body: "marker token captured: \(Data(token).hexString)")
+        gen4Trace("⭐ MARKER token \(Data(token).hexString.prefix(8))…")
+        gen4Journal("✅ Le bracelet a répondu ! Il commence à m'envoyer ses données.")
         // OpenStrap: ACK the marker immediately with the echoed token.
         DispatchQueue.main.async { [weak self] in
           self?.writeGen4Command(23, payload: token,
@@ -1310,15 +1331,25 @@ extension GooseBLEClient {
         return
       }
 
-      // Regular data frame: throttled batch ACK (≤2/sec).
-      gen4ProbeLock.lock()
-      let due = now.timeIntervalSince(gen4LastHistoryAck) >= 0.5
-      if due { gen4LastHistoryAck = now }
-      gen4ProbeLock.unlock()
-      if due {
-        DispatchQueue.main.async { [weak self] in
-          self?.writeGen4Command(23, payload: [1, 0, 0, 0, 0, 0, 0, 0, 0],
-                                 label: "HISTORICAL_DATA_RESULT(ack)")
+      // Data frames: decode the timestamped HR (epoch@11 LE, hr@21 per CLAUDE.md)
+      // and count what kind of payload arrived for the human journal.
+      if bytes.count >= 22 {
+        let epoch = Int(bytes[11]) | (Int(bytes[12]) << 8) | (Int(bytes[13]) << 16) | (Int(bytes[14]) << 24)
+        let hr = Int(bytes[21])
+        let when = Date(timeIntervalSince1970: TimeInterval(epoch))
+        let df = DateFormatter()
+        df.dateFormat = "dd/MM HH:mm"
+        gen4ProbeLock.lock()
+        if hr > 20 && hr < 230 { gen4JournalHR += 1 } else { gen4JournalOther += 1 }
+        let hrCount = gen4JournalHR
+        let otherCount = gen4JournalOther
+        gen4ProbeLock.unlock()
+        if hrCount == 1 {
+          gen4Journal("❤️ Première mesure reçue : FC \(hr) bpm du \(df.string(from: when)) — les données arrivent !")
+        } else if hrCount % 25 == 0 {
+          gen4Journal("❤️ \(hrCount) mesures reçues… (dernière : \(hr) bpm du \(df.string(from: when)))")
+        } else if otherCount == 1 {
+          gen4Journal("📦 Mesures secondaires reçues (pas de FC lisible dedans)")
         }
       }
     }

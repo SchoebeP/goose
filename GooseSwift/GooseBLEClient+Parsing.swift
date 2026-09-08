@@ -1013,6 +1013,9 @@ final class WhoopCloudForwarder {
   private let iso = ISO8601DateFormatter()
   private var lastSent = Date.distantPast
   private var lastTempSent = Date.distantPast
+  // Sopra-style batching: accumulate samples, flush one POST per >=30 s or 60.
+  private var pendingSamples: [(bpm: Int, rrMs: [Double], date: Date)] = []
+  private var lastBatchSent = Date.distantPast
   private var frameBuffers: [String: [UInt8]] = [:]   // per-characteristic frame reassembly
   private var pendingFrames: [String] = []            // complete-frame hex awaiting POST
   private var lastFrameFlush = Date.distantPast

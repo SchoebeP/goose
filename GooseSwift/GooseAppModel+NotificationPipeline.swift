@@ -48,14 +48,14 @@ extension GooseAppModel {
     if result.droppedBytes > 0 {
       // P1 perf fix (2026-09-08): this fired PER NOTIFICATION (~87 logs/min = 87
       // POSTs/min to the VPS). Throttle to 1 log/60 s with a cumulative counter.
-      droppedLogCounterLock.lock()
-      droppedLogCounter += Int(result.droppedBytes)
+      Self.droppedLogCounterLock.lock()
+      Self.droppedLogCounter += Int(result.droppedBytes)
       let now = Date()
-      let shouldLog = now.timeIntervalSince(lastDroppedLogAt) >= 60
-      if shouldLog { lastDroppedLogAt = now }
-      let total = droppedLogCounter
-      if shouldLog { droppedLogCounter = 0 }
-      droppedLogCounterLock.unlock()
+      let shouldLog = now.timeIntervalSince(Self.lastDroppedLogAt) >= 60
+      if shouldLog { Self.lastDroppedLogAt = now }
+      let total = Self.droppedLogCounter
+      if shouldLog { Self.droppedLogCounter = 0 }
+      Self.droppedLogCounterLock.unlock()
       if shouldLog {
         ble.record(
           level: .warn,
@@ -119,14 +119,14 @@ extension GooseAppModel {
     if result.droppedBytes > 0 {
       // P1 perf fix (2026-09-08): this fired PER NOTIFICATION (~87 logs/min = 87
       // POSTs/min to the VPS). Throttle to 1 log/60 s with a cumulative counter.
-      droppedLogCounterLock.lock()
-      droppedLogCounter += Int(result.droppedBytes)
+      Self.droppedLogCounterLock.lock()
+      Self.droppedLogCounter += Int(result.droppedBytes)
       let now = Date()
-      let shouldLog = now.timeIntervalSince(lastDroppedLogAt) >= 60
-      if shouldLog { lastDroppedLogAt = now }
-      let total = droppedLogCounter
-      if shouldLog { droppedLogCounter = 0 }
-      droppedLogCounterLock.unlock()
+      let shouldLog = now.timeIntervalSince(Self.lastDroppedLogAt) >= 60
+      if shouldLog { Self.lastDroppedLogAt = now }
+      let total = Self.droppedLogCounter
+      if shouldLog { Self.droppedLogCounter = 0 }
+      Self.droppedLogCounterLock.unlock()
       if shouldLog {
         ble.record(
           level: .warn,

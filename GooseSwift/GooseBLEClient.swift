@@ -255,6 +255,47 @@ final class GooseBLEClient: NSObject, ObservableObject {
   var gen4HistoryToken: [UInt8]?              // OpenStrap: 8-byte marker token to echo
   var gen4HistoryTokenAt: Date?
   var gen4HistoryDeadline: Date?              // hard stop for the ack loop (write-pressure guard)
+  // Live protocol trace for the Réglages backfill view (last ~12 events:
+  // commands sent, command responses, type-47 data frames). Non-published —
+  // the view polls it on its 0.5 s tick to avoid per-frame renders.
+  private(set) var gen4ProtocolLog: [(at: Date, line: String)] = []
+
+  /// Append one protocol-trace line. Cheap (no publish); the UI polls.
+  func gen4Trace(_ line: String) {
+    gen4ProtocolLog.append((Date(), line))
+    if gen4ProtocolLog.count > 12 { gen4ProtocolLog.removeFirst(gen4ProtocolLog.count - 12) }
+  }
+
+  // Persistent HUMAN journal (plain French) — survives the end of the backfill.
+  // Reset only when the next sync starts. Published so the Réglages view
+  // refreshes live while lines land.
+  @Published var gen4SyncJournal: [String] = []
+  var gen4JournalHR = 0
+  var gen4JournalSteps = 0
+  var gen4JournalTemp = 0
+  var gen4JournalOther = 0
+
+  /// Journal a human-readable sync event line (no hex, no jargon).
+  /// Also recorded via the standard log pipeline so the lines reach the VPS
+  /// (app_log) — Pat watches the sync from both the phone and the server.
+  func gen4Journal(_ line: String) {
+    DispatchQueue.main.async { [weak self] in
+      self?.gen4SyncJournal.append(line)
+      if self?.gen4SyncJournal.count ?? 0 > 40 { self?.gen4SyncJournal.removeFirst() }
+      self?.record(level: .warn, source: "ble.gen4.syncjournal", title: "sync.journal",
+                   body: line)
+    }
+  }
+
+  func gen4JournalReset() {
+    DispatchQueue.main.async { [weak self] in
+      self?.gen4SyncJournal = ["🔄 Synchronisation démarrée — coupure du flux temps réel…"]
+    }
+    gen4JournalHR = 0
+    gen4JournalSteps = 0
+    gen4JournalTemp = 0
+    gen4JournalOther = 0
+  }
   var lastDeadLinkRecovery = Date.distantPast // throttle for zombie-connection recovery
   var lastDataFrameAt = Date.distantPast      // last raw notification — stall watchdog
   var gen4ReEnableTimer: Timer?
