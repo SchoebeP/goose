@@ -47,8 +47,7 @@ struct WorkoutRecordView: View {
     NavigationStack {
       ScrollView {
         VStack(spacing: 14) {
-          timerCard
-          hrCard
+          heroCard          // LOT UI v3: timer + FC fusionnés en une seule carte
           if isRun { gpsCards }
           statsRow
           controls
@@ -99,61 +98,65 @@ struct WorkoutRecordView: View {
     }
   }
 
-  // MARK: timer
+  // MARK: hero (LOT UI v3 — timer + FC fusionnés en une carte)
 
-  private var timerCard: some View {
-    VStack(spacing: 4) {
-      Text(timeString(session.durationSeconds))
-        .font(.system(size: 58, weight: .bold, design: .rounded))
-        .monospacedDigit()
-      Text(session.isPaused ? "en pause" : "en cours · \(startTimeLabel)")
-        .font(.caption)
-        .foregroundStyle(.secondary)
+  /// LOT UI v3: ONE hero card — workout type + big pulsing heart + giant bpm
+  /// as the visual anchor, timer + zone inline, zone bar and live curve below.
+  private var heroCard: some View {
+    VStack(spacing: 14) {
+      // header row: workout type + start time
+      HStack {
+        Label(session.workoutType?.displayName ?? "Séance",
+              systemImage: session.workoutType == .run ? "figure.run" :
+                           session.workoutType == .gym ? "dumbbell.fill" : "figure.mix")
+          .font(.subheadline.weight(.semibold))
+          .foregroundStyle(.secondary)
+        Spacer()
+        Text(session.isPaused ? "en pause" : startTimeLabel)
+          .font(.caption)
+          .foregroundStyle(.secondary)
+      }
+      // the anchor: pulsing heart + giant bpm + zone, one line
+      HStack(alignment: .center, spacing: 12) {
+        Image(systemName: "heart.fill")
+          .foregroundStyle(.red)
+          .font(.system(size: 40))
+          .scaleEffect(heartBeat && liveBPM != nil ? 1.15 : 1.0)
+          .animation(.easeInOut(duration: pulseHalfSeconds), value: heartBeat)
+        Text(liveBPM.map(String.init) ?? "—")
+          .font(.system(size: 88, weight: .bold, design: .rounded))
+          .monospacedDigit()
+          .contentTransition(.numericText())
+          .animation(.easeOut(duration: 0.3), value: liveBPM)
+        VStack(alignment: .leading, spacing: 2) {
+          Text("bpm").font(.subheadline).foregroundStyle(.secondary)
+          Text("zone \(zoneName)")
+            .font(.headline)
+            .foregroundStyle(zoneColor)
+            .animation(.easeInOut(duration: 0.4), value: zoneName)
+        }
+        Spacer()
+        // timer, compact, right-aligned
+        VStack(alignment: .trailing, spacing: 2) {
+          Text(timeString(session.durationSeconds))
+            .font(.system(size: 28, weight: .bold, design: .rounded))
+            .monospacedDigit()
+          Text("durée").font(.caption2).foregroundStyle(.secondary)
+        }
+      }
+      zoneBar
+      liveCurve
     }
-    .frame(maxWidth: .infinity)
-    .padding(.vertical, 20)
-    .background(RoundedRectangle(cornerRadius: 18).fill(Color(.secondarySystemBackground)))
+    .padding(18)
+    .background(RoundedRectangle(cornerRadius: 22).fill(Color(.secondarySystemBackground)))
+    .scaleEffect(expanded ? 1.0 : 0.92)
+    .opacity(expanded ? 1.0 : 0.6)
   }
 
   private var startTimeLabel: String {
     let f = DateFormatter()
     f.dateFormat = "HH:mm"
     return "début \(f.string(from: Date().addingTimeInterval(-Double(session.durationSeconds))))"
-  }
-
-  // MARK: live HR (LOT 1 animations)
-
-  private var hrCard: some View {
-    VStack(alignment: .leading, spacing: 10) {
-      Label("FC maintenant", systemImage: "heart.fill")
-        .font(.subheadline.weight(.semibold))
-        .foregroundStyle(.red)
-      HStack(alignment: .firstTextBaseline, spacing: 6) {
-        // LOT 1: heart pulses at the REAL bpm rate (1 scale cycle per beat).
-        Image(systemName: "heart.fill")
-          .foregroundStyle(.red)
-          .font(.title3)
-          .scaleEffect(heartBeat && liveBPM != nil ? 1.15 : 1.0)
-          .animation(.easeInOut(duration: pulseHalfSeconds), value: heartBeat)
-        Text(liveBPM.map(String.init) ?? "—")
-          .font(.system(size: 62, weight: .bold, design: .rounded))
-          .monospacedDigit()
-          .contentTransition(.numericText())
-          .animation(.easeOut(duration: 0.3), value: liveBPM)
-        Text("bpm").font(.subheadline).foregroundStyle(.secondary)
-        Spacer()
-        Text("zone \(zoneName)")
-          .font(.headline)
-          .foregroundStyle(zoneColor)
-          .animation(.easeInOut(duration: 0.4), value: zoneName)
-      }
-      zoneBar
-      liveCurve
-    }
-    .padding(16)
-    .background(RoundedRectangle(cornerRadius: 18).fill(Color(.secondarySystemBackground)))
-    .scaleEffect(expanded ? 1.0 : 0.92)
-    .opacity(expanded ? 1.0 : 0.6)
   }
 
   /// LOT 1: half a heartbeat, in seconds (drives the pulse animation curve).
