@@ -1012,6 +1012,7 @@ final class WhoopCloudForwarder {
   private let queue = DispatchQueue(label: "com.goose.swift.cloud-forward", qos: .utility)
   private let iso = ISO8601DateFormatter()
   private var lastSent = Date.distantPast
+  private var lastTempSent = Date.distantPast
   private var frameBuffers: [String: [UInt8]] = [:]   // per-characteristic frame reassembly
   private var pendingFrames: [String] = []            // complete-frame hex awaiting POST
   private var lastFrameFlush = Date.distantPast
@@ -1036,6 +1037,30 @@ final class WhoopCloudForwarder {
         "rr_intervals_ms": rrMs,
         "wall_ts": self.iso.string(from: date),
       ]
+      req.httpBody = try? JSONSerialization.data(withJSONObject: body)
+      URLSession.shared.dataTask(with: req).resume()  // fire-and-forget
+    }
+  }
+
+  /// Forward a skin-temperature candidate from TEMPERATURE_LEVEL events.
+  /// Raw int only — never Celsius (backend policy: raw ADC, relative tier).
+  func forwardSkinTemp(rawValue: Int, at date: Date) {
+    guard isEnabled else { return }
+    queue.async {
+      // TEMPERATURE_LEVEL arrives in bursts; throttle to ≥60 s like HR's
+      // lastSent, but on its own variable so temp doesn't fight HR posts.
+      guard date.timeIntervalSince(self.lastTempSent) >= 60 else { return }
+      self.lastTempSent = date
+      let body: [String: Any] = [
+        "bpm": NSNull(),
+        "skin_temp_raw": Double(rawValue),
+        "skin_contact": 1,
+        "wall_ts": self.iso.string(from: date),
+      ]
+      var req = URLRequest(url: self.endpoint)
+      req.httpMethod = "POST"
+      req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+      req.setValue(self.token, forHTTPHeaderField: "X-Ingest-Token")
       req.httpBody = try? JSONSerialization.data(withJSONObject: body)
       URLSession.shared.dataTask(with: req).resume()  // fire-and-forget
     }
