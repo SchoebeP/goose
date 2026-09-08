@@ -455,6 +455,11 @@ extension GooseAppModel {
     }
 
     publishSkinTemperatureCandidateStatus(sample.temperatureCandidateSummary)
+    // Forward the raw ADC candidate to the VPS (skin_temp_sample was empty
+    // forever — the app had the candidate but never posted it).
+    if let cand = sample.primaryTemperatureCandidate {
+      WhoopCloudForwarder.shared.forwardSkinTemp(rawValue: cand.rawValue, at: sample.capturedAt)
+    }
     recordDeviceSignalPoint(
       family: "Skin Temp",
       value: sample.primaryTemperatureCandidate?.summary ?? "candidate unresolved",
