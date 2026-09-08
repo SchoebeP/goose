@@ -274,7 +274,7 @@
 		D20000000000000000000023 /* HomeScoreViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeScoreViews.swift; sourceTree = "<group>"; };
 		D20000000000000000000061 /* SyncSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncSection.swift; sourceTree = "<group>"; };
 		D20000000000000000000090 /* WorkoutGPSTracker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkoutGPSTracker.swift; sourceTree = "<group>"; };
-		D20000000000000000000091 /* GooseBLEClient+OfficialHandshake.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GooseBLEClient+OfficialHandshake.swift; sourceTree = "<group>"; };
+		D20000000000000000000091 /* GooseBLEClient+OfficialHandshake.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "GooseBLEClient+OfficialHandshake.swift"; sourceTree = "<group>"; };
 		D20000000000000000000096 /* SimpleAppView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SimpleAppView.swift; sourceTree = "<group>"; };
 		D20000000000000000000081 /* WorkoutRecordView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkoutRecordView.swift; sourceTree = "<group>"; };
 		D20000000000000000000082 /* WorkoutSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkoutSession.swift; sourceTree = "<group>"; };

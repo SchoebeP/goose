@@ -1266,7 +1266,7 @@ extension GooseBLEClient {
     requestGen4HistoricalBackfillIfNeeded(force: true)
   }
 
-  private func writeGen4Command(_ command: UInt8, payload: [UInt8], label: String) {
+  func writeGen4Command(_ command: UInt8, payload: [UInt8], label: String) {
     guard let peripheral = activePeripheral,
           let characteristic = commandCharacteristic,
           let writeType = writeType(for: characteristic) else {

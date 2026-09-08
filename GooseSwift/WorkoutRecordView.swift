@@ -85,7 +85,7 @@ struct WorkoutRecordView: View {
   }
 
   /// LOT 1: last time the heart pulsed (to pace it at the real bpm).
-  @State private var lastPulseAt = .distantPast
+  @State private var lastPulseAt: Date = .distantPast
 
   /// LOT 1: subtle radial tint behind everything, colored by current zone.
   private var zoneHalo: some View {
@@ -223,7 +223,7 @@ struct WorkoutRecordView: View {
           fill.closeSubpath()
           ctx.fill(fill, with: .linearGradient(
             Gradient(colors: [.red.opacity(0.28), .clear]),
-            startPoint: .top, endPoint: .bottom))
+            startPoint: CGPoint(x: 0, y: 0), endPoint: CGPoint(x: 0, y: size.height)))
         }
         .frame(height: 54)
       } else {
