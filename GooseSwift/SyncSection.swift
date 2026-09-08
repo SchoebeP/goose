@@ -118,6 +118,19 @@ struct SyncSection: View {
       }
       .disabled(gen4 ? model.ble.isGen4Backfilling : model.ble.isHistoricalSyncing)
       .accessibilityIdentifier("sync.now")
+
+      if gen4 {
+        Button {
+          // LOT 1 BIS (Zulusierra MITM): replay the official app's full
+          // handshake — HELLO, clock, feature-flag read loop, config —
+          // THEN ask history with 0x16 only. Journal tells the story live.
+          model.ble.runOfficialHandshake()
+        } label: {
+          Text("Tester le handshake officiel")
+        }
+        .disabled(model.ble.isGen4Backfilling)
+        .accessibilityIdentifier("sync.official-handshake")
+      }
     }
   }
 

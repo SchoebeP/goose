@@ -1169,7 +1169,7 @@ extension GooseBLEClient {
   /// band paginates: each type-47 frame is ACKed with HISTORICAL_DATA_RESULT(23)
   /// in gen4ObserveRawNotification to pull the next chunk. UNVERIFIED against the
   /// 4.0 firmware — logged at .warn so we can confirm it live via the log stream.
-  func requestGen4HistoricalBackfillIfNeeded(force: Bool = false) {
+  func requestGen4HistoricalBackfillIfNeeded(force: Bool = false, officialOnly: Bool = false) {
     guard connectionState == "ready",
           let ch = commandCharacteristic, isGen4CommandCharacteristic(ch) else { return }
     guard force || !gen4StartedHistoricalBackfill else { return }
@@ -1192,6 +1192,15 @@ extension GooseBLEClient {
     gen4Journal("🔴 J'ai coupé le flux temps réel (le bracelet ne peut parler historique que dans cet état).")
 
     // +1 s: band settles out of realtime before we ask for history.
+    if officialOnly {
+      // LOT 1 BIS: official-app-only mode (Zulusierra MITM). The real app asks
+      // history with 0x16 (=22) AFTER the full handshake — no 34 probing.
+      DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
+        self?.writeGen4Command(22, payload: [], label: "REQUEST_HISTORICAL_DATA(0x16 official)")
+        self?.gen4Journal("📜 J'ai demandé l'historique (0x16, comme la vraie app)")
+        self?.gen4Journal("⏳ J'attends sa réponse… (rien en ~90 s = rien en mémoire, ou pas le bon dialogue)")
+      }
+    } else {
     DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
       self?.writeGen4Command(34, payload: [], label: "GET_DATA_RANGE")
       self?.gen4Journal("📤 J'ai demandé : « donne-moi ce que tu as en mémoire »")
@@ -1211,6 +1220,7 @@ extension GooseBLEClient {
       self?.gen4Journal("📤 J'ai demandé : « envoie-le moi »")
       self?.gen4Journal("⏳ J'attends sa réponse… (si rien n'arrive dans ~90 s, il n'a rien en mémoire)")
     }
+    } // !officialOnly
     // Close the window: with no type-47 frame the band had nothing buffered —
     // that's a completed (empty) backfill, not a failure.
     DispatchQueue.main.asyncAfter(deadline: .now() + Self.gen4BackfillWindow + 30) { [weak self] in
