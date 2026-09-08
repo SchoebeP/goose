@@ -33,7 +33,7 @@ extension GooseBLEClient {
     return [
       OfficialHandshakeStep(cmd: 35, payload: Self.helloTimestampPayload(),
                             label: "HELLO(0x23) timestamp+status", waitAfter: 0.8),
-      OfficialHandshakeStep(cmd: 10, payload: [], label: "CLOCK_SYNC(0x0a)", waitAfter: 0.4),
+      OfficialHandshakeStep(cmd: 10, payload: Self.clockSyncPayload(), label: "CLOCK_SYNC(0x0a)", waitAfter: 0.4),
       OfficialHandshakeStep(cmd: 0x75, payload: [], label: "FEATURE_FLAG_QUERY(0x75)", waitAfter: 0.4),
       // 0x76 iteration: the app reads 13 flags; we iterate a few empty reads —
       // each should return one flag name in the response. We log what we get.
@@ -45,6 +45,14 @@ extension GooseBLEClient {
       OfficialHandshakeStep(cmd: 0x76, payload: [], label: "FLAG_ITER(0x76) #6", waitAfter: 0.25),
       OfficialHandshakeStep(cmd: 0x22, payload: [], label: "CONFIG_QUERY(0x22)", waitAfter: 0.6),
     ]
+  }
+
+  /// CLOCK_SYNC payload — 8 bytes: unix epoch u32 LE + u32 0 (HCI-verified,
+  /// OpenStrap). A wrong-length SET_CLOCK is ack'd but NOT latched → RTC stays
+  /// lost and the band refuses to serve history (noop finding, 2026-09).
+  static func clockSyncPayload() -> [UInt8] {
+    let now = UInt32(Date().timeIntervalSince1970)
+    return withUnsafeBytes(of: now.littleEndian) { Array($0) } + [0, 0, 0, 0]
   }
 
   /// HELLO payload: 9 bytes — unix timestamp LE + zero padding (MITM frame:

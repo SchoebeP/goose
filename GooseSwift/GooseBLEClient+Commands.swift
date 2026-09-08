@@ -1196,27 +1196,27 @@ extension GooseBLEClient {
       // LOT 1 BIS: official-app-only mode (Zulusierra MITM). The real app asks
       // history with 0x16 (=22) AFTER the full handshake — no 34 probing.
       DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
-        self?.writeGen4Command(22, payload: [], label: "REQUEST_HISTORICAL_DATA(0x16 official)")
+        self?.writeGen4Command(22, payload: [0x00], label: "REQUEST_HISTORICAL_DATA(0x16 official)")
         self?.gen4Journal("📜 J'ai demandé l'historique (0x16, comme la vraie app)")
         self?.gen4Journal("⏳ J'attends sa réponse… (rien en ~90 s = rien en mémoire, ou pas le bon dialogue)")
       }
     } else {
     DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
-      self?.writeGen4Command(34, payload: [], label: "GET_DATA_RANGE")
+      self?.writeGen4Command(34, payload: [0x00], label: "GET_DATA_RANGE")
       self?.gen4Journal("📤 J'ai demandé : « donne-moi ce que tu as en mémoire »")
     }
     // Zulusierra MITM (2026-09): the official app requests history with
     // REQUEST_HISTORICAL_DATA 0x16 (=22), NOT GET_DATA_RANGE. Try the official
     // form too — whichever command this firmware answers, we win.
     DispatchQueue.main.asyncAfter(deadline: .now() + 1.6) { [weak self] in
-      self?.writeGen4Command(22, payload: [], label: "REQUEST_HISTORICAL_DATA(official-app form)")
+      self?.writeGen4Command(22, payload: [0x00], label: "REQUEST_HISTORICAL_DATA(official-app form)")
     }
     // The proven 23/07 form was cmd22 with empty payload right after cmd34.
     DispatchQueue.main.asyncAfter(deadline: .now() + 2.2) { [weak self] in
-      self?.writeGen4Command(34, payload: [], label: "GET_DATA_RANGE(2nd)")
+      self?.writeGen4Command(34, payload: [0x00], label: "GET_DATA_RANGE(2nd)")
     }
     DispatchQueue.main.asyncAfter(deadline: .now() + 2.8) { [weak self] in
-      self?.writeGen4Command(22, payload: [], label: "SEND_HISTORICAL_DATA(2nd)")
+      self?.writeGen4Command(22, payload: [0x00], label: "SEND_HISTORICAL_DATA(2nd)")
       self?.gen4Journal("📤 J'ai demandé : « envoie-le moi »")
       self?.gen4Journal("⏳ J'attends sa réponse… (si rien n'arrive dans ~90 s, il n'a rien en mémoire)")
     }
