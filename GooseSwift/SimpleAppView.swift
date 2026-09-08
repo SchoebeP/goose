@@ -225,71 +225,34 @@ struct SimpleAppView: View {
     .background(.ultraThinMaterial)
   }
 
-  /// LOT UI v4: Pause | durée+FC live | Arrêter — même layout que le lanceur
-  /// (3 zones égales) pour zéro déplacement des pouces entre les deux états.
+  /// LOT UI v4 (pat, final): just Pause | Stop — two big equal buttons.
   private var activeWorkoutBar: some View {
-    HStack(spacing: 0) {
+    HStack(spacing: 12) {
       Button {
         workout.isPaused ? workout.resume() : workout.pause()
       } label: {
-        VStack(spacing: 4) {
-          Image(systemName: workout.isPaused ? "play.fill" : "pause.fill")
-            .font(.title3.weight(.semibold))
-          Text(workout.isPaused ? "Reprendre" : "Pause")
-            .font(.caption.weight(.semibold))
-        }
-        .foregroundStyle(.orange)
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 6)
-      }
-      .buttonStyle(.plain)
-
-      // center: live duration + HR, tap reopens the full-screen session
-      Button {
-        showWorkout = true
-      } label: {
-        VStack(spacing: 4) {
-          Text(timeString(workout.durationSeconds))
-            .font(.system(size: 20, weight: .bold, design: .rounded))
-            .monospacedDigit()
-          HStack(spacing: 4) {
-            Image(systemName: "heart.fill")
-              .foregroundStyle(.red)
-              .scaleEffect(workout.isPaused ? 1.0 : 1.1)
-            Text(workoutLiveText)
-              .font(.caption.weight(.semibold))
-          }
-          .foregroundStyle(.secondary)
-        }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 6)
+        Label(workout.isPaused ? "Reprendre" : "Pause",
+              systemImage: workout.isPaused ? "play.fill" : "pause.fill")
+          .font(.headline)
+          .foregroundStyle(.orange)
+          .frame(maxWidth: .infinity)
+          .padding(.vertical, 16)
+          .background(RoundedRectangle(cornerRadius: 16).fill(Color(.secondarySystemBackground)))
       }
       .buttonStyle(.plain)
 
       Button {
         workout.stop()
       } label: {
-        VStack(spacing: 4) {
-          Image(systemName: "stop.fill")
-            .font(.title3.weight(.semibold))
-          Text("Arrêter")
-            .font(.caption.weight(.semibold))
-        }
-        .foregroundStyle(.red)
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 6)
+        Label("Arrêter", systemImage: "stop.fill")
+          .font(.headline)
+          .foregroundStyle(.white)
+          .frame(maxWidth: .infinity)
+          .padding(.vertical, 16)
+          .background(RoundedRectangle(cornerRadius: 16).fill(.red))
       }
       .buttonStyle(.plain)
     }
-  }
-
-  /// LOT UI v4: "142 bpm" ou "en pause" pour la barre du bas.
-  private var workoutLiveText: String {
-    guard !workout.isPaused,
-          let bpm = model.ble.liveHeartRateBPM,
-          let at = model.ble.liveHeartRateUpdatedAt,
-          Date().timeIntervalSince(at) < 15 else { return "en pause" }
-    return "\(bpm) bpm"
   }
 
   private func timeString(_ s: Int) -> String {
