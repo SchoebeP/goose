@@ -66,3 +66,49 @@ notre implémentation couvre déjà le sujet.
 2. [ ] Badge couverture sur le total pas ("compté depuis connexion, couvert Xh/24h")
 3. [ ] Reason codes (status) sur /ingest/metrics/daily
 4. [ ] rr_confidence_pct exposé
+
+
+---
+
+## Addendum 08/09 — Comment Atria gère le backfill (lire GOAL_strap_steps_drain.md)
+
+### Le mur matériel (device-proven chez eux aussi)
+- **L'historique ne stream QUE en drain complet stop-realtime** `[0x16, 0x00]` : le firmware
+  n'envoie AUCUNE trame history tant que le flux 2A37 (HR live) est actif (mode chunked
+  "realtime-preserving" → `stream5_rx=0`).
+- → Cohérent avec notre CLAUDE.md ("HR backfillable; steps are NOT") mais eux précisent :
+  c'est le HR **live** qui bloque, pas juste les steps. Le drain exige de COUPER le realtime.
+
+### Le protocole de drain (à copier)
+1. **Stop realtime** (`0x16 0x00`) → drain complet `0x22` (GET_DATA_RANGE) + chunks
+2. **Persist-before-ack** : ACK `HISTORICAL_DATA_RESULT(23)` SEULEMENT après écriture durable
+   des lignes → curseur resumable à travers les déconnexions (jamais de perte ni de doublon)
+3. **HISTORY_END** ACK conditionné (retenu si `orphan_not_archived`/`spool_open_failed`)
+4. Restaurer le realtime à la fin (`restoreRealtimeAfterHistoryGeneration`)
+
+### Le scheduling (le vrai savoir)
+- **Jamais pendant un epoch HR sain** : le live HR est prioritaire à 100%.
+- **Drain dans les "gaps naturels"** : reconnexion après déconnexion naturelle
+  (`priorConnectionEndedNaturally`), nuit, charge. "Yesterday becomes correct by next morning
+  via the overnight natural gap" — hiérarchie assumée : intraday = estimation, nuit = vérité.
+- **Interleave pendant le port = impasse révertée** (risque HR, non-convergence prouvée).
+- Tout **flag-gated** jusqu'à soak : preuve = `accepted_hr` gap ≈ 0 autour de chaque tranche
+  de drain. Dry-run d'abord (`--dryrun` logue la décision sans drainer).
+
+### L'affichage intraday honnête ( REC-1 )
+- Total pas du jour = **estimation live par cadence IMU gyro** (zéro coût BLE, chevauche les
+  trames déjà sur le lien), libellée **"· estimate" / "Environ N"** — JAMAIS présentée comme
+  le vrai compte. Clamp physiologique de cadence. Fallback honnête : dernier jour complet.
+
+### Mapping vers NOS bugs (audit 07/09)
+| Notre problème | Leur réponse |
+|---|---|
+| history_sample figé depuis 16/06 | Vérifier si notre one-shot GET_DATA_RANGE on-bond coupe le realtime avant de tirer (sinon le firmware ne répond jamais) — piste n°1 de notre régression |
+| Trous jamais rebouchés (69,7h) | Drain on-reconnect (gap naturel) + curseur persist-before-ack resumable |
+| Pas : total trompeur | Leur modèle : estimation live étiquetée + vérité au matin via drain nocturne |
+| RR intermittent | Chez eux le drain/type-40 coexistent via le fencing d'epoch — piste : vérifier nos restaurations background |
+
+### Commandes/télémétrie à reprendre
+- Télémétrie de drain : `stream5_rx`, `durable_rows`, curseur ACK, `accepted_hr` gap
+- Dry-run du prédicat de drain avant de l'activer
+- Soak = plusieurs nuits avec preuves avant d'activer par défaut
