@@ -210,6 +210,41 @@ fn activity_health_sync_ignores_unsupported_route_metrics_without_broadening_per
 }
 
 #[test]
+fn activity_health_sync_surfaces_out_of_window_metrics_and_intervals_as_ignored() {
+    let mut session = activity_session("activity-session-out-of-window", "cycling", 0.92, true);
+    // Session window is 06:00:00Z-06:45:00Z; both samples fall outside it.
+    session.metrics = vec![activity_metric(
+        "heart_rate",
+        140.0,
+        "count/min",
+        "activity_metric_fixture",
+        Some("2026-05-27T07:00:00Z"),
+        Some("2026-05-27T07:10:00Z"),
+    )];
+    session.intervals = vec![activity_interval(
+        "activity-session-out-of-window-interval-1",
+        "lap",
+        "2026-05-27T07:00:00Z",
+        "2026-05-27T07:10:00Z",
+        Vec::new(),
+    )];
+
+    let report = run_activity_health_sync_dry_run(&activity_input(
+        HealthPlatform::HealthKit,
+        vec!["HKWorkout".to_string()],
+        vec![session],
+    ));
+
+    assert!(report.pass);
+    assert_eq!(report.planned_session_count, 1);
+    assert_eq!(report.blocked_session_count, 0);
+    assert_eq!(report.planned_sessions[0].attached_metric_count, 0);
+    assert_eq!(report.planned_sessions[0].attached_interval_count, 0);
+    assert_eq!(report.planned_sessions[0].ignored_metric_count, 1);
+    assert_eq!(report.planned_sessions[0].ignored_interval_count, 1);
+}
+
+#[test]
 fn activity_health_sync_attaches_supported_heart_rate_energy_distance_samples_and_segments() {
     let mut session = activity_session("activity-session-supported", "cycling", 0.94, true);
     session.metrics = vec![

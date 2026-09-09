@@ -896,6 +896,7 @@ pub struct DebugEventRow {
 impl GooseStore {
     pub fn open(path: &Path) -> GooseResult<Self> {
         let conn = Connection::open(path)?;
+        conn.busy_timeout(std::time::Duration::from_secs(5))?;
         let store = Self { conn };
         store.migrate()?;
         Ok(store)
@@ -5031,34 +5032,37 @@ impl GooseStore {
         validate_json("quality_flags_json", &run.quality_flags_json)?;
         validate_json("provenance_json", &run.provenance_json)?;
 
-        let changed = self.conn.execute(
-            r#"
-            INSERT OR IGNORE INTO algorithm_runs (
-                run_id,
-                algorithm_id,
-                version,
-                start_time,
-                end_time,
-                output_json,
-                quality_flags_json,
-                provenance_json
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
-            "#,
-            params![
-                run.run_id,
-                run.algorithm_id,
-                run.version,
-                run.start_time,
-                run.end_time,
-                run.output_json,
-                run.quality_flags_json,
-                run.provenance_json,
-            ],
-        )?;
-        if changed > 0 {
-            self.insert_metric_rows_for_algorithm_run(run)?;
-        }
-        Ok(changed > 0)
+        self.immediate_transaction(|store| {
+            let changed = store.conn.execute(
+                r#"
+                INSERT OR IGNORE INTO algorithm_runs (
+                    run_id,
+                    algorithm_id,
+                    version,
+                    start_time,
+                    end_time,
+                    output_json,
+                    quality_flags_json,
+                    provenance_json
+                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+                "#,
+                params![
+                    run.run_id,
+                    run.algorithm_id,
+                    run.version,
+                    run.start_time,
+                    run.end_time,
+                    run.output_json,
+                    run.quality_flags_json,
+                    run.provenance_json,
+                ],
+            )?;
+            // Unconditional (not gated on `changed`): the metric-row inserts are
+            // INSERT OR IGNORE on deterministic ids, so re-running heals any run
+            // row that previously committed without its derived rows.
+            store.insert_metric_rows_for_algorithm_run(run)?;
+            Ok(changed > 0)
+        })
     }
 
     fn insert_metric_rows_for_algorithm_run(&self, run: &AlgorithmRunRecord) -> GooseResult<()> {
@@ -6087,11 +6091,15 @@ impl GooseStore {
     }
 
     fn ensure_daily_activity_metric_multi_row_source_kind(&self) -> GooseResult<()> {
+        self.recover_stranded_table_rebuild(
+            "daily_activity_metrics",
+            "daily_activity_metrics_v12_source_unique",
+        )?;
         if !self.daily_activity_metrics_has_source_kind_unique_constraint()? {
             return Ok(());
         }
 
-        self.conn.execute_batch(
+        self.immediate_transaction(|store| store.conn.execute_batch(
             r#"
             ALTER TABLE daily_activity_metrics RENAME TO daily_activity_metrics_v12_source_unique;
 
@@ -6163,8 +6171,46 @@ impl GooseStore {
             CREATE INDEX IF NOT EXISTS idx_daily_activity_metrics_by_source_kind
                 ON daily_activity_metrics(source_kind);
             "#,
-        )?;
+        ).map_err(GooseError::from))?;
         Ok(())
+    }
+
+    /// Heals a database stranded by a crash mid table-rebuild (rename → create
+    /// → copy → drop) from before those rebuilds ran inside a transaction. The
+    /// old and new schemas share identical column order, so a plain SELECT *
+    /// copy is safe.
+    fn recover_stranded_table_rebuild(
+        &self,
+        target_table: &str,
+        leftover_table: &str,
+    ) -> GooseResult<()> {
+        let table_exists = |table: &str| -> GooseResult<bool> {
+            let count: i64 = self.conn.query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = ?1",
+                params![table],
+                |row| row.get(0),
+            )?;
+            Ok(count > 0)
+        };
+        if !table_exists(leftover_table)? {
+            return Ok(());
+        }
+        let target_exists = table_exists(target_table)?;
+        self.immediate_transaction(|store| {
+            if target_exists {
+                store.conn.execute_batch(&format!(
+                    "INSERT OR IGNORE INTO {target_table} SELECT * FROM {leftover_table};
+                     DROP TABLE {leftover_table};"
+                ))?;
+            } else {
+                // Crash hit between rename and create: restore the old table and
+                // let the normal rebuild path run again.
+                store.conn.execute_batch(&format!(
+                    "ALTER TABLE {leftover_table} RENAME TO {target_table};"
+                ))?;
+            }
+            Ok(())
+        })
     }
 
     fn daily_activity_metrics_has_source_kind_unique_constraint(&self) -> GooseResult<bool> {
@@ -6172,11 +6218,15 @@ impl GooseStore {
     }
 
     fn ensure_daily_recovery_metric_multi_row_source_kind(&self) -> GooseResult<()> {
+        self.recover_stranded_table_rebuild(
+            "daily_recovery_metrics",
+            "daily_recovery_metrics_source_unique",
+        )?;
         if !self.daily_recovery_metrics_has_source_kind_unique_constraint()? {
             return Ok(());
         }
 
-        self.conn.execute_batch(
+        self.immediate_transaction(|store| store.conn.execute_batch(
             r#"
             ALTER TABLE daily_recovery_metrics RENAME TO daily_recovery_metrics_source_unique;
 
@@ -6248,7 +6298,7 @@ impl GooseStore {
             CREATE INDEX IF NOT EXISTS idx_daily_recovery_metrics_by_source_kind
                 ON daily_recovery_metrics(source_kind);
             "#,
-        )?;
+        ).map_err(GooseError::from))?;
         Ok(())
     }
 
@@ -6474,6 +6524,12 @@ fn value_contains_official_whoop_label_marker(value: &Value) -> bool {
 
 fn is_official_whoop_label_token(value: &str) -> bool {
     let normalized = normalized_marker(value);
+    // The policy self-declaration asserts compliance ("official values are
+    // validation labels, not inputs") — it is the one official_whoop_-prefixed
+    // string that is not a claim of an official source.
+    if normalized == crate::validation_labels::OFFICIAL_WHOOP_LABEL_POLICY {
+        return false;
+    }
     matches!(
         normalized.as_str(),
         "whoop"

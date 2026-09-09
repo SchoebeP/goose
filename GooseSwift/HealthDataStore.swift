@@ -22,6 +22,18 @@ final class HealthDataStore: ObservableObject {
   @Published var heartRateHourlyRanges: [HeartRateHourlyRange] = []
   @Published var heartRateTimelineStatus = "No HR samples stored"
   @Published var homeStressSnapshotCache: HealthMetricSnapshot?
+  /// Daily HRV/RHR/respiratory/skin-temp computed by the VPS from the band's
+  /// uploaded history, keyed by "yyyy-MM-dd" (local). Used as the recovery
+  /// fallback because the local scorer only sees frames captured during an
+  /// explicit packet-capture session, while the band streams continuously to
+  /// the VPS. These remain OUR OWN computations, never WHOOP's.
+  @Published var bandVitalsDaily: [String: BandVitalDay] = [:]
+  /// Per-signal personal "usual range" from the VPS feed, keyed "hrv"/"rhr"/"temp".
+  @Published var vitalBands: [String: VitalBand] = [:]
+  /// Per-signal daily series for the Trends tab, keyed "hrv"/"rhr"/"temp", oldest→newest.
+  @Published var vitalSeries: [String: [VitalPoint]] = [:]
+  /// Per-night sleep durations from the VPS, oldest→newest.
+  @Published var sleepNights: [SleepNight] = []
 
   let bridge = GooseRustBridge()
   let heartRateSeriesStore = HeartRateSeriesStore.shared
@@ -35,6 +47,8 @@ final class HealthDataStore: ObservableObject {
   var packetInputIsRunning = false
   var packetScoreRunID: UUID?
   var packetScoreIsRunning = false
+  var stressSummaryCache: [String: (generatedAt: Date, summary: StressAlgorithmSummary)] = [:]
+  var energyBankSummaryCache: [String: (generatedAt: Date, summary: EnergyBankAlgorithmSummary)] = [:]
   var heartRateTimelineRefreshID: UUID?
   var heartRateSeriesUpdateObserver: NSObjectProtocol?
   var homeStressRefreshID: UUID?
@@ -67,6 +81,7 @@ final class HealthDataStore: ObservableObject {
       queue: .main
     ) { [weak self] _ in
       Task { @MainActor in
+        self?.invalidateStressEnergySummaryCaches()
         self?.refreshHeartRateTimeline()
         self?.refreshHomeStressSnapshotIfNeeded()
       }
@@ -259,8 +274,12 @@ final class HealthDataStore: ObservableObject {
       guard let self else {
         return
       }
-      self.runSleepScore()
-      self.bandSleepImportStatus = "Band sync captured \(packetCount) packets | \(self.packetScoreStatus)"
+      self.runSleepScore { [weak self] in
+        guard let self else {
+          return
+        }
+        self.bandSleepImportStatus = "Band sync captured \(packetCount) packets | \(self.packetScoreStatus)"
+      }
     }
   }
 }

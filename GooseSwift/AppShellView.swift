@@ -7,6 +7,7 @@ struct AppShellView: View {
   @State private var homeHealthPath: [HealthRoute] = []
   @State private var homeSelectedDate = Date()
   @State private var trendsPath: [HealthRoute] = []
+  @State private var morningPath: [HealthRoute] = []
 
   var body: some View {
     TabView(selection: tabSelection) {
@@ -37,6 +38,13 @@ struct AppShellView: View {
   private func tabNavigationStack(for tab: GooseAppTab) -> some View {
     if tab == .home {
       NavigationStack(path: $homeHealthPath) {
+        tabContent(for: tab)
+          .navigationDestination(for: HealthRoute.self) { route in
+            HealthRouteDestinationView(route: route, store: healthStore, selectedDate: $homeSelectedDate)
+          }
+      }
+    } else if tab == .morning {
+      NavigationStack(path: $morningPath) {
         tabContent(for: tab)
           .navigationDestination(for: HealthRoute.self) { route in
             HealthRouteDestinationView(route: route, store: healthStore, selectedDate: $homeSelectedDate)
@@ -73,6 +81,8 @@ struct AppShellView: View {
         selectedDate: $homeSelectedDate,
         openHealthRoute: openHomeHealthRoute
       )
+    case .morning:
+      MorningView(healthStore: healthStore, selectedDate: $homeSelectedDate)
     case .trends:
       TrendsView(healthStore: healthStore)
     case .health:
@@ -95,6 +105,7 @@ struct AppShellView: View {
 
 enum GooseAppTab: String, CaseIterable, Identifiable {
   case home
+  case morning
   case trends
   case health
   case available
@@ -106,13 +117,14 @@ enum GooseAppTab: String, CaseIterable, Identifiable {
   // pulse) and More (connect / capture / debug). Available is folded into Home;
   // Cloud (WHOOP's proprietary cloud metrics we can't get), Health (cloud
   // dashboards) and Coach are hidden — their views still exist, just untabbed.
-  static var allCases: [GooseAppTab] { [.home, .trends, .more] }
+  static var allCases: [GooseAppTab] { [.home, .morning, .trends, .more] }
 
   var id: String { rawValue }
 
   var title: String {
     switch self {
     case .home: "Today"
+    case .morning: "Morning"
     case .trends: "Trends"
     case .health: "Health"
     case .available: "Available"
@@ -125,6 +137,7 @@ enum GooseAppTab: String, CaseIterable, Identifiable {
   var systemImage: String {
     switch self {
     case .home: "heart.fill"
+    case .morning: "sunrise"
     case .trends: "chart.line.uptrend.xyaxis"
     case .health: "heart.text.square"
     case .available: "waveform.path.ecg"

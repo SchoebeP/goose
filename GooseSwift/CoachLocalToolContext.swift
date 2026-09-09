@@ -195,7 +195,20 @@ enum CoachLocalToolContext {
       "family": point.family,
       "value": point.value,
       "captured_at": timestamp(point.capturedAt),
-      "detail": point.detail,
+      // Strip raw frame hex: uninterpreted band bytes (potentially PPG) stay
+      // on-device — the coach backend receives bounded summaries only.
+      // The full detail still renders in the local debug UI.
+      "detail": point.detail
+        .replacingOccurrences(
+          of: " body_hex=[0-9a-fA-F]+",
+          with: "",
+          options: .regularExpression
+        )
+        .replacingOccurrences(
+          of: " raw=\\{[^}]*\\}",
+          with: "",
+          options: .regularExpression
+        ),
     ]
   }
 

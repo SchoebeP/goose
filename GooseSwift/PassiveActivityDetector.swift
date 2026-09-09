@@ -392,7 +392,11 @@ struct PassiveDetectedActivityRecording {
     zoneDurations[zoneID, default: 0] += delta
     heartRateWeightedTotal += Double(heartRateBPM) * delta
     heartRateMeasuredSeconds += delta
-    averageHeartRate = Int((heartRateWeightedTotal / max(heartRateMeasuredSeconds, 1)).rounded())
+    // Divide by the real measured time — a max(...,1) floor turns sub-second
+    // early windows into absurd averages (100 bpm over 0.1 s -> 10 bpm).
+    if heartRateMeasuredSeconds > 0 {
+      averageHeartRate = Int((heartRateWeightedTotal / heartRateMeasuredSeconds).rounded())
+    }
   }
 
   func summary(endedAt requestedEnd: Date, confidence: Double) -> PassiveDetectedActivitySummary {

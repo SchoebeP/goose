@@ -7,6 +7,7 @@ import WidgetKit
 struct GooseWorkoutLiveActivityBundle: WidgetBundle {
   var body: some Widget {
     GooseWorkoutLiveActivityWidget()
+    LiveHeartRateActivityWidget()
   }
 }
 
@@ -201,4 +202,142 @@ private enum WorkoutLiveActivityStyle {
   static let movePink = Color(red: 1.0, green: 0.10, blue: 0.34)
   static let standCyan = Color(red: 0.39, green: 0.92, blue: 0.95)
   static let heartRed = Color(red: 1.0, green: 0.23, blue: 0.18)
+}
+
+// MARK: - Live Heart Rate activity (standalone, not workout-tied)
+
+struct LiveHeartRateActivityWidget: Widget {
+  var body: some WidgetConfiguration {
+    ActivityConfiguration(for: LiveHeartRateActivityAttributes.self) { context in
+      LiveHeartRateLockScreenView(context: context)
+        .activityBackgroundTint(WorkoutLiveActivityStyle.background)
+        .activitySystemActionForegroundColor(.white)
+    } dynamicIsland: { context in
+      DynamicIsland {
+        DynamicIslandExpandedRegion(.leading) {
+          HStack(spacing: 8) {
+            Image(systemName: "heart.fill")
+              .foregroundStyle(WorkoutLiveActivityStyle.heartRed)
+            VStack(alignment: .leading, spacing: 1) {
+              Text(context.attributes.deviceName)
+                .font(.system(.subheadline, design: .rounded).weight(.semibold))
+                .lineLimit(1)
+              Text(LiveHeartRateFormat.status(context.state))
+                .font(.system(.caption2, design: .rounded))
+                .foregroundStyle(WorkoutLiveActivityStyle.secondaryText)
+            }
+          }
+        }
+        DynamicIslandExpandedRegion(.trailing) {
+          HStack(alignment: .firstTextBaseline, spacing: 3) {
+            Text(LiveHeartRateFormat.bpm(context.state))
+              .font(.system(size: 34, weight: .bold, design: .rounded).monospacedDigit())
+              .foregroundStyle(WorkoutLiveActivityStyle.heartRed)
+            Text("BPM")
+              .font(.system(.caption2, design: .rounded).weight(.bold))
+              .foregroundStyle(WorkoutLiveActivityStyle.secondaryText)
+          }
+        }
+        DynamicIslandExpandedRegion(.bottom) {
+          LiveHeartRateMetricRow(state: context.state)
+        }
+      } compactLeading: {
+        Image(systemName: "heart.fill")
+          .foregroundStyle(WorkoutLiveActivityStyle.heartRed)
+      } compactTrailing: {
+        Text(LiveHeartRateFormat.bpm(context.state))
+          .font(.system(.caption2, design: .rounded).weight(.semibold).monospacedDigit())
+          .foregroundStyle(WorkoutLiveActivityStyle.heartRed)
+      } minimal: {
+        Image(systemName: "heart.fill")
+          .foregroundStyle(WorkoutLiveActivityStyle.heartRed)
+      }
+    }
+  }
+}
+
+private enum LiveHeartRateFormat {
+  static func bpm(_ state: LiveHeartRateActivityAttributes.ContentState) -> String {
+    guard state.isConnected, let bpm = state.bpm else { return "--" }
+    return "\(bpm)"
+  }
+
+  static func hrv(_ state: LiveHeartRateActivityAttributes.ContentState) -> String {
+    guard let hrv = state.hrvRMSSD, hrv > 0 else { return "--" }
+    return "\(Int(hrv.rounded()))"
+  }
+
+  static func status(_ state: LiveHeartRateActivityAttributes.ContentState) -> String {
+    state.isConnected ? "Live" : "Disconnected"
+  }
+
+  static func battery(_ state: LiveHeartRateActivityAttributes.ContentState) -> String {
+    guard let pct = state.batteryPercent else { return "--" }
+    return state.charging ? "\(pct)%⚡︎" : "\(pct)%"
+  }
+}
+
+private struct LiveHeartRateMetricRow: View {
+  let state: LiveHeartRateActivityAttributes.ContentState
+
+  var body: some View {
+    HStack(spacing: 20) {
+      metric(LiveHeartRateFormat.hrv(state), "HRV ms", WorkoutLiveActivityStyle.standCyan)
+      metric(LiveHeartRateFormat.battery(state), "BATT", WorkoutLiveActivityStyle.exerciseGreen)
+      metric(state.isConnected ? "Live" : "Off", "BAND", WorkoutLiveActivityStyle.secondaryText)
+      Spacer(minLength: 0)
+    }
+  }
+
+  private func metric(_ value: String, _ label: String, _ color: Color) -> some View {
+    VStack(alignment: .leading, spacing: 1) {
+      Text(value)
+        .font(.system(size: 16, weight: .bold, design: .rounded).monospacedDigit())
+        .foregroundStyle(color)
+        .lineLimit(1)
+      Text(label)
+        .font(.system(size: 10, weight: .bold, design: .rounded))
+        .foregroundStyle(WorkoutLiveActivityStyle.secondaryText)
+    }
+  }
+}
+
+private struct LiveHeartRateLockScreenView: View {
+  let context: ActivityViewContext<LiveHeartRateActivityAttributes>
+
+  var body: some View {
+    HStack(spacing: 16) {
+      Image(systemName: "heart.fill")
+        .font(.system(size: 26, weight: .semibold))
+        .foregroundStyle(WorkoutLiveActivityStyle.heartRed)
+        .frame(width: 50, height: 50)
+        .background(WorkoutLiveActivityStyle.heartRed.opacity(0.18), in: Circle())
+
+      VStack(alignment: .leading, spacing: 3) {
+        Text(context.attributes.deviceName)
+          .font(.system(size: 17, weight: .semibold, design: .rounded))
+          .foregroundStyle(.white)
+          .lineLimit(1)
+        Text("\(LiveHeartRateFormat.status(context.state)) · HRV \(LiveHeartRateFormat.hrv(context.state)) ms · \(LiveHeartRateFormat.battery(context.state))")
+          .font(.system(size: 12, weight: .semibold, design: .rounded))
+          .foregroundStyle(WorkoutLiveActivityStyle.secondaryText)
+          .lineLimit(1)
+      }
+
+      Spacer(minLength: 10)
+
+      HStack(alignment: .firstTextBaseline, spacing: 4) {
+        Text(LiveHeartRateFormat.bpm(context.state))
+          .font(.system(size: 40, weight: .bold, design: .rounded).monospacedDigit())
+          .foregroundStyle(WorkoutLiveActivityStyle.heartRed)
+          .lineLimit(1)
+          .minimumScaleFactor(0.7)
+        Text("BPM")
+          .font(.system(size: 12, weight: .bold, design: .rounded))
+          .foregroundStyle(WorkoutLiveActivityStyle.secondaryText)
+      }
+    }
+    .padding(.horizontal, 16)
+    .padding(.vertical, 14)
+  }
 }

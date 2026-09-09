@@ -68,3 +68,4 @@ band ──BLE──> collector (Python/bleak) ──> SQLite ──> FastAPI (r
 ## Human-in-the-loop (you cannot do these alone)
 - Anything that needs the **physical band** — confirming live values, capturing real packets, validating a decode, measuring buffer depth — you must hand back to the user with exact step-by-step instructions. **Never fabricate or hard-code "sample" sensor values to make a test pass.**
 - Never delete the database or captured data. Never push, deploy, or run destructive shell commands without explicit confirmation.
+- When you produce a document meant for the user to read (audit/analysis reports, generated docs, summaries written to a file), open it in the IDE editor for them (`mcp__jetbrains__open_file_in_editor`) as part of delivering it.

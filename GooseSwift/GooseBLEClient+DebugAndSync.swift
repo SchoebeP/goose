@@ -337,7 +337,7 @@ extension GooseBLEClient {
       return true
     }
 
-    if !historicalDataResultAckEnabled && historicalPacketsReceivedThisSync > 0 {
+    if !historicalDataResultAckEnabled {
       record(
         level: .warn,
         source: "ble.sync",
@@ -351,14 +351,6 @@ extension GooseBLEClient {
       return true
     }
 
-    if !historicalDataResultAckEnabled {
-      record(
-        level: .warn,
-        source: "ble.sync",
-        title: "historical_sync.result_ack.metadata_only",
-        body: "reason=\(reason) packets=\(historicalPacketsReceivedThisSync) payload=\(Data(ackPayload).hexString)"
-      )
-    }
     historyEndAckSentThisBurst = true
     writeHistoricalCommand(.historicalDataResult)
     return true
@@ -384,6 +376,27 @@ extension GooseBLEClient {
     }
     historicalIdleWorkItem = workItem
     DispatchQueue.main.asyncAfter(deadline: .now() + 12, execute: workItem)
+  }
+
+  func scheduleHistoricalResultAckWriteGrace() {
+    // The final HISTORICAL_DATA_RESULT was written .withResponse; keep the
+    // sync alive briefly so a write failure (didWriteValueFor error, e.g. a
+    // zombie link after a background restore) can still fail the sync instead
+    // of being ignored because isHistoricalSyncing was already cleared.
+    // Cancel the timers completeHistoricalSync would have cancelled here so
+    // nothing else can fire during the grace window.
+    historicalIdleWorkItem?.cancel()
+    historicalRangeRetryWorkItem?.cancel()
+    readySyncWorkItem?.cancel()
+    let runID = historicalSyncRunID
+    DispatchQueue.main.asyncAfter(deadline: .now() + 5) { [weak self] in
+      guard let self,
+            self.historicalSyncRunID == runID,
+            self.isHistoricalSyncing else {
+        return
+      }
+      self.completeHistoricalSync(reason: "history_result_ack_write_grace_elapsed")
+    }
   }
 
   func retryHistoricalTransferAfterIdleIfNeeded(reason: String) -> Bool {

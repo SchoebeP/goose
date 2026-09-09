@@ -2,7 +2,7 @@
 
 **Alpha proof of concept. This build is for developers to evaluate whether a project of this scope is viable. It is not ready to use as an app for tracking personal health data yet.**
 
-If you don't know what Xcode is, or how to build the Rust core, this build is not for you. Come back on 13 June 2026 for the first public beta on TestFlight.
+If you don't know what Xcode is, or how to build the Rust core, this build is not for you. (The June 2026 TestFlight beta date announced earlier has slipped — check the repository for current status.)
 
 ![Goose app hero showing a connected WHOOP 5.0 device](docs/assets/readme-hero.png)
 

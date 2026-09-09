@@ -2944,9 +2944,9 @@ fn scaffold_step_cases() -> Vec<Value> {
             "manual_step_delta": Value::Null,
             "official_whoop_step_delta": Value::Null,
             "step_delta_tolerance": 15,
-            "sample_rate_hz": 50.0,
+            "sample_rate_hz": 100.0,
             "peak_threshold_i16": 1200.0,
-            "min_peak_spacing_samples": 10,
+            "min_peak_spacing_samples": 20,
             "require_trusted_evidence": true
         }),
     ]

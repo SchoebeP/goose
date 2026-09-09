@@ -740,6 +740,7 @@ extension GooseBLEClient {
     gen4StartedPulseStream = false
     gen4ReEnableTimer?.invalidate()
     gen4ReEnableTimer = nil
+    WhoopCloudForwarder.shared.resetFrameReassembly()
     // Cancel the zombie connection. didDisconnectPeripheral fires the normal
     // auto-reconnect, which rediscovers services with valid handles. On iOS 17+
     // cancelPeripheralConnection may NOT fire didDisconnect if the link is
@@ -992,6 +993,9 @@ extension GooseBLEClient {
     }
 
     if commandCharacteristic != nil {
+      // Fresh grace period for the stall heal/watchdog: a new connection must
+      // not inherit distantPast (or the previous link's last frame time).
+      lastDataFrameAt = Date()
       updateConnectionState("ready")
       sendClientHelloIfNeeded(reason: cached ? "cached_gatt" : "gatt_discovery")
       scheduleDebugSkinTemperatureCommandIfNeeded(reason: cached ? "cached_ready" : "ready")
@@ -1419,7 +1423,6 @@ extension GooseBLEClient {
     guard uuid.hasPrefix("61080005") || uuid.hasPrefix("61080003") || uuid.hasPrefix("61080004") else {
       return
     }
-    lastDataFrameAt = Date()   // stall watchdog: any notification = data is flowing
     // Forward every fragment to the cloud reassembler (powers the live /pulse).
     WhoopCloudForwarder.shared.ingestRawFrame(value, characteristicUUID: characteristicUUID)
     guard value.count >= 7 else { return }
@@ -1448,7 +1451,6 @@ extension GooseBLEClient {
     // above. The cmd-23 ACK loop that used to live here was removed: the ported
     // po-sc historical sync state machine (GooseBLEClient+HistoricalHandlers)
     // owns history paging/acking now, and a second ACK driver would skip pages.
-
     // type-48 EVENT: event id is frame[6]. Decode charging directly here — the
     // authoritative signal the VPS uses — instead of relying on the Rust parser,
     // which does not surface these events on the 4.0 path.

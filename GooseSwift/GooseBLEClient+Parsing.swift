@@ -902,7 +902,7 @@ extension GooseBLEClient {
   }
 
   static func historicalDataResultPayload(fromHistoryEndMetadataPayload payload: [UInt8]) -> [UInt8]? {
-    guard payload.count > 21 else {
+    guard payload.count >= 21 else {
       return nil
     }
 
@@ -1161,8 +1161,8 @@ final class WhoopCloudForwarder {
 
   /// Self-hosted ingest endpoint (token-protected; no basic auth on this path).
   private let endpoint = URL(string: "https://latenightgames.fr/whoop/ingest/samples")!
-  // SEC1: token lives in Info.plist (never in source/history).
-  private let token = Bundle.main.object(forInfoDictionaryKey: "WHOOP_INGEST_TOKEN") as? String ?? ""
+  // SEC1: token lives in Info.plist (never in source/history) via IngestCredentials.
+  private var token: String { IngestCredentials.token }
   private let queue = DispatchQueue(label: "com.goose.swift.cloud-forward", qos: .utility)
   private let iso = ISO8601DateFormatter()
   private var lastSent = Date.distantPast
@@ -1173,6 +1173,28 @@ final class WhoopCloudForwarder {
   private var frameBuffers: [String: [UInt8]] = [:]   // per-characteristic frame reassembly
   private var pendingFrames: [String] = []            // complete-frame hex awaiting POST
   private var lastFrameFlush = Date.distantPast
+  private var flushTimer: DispatchSourceTimer?
+
+  private init() {
+    // Periodic flush so tail batches (the last logs before a crash, the last
+    // frames before going out of range) upload even when no new data arrives.
+    let timer = DispatchSource.makeTimerSource(queue: queue)
+    timer.schedule(deadline: .now() + 3, repeating: 3)
+    timer.setEventHandler { [weak self] in self?.timedFlushOnQueue() }
+    timer.resume()
+    flushTimer = timer
+  }
+
+  private func timedFlushOnQueue() {
+    let now = Date()
+    if !pendingFrames.isEmpty, now.timeIntervalSince(lastFrameFlush) >= 3 {
+      flushFramesOnQueue(now)
+    }
+    if !pendingLogs.isEmpty, now.timeIntervalSince(lastLogFlush) >= 5 {
+      flushLogsOnQueue(now)
+    }
+    drainOutbox()
+  }
 
   /// Enable/disable the cloud feed (defaults on; flip via UserDefaults "whoopCloudForwarding").
   var isEnabled: Bool {
@@ -1225,8 +1247,7 @@ final class WhoopCloudForwarder {
       req.setValue("application/json", forHTTPHeaderField: "Content-Type")
       req.setValue(self.token, forHTTPHeaderField: "X-Ingest-Token")
       req.httpBody = try? JSONSerialization.data(withJSONObject: body)
-      URLSession.shared.dataTask(with: req).resume()  // fire-and-forget
-    }
+      URLSession.shared.dataTask(with: req).resume()  // fire-and-forget    }
   }
 
   // MARK: Raw GEN4 frame forwarding (powers the live /pulse waveform)
@@ -1249,10 +1270,25 @@ final class WhoopCloudForwarder {
       var i = 0
       while i + 4 <= buf.count {
         if buf[i] != 0xAA { i += 1; continue }
+        // Header crc8 (poly 0x07 over the two length bytes, per the GEN4 frame
+        // builder): a payload byte that happens to be 0xAA fails this and is
+        // skipped before its bogus declared length can desync the scanner.
+        if GooseBLEClient.crc8Gen4([buf[i + 1], buf[i + 2]]) != buf[i + 3] { i += 1; continue }
         let len = Int(buf[i + 1]) | (Int(buf[i + 2]) << 8)
+        if len < 4 { i += 1; continue }              // must at least hold the trailing CRC-32
         let end = i + 4 + len
         if end > buf.count { break }                 // frame not fully arrived yet
         let frame = Array(buf[i..<end])
+        // Trailing CRC-32 check. Real captures off this band validate over the
+        // body only (frame[4..<count-4], matching the Rust parser); the
+        // header-inclusive range from community docs is accepted as fallback.
+        let tail = GooseBLEClient.readUInt32LE(frame, at: frame.count - 4) ?? 0
+        let body = Array(frame[4..<(frame.count - 4)])
+        if GooseBLEClient.crc32(body) != tail,
+           GooseBLEClient.crc32(Array(frame[0..<(frame.count - 4)])) != tail {
+          i += 1                                     // false header — resync
+          continue
+        }
         let type = frame.count > 4 ? frame[4] : 0
         if type == 40 || type == 43 || type == 48 || type == 36 || type == 47 {
           // HR / optical / event / cmd-resp / historical-backfill
@@ -1261,7 +1297,16 @@ final class WhoopCloudForwarder {
         i = end
       }
       if i > 0 { buf.removeFirst(i) }
-      if buf.count > 16384 { buf.removeFirst(buf.count - 8192) }     // guard against runaway
+      if buf.count > 16384 {                         // guard against runaway
+        // A crc8-valid false header with a huge declared length can pin the
+        // scan at 0; drop to the next sync candidate so any valid frames
+        // buffered behind it survive, and log — this should be rare.
+        let next = buf.dropFirst().firstIndex(of: 0xAA) ?? buf.count
+        buf.removeFirst(next)
+        self.ingestLog(level: "warn", source: "cloud.frames",
+                       title: "frame_buffer.overflow_trim",
+                       body: "dropped \(next) bytes on \(uuid)", at: Date())
+      }
       self.frameBuffers[uuid] = buf
       let now = Date()
       if self.pendingFrames.count >= 30
@@ -1269,6 +1314,14 @@ final class WhoopCloudForwarder {
         self.flushFramesOnQueue(now)
       }
     }
+  }
+
+  /// Drop all partial frame-reassembly state. The BLE client must call this on
+  /// connect and disconnect (and dead-link recovery): a frame stranded
+  /// mid-reassembly by a dropped link would otherwise absorb the next
+  /// connection's bytes into a chimera frame and desync the scanner.
+  func resetFrameReassembly() {
+    queue.async { self.frameBuffers.removeAll() }
   }
 
   // MARK: Disk-backed outbox — no internet must never lose biometric frames
@@ -1293,7 +1346,6 @@ final class WhoopCloudForwarder {
   private var framesPostInFlight = false
   /// Count of batches spilled to disk because a POST was already in flight.
   private var inFlightSpillCount = 0
-
   /// Build the POST body, tagging it with the capture time so frames that upload
   /// late (after an outage) are stamped at when they happened, not when they land.
   private func framesBody(_ frames: [String]) -> Data? {
@@ -1303,8 +1355,8 @@ final class WhoopCloudForwarder {
     ])
   }
 
-  private func postFrames(_ body: Data, completion: @escaping (Bool) -> Void) {
-    var req = URLRequest(url: Self.framesEndpoint)
+  private func post(_ body: Data, to url: URL, completion: @escaping (Bool) -> Void) {
+    var req = URLRequest(url: url)
     req.httpMethod = "POST"
     req.setValue("application/json", forHTTPHeaderField: "Content-Type")
     req.setValue(token, forHTTPHeaderField: "X-Ingest-Token")
@@ -1344,15 +1396,15 @@ final class WhoopCloudForwarder {
     postFrames(body) { [weak self] ok in
       self?.queue.async {
         self?.framesPostInFlight = false
-        if ok { self?.drainOutbox() } else { self?.persistFailedBody(body) }
-      }
+        if ok { self?.drainOutbox() } else { self?.persistFailedBody(body) }      }
     }
   }
 
   /// Persist a body that failed to upload, ordered by time for in-order replay.
-  private func persistFailedBody(_ body: Data) {
+  /// `kind` selects the replay endpoint ("frames" or "samples").
+  private func persistFailedBody(_ body: Data, kind: String) {
     outboxSeq += 1
-    let name = String(format: "%015.0f-%05d.json", Date().timeIntervalSince1970 * 1000, outboxSeq)
+    let name = String(format: "%@-%015.0f-%05d.json", kind, Date().timeIntervalSince1970 * 1000, outboxSeq)
     try? body.write(to: Self.outboxDir.appendingPathComponent(name))
     trimOutboxIfNeeded()
   }
@@ -1362,8 +1414,7 @@ final class WhoopCloudForwarder {
   /// Shares the single-POST gate with the live path so a drain chain and a live
   /// flush can never run concurrent uploads.
   private func drainOutbox() {
-    guard !framesPostInFlight else { return }
-    let fm = FileManager.default
+    guard !framesPostInFlight else { return }    let fm = FileManager.default
     guard let url = (try? fm.contentsOfDirectory(at: Self.outboxDir, includingPropertiesForKeys: nil))?
       .filter({ $0.pathExtension == "json" })
       .sorted(by: { $0.lastPathComponent < $1.lastPathComponent }).first else { return }
@@ -1371,8 +1422,7 @@ final class WhoopCloudForwarder {
     framesPostInFlight = true
     postFrames(body) { [weak self] ok in
       self?.queue.async {
-        self?.framesPostInFlight = false
-        guard ok else { return }
+        self?.framesPostInFlight = false        guard ok else { return }
         try? fm.removeItem(at: url)
         self?.drainOutbox()
       }
@@ -1421,17 +1471,24 @@ final class WhoopCloudForwarder {
     }
   }
 
-  /// POST the batched log lines to /ingest/logs. Call on `queue` only.
+  /// POST the batched log lines to /ingest/logs. A failed batch is re-queued
+  /// (capped) so transient outages don't lose the tail of the log — exactly the
+  /// lines needed when debugging a dead link. Call on `queue` only.
   private func flushLogsOnQueue(_ now: Date) {
     let batch = pendingLogs
     pendingLogs = []
     lastLogFlush = now
-    guard !batch.isEmpty else { return }
-    var req = URLRequest(url: Self.logsEndpoint)
-    req.httpMethod = "POST"
-    req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-    req.setValue(token, forHTTPHeaderField: "X-Ingest-Token")
-    req.httpBody = try? JSONSerialization.data(withJSONObject: ["logs": batch])
-    URLSession.shared.dataTask(with: req).resume()
+    guard !batch.isEmpty,
+          let body = try? JSONSerialization.data(withJSONObject: ["logs": batch]) else { return }
+    post(body, to: Self.logsEndpoint) { [weak self] ok in
+      guard !ok else { return }
+      self?.queue.async {
+        guard let self else { return }
+        self.pendingLogs.insert(contentsOf: batch, at: 0)
+        if self.pendingLogs.count > 500 {
+          self.pendingLogs.removeFirst(self.pendingLogs.count - 250)
+        }
+      }
+    }
   }
 }

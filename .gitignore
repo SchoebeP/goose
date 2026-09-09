@@ -20,9 +20,11 @@ tmp/
 # local-only
 .env
 .idea/
+.claude/
 build-device/
 build-release/
 .superpowers/
 imu.png
 # Local build secrets (INGEST token) — never commit
 GooseSwift/GooseSecrets.xcconfig
+goose-raw-export-*/

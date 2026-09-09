@@ -209,23 +209,26 @@ extension GooseAppModel {
           "frame_count": capture.importedFrameCount,
         ]
       )
-      activeHealthPacketCapture = nil
-      healthPacketCaptureStreamRetryAttempt = 0
-      healthPacketCaptureSessionID = nil
-      healthPacketCaptureStartedAt = nil
       healthPacketCaptureStatus = "Stopped \(capture.importedFrameCount) frames (\(reason))"
-      healthPacketCaptureFrameCount = capture.importedFrameCount
-      publishHealthPacketCaptureUIUpdate()
-      publishPacketImportRevision()
       ble.record(source: "health.packet_capture", title: "finish.ok", body: "\(capture.sessionID) frames=\(capture.importedFrameCount) reason=\(reason)")
-      if capture.mode == .walk {
-        ble.stopMovementHeartRateCapture()
-      } else if capture.mode == .physiology {
-        ble.stopPhysiologySignalCapture()
-      }
     } catch {
+      // Local teardown still happens below — only the DB row stays "active"
+      // (repaired by the orphaned-session cleanup); without it the session
+      // would stream forever with its timeout already cancelled.
       healthPacketCaptureStatus = "Finish failed: \(String(describing: error))"
       ble.record(level: .error, source: "health.packet_capture", title: "finish.failed", body: String(describing: error))
+    }
+    activeHealthPacketCapture = nil
+    healthPacketCaptureStreamRetryAttempt = 0
+    healthPacketCaptureSessionID = nil
+    healthPacketCaptureStartedAt = nil
+    healthPacketCaptureFrameCount = capture.importedFrameCount
+    publishHealthPacketCaptureUIUpdate()
+    publishPacketImportRevision()
+    if capture.mode == .walk {
+      ble.stopMovementHeartRateCapture()
+    } else if capture.mode == .physiology {
+      ble.stopPhysiologySignalCapture()
     }
   }
 

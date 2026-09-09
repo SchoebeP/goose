@@ -156,7 +156,7 @@ enum CoachTipFactory {
       message: sentence(strain, "Activity: \(activity)", firstUseful(nextAction, motion)),
       source: "Local strain, motion, and activity",
       prompt: """
-      Explain my strain page and give one practical training-load next action. Preserve WHOOP's 0-21 strain semantics and cite local tool outputs.
+      Explain my strain page and give one practical training-load next action. This is Goose's own packet-derived estimate — never present it as WHOOP's proprietary Strain score — and cite local tool outputs.
 
       Current local highlights:
       - Strain snapshot: \(snapshot.displayValue) | \(snapshot.status) | \(snapshot.freshness)

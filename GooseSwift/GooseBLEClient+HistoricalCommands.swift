@@ -218,7 +218,11 @@ extension GooseBLEClient {
         body: "seq=\(sequence) payload=\(Data(commandPayload).hexString) fire_and_forget=true"
       )
       if historyCompleteReceived {
-        completeHistoricalSync(reason: "history_result_ack_sent_after_complete")
+        if writeType == .withoutResponse {
+          completeHistoricalSync(reason: "history_result_ack_sent_after_complete")
+        } else {
+          scheduleHistoricalResultAckWriteGrace()
+        }
       } else {
         scheduleHistoricalIdleCompletion(reason: "history_result_ack_sent")
       }

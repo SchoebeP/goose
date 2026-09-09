@@ -81,9 +81,11 @@ use crate::{
         run_metric_window_feature_report_for_store, run_motion_feature_report_for_store,
         run_oxygen_saturation_capture_validation_for_store,
         run_recovery_feature_score_report_for_store,
+        run_recovery_feature_score_report_for_store_with_utc_offset,
         run_recovery_sensor_discovery_report_for_store,
         run_respiratory_rate_capture_validation_for_store,
         run_resting_heart_rate_feature_report_for_store, run_sleep_feature_score_report_for_store,
+        run_sleep_feature_score_report_for_store_with_utc_offset,
         run_strain_feature_score_report_for_store, run_stress_feature_score_report_for_store,
         run_temperature_capture_validation_for_store, run_vital_event_feature_report_for_store,
     },
@@ -1022,6 +1024,8 @@ struct SleepFeatureScoreArgs {
     #[serde(default)]
     target_midpoint_minutes_since_midnight: Option<f64>,
     #[serde(default)]
+    utc_offset_minutes: Option<f64>,
+    #[serde(default)]
     history_import_in_progress: bool,
     #[serde(default)]
     persist_algorithm_run: bool,
@@ -1078,6 +1082,8 @@ struct RecoveryFeatureScoreArgs {
     disturbance_motion_threshold_0_to_1: Option<f64>,
     #[serde(default)]
     target_midpoint_minutes_since_midnight: Option<f64>,
+    #[serde(default)]
+    utc_offset_minutes: Option<f64>,
     #[serde(default)]
     prior_strain_resting_baseline_min_days: Option<usize>,
     #[serde(default)]
@@ -2540,8 +2546,7 @@ pub unsafe extern "C" fn goose_bridge_handle_json(request_json: *const c_char) -
             timing: None,
         })
     });
-    string_to_c_string(response)
-}
+    string_to_c_string(response)}
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn goose_bridge_free_string(value: *mut c_char) {
@@ -3649,9 +3654,11 @@ fn raw_motion_step_estimate_bridge(
                 .min_owned_captures
                 .unwrap_or(DEFAULT_MIN_OWNED_CAPTURES_PER_SUMMARY),
             require_trusted_evidence: args.require_trusted_evidence,
-            sample_rate_hz: args.sample_rate_hz.unwrap_or(50.0),
+            // Field-verified: the type-43 sub==41 accel stream runs at ~100 Hz;
+            // 20-sample spacing preserves the same 0.2 s peak debounce.
+            sample_rate_hz: args.sample_rate_hz.unwrap_or(100.0),
             peak_threshold_i16: args.peak_threshold_i16.unwrap_or(1_200.0),
-            min_peak_spacing_samples: args.min_peak_spacing_samples.unwrap_or(10),
+            min_peak_spacing_samples: args.min_peak_spacing_samples.unwrap_or(20),
             manual_step_delta: args.manual_step_delta,
             official_whoop_step_delta: args.official_whoop_step_delta,
             tolerance_steps: args.tolerance_steps.unwrap_or(10),
@@ -5054,7 +5061,7 @@ fn sleep_feature_score_bridge(args: SleepFeatureScoreArgs) -> GooseResult<serde_
         }
     };
     let store = open_bridge_store(&args.database_path)?;
-    let report = run_sleep_feature_score_report_for_store(
+    let report = run_sleep_feature_score_report_for_store_with_utc_offset(
         &store,
         &args.database_path,
         &args.start,
@@ -5073,6 +5080,7 @@ fn sleep_feature_score_bridge(args: SleepFeatureScoreArgs) -> GooseResult<serde_
                 .target_midpoint_minutes_since_midnight
                 .unwrap_or(180.0),
         },
+        args.utc_offset_minutes,
     )?;
     let mut value = serde_json::to_value(&report).map_err(|error| {
         GooseError::message(format!(
@@ -5139,7 +5147,7 @@ fn recovery_feature_score_bridge(args: RecoveryFeatureScoreArgs) -> GooseResult<
     let sleep_end = args.sleep_end.as_deref().unwrap_or(&args.end);
     let prior_strain_start = args.prior_strain_start.as_deref().unwrap_or(&args.start);
     let prior_strain_end = args.prior_strain_end.as_deref().unwrap_or(&args.end);
-    let report = run_recovery_feature_score_report_for_store(
+    let report = run_recovery_feature_score_report_for_store_with_utc_offset(
         &store,
         &args.database_path,
         &args.start,
@@ -5180,6 +5188,7 @@ fn recovery_feature_score_bridge(args: RecoveryFeatureScoreArgs) -> GooseResult<
             provided_vitals_source: args.provided_vitals_source,
             provided_vitals_provenance_json: args.provided_vitals_provenance_json,
         },
+        args.utc_offset_minutes,
     )?;
     let mut value = serde_json::to_value(&report).map_err(|error| {
         GooseError::message(format!(

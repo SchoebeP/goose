@@ -6,6 +6,8 @@ import UIKit
 extension HealthDataStore {
   nonisolated static func packetInputBridgeReports(databasePath: String) -> Result<[String: [String: Any]], Error> {
     let bridge = GooseRustBridge()
+    let dailyWindow = currentDailyMetricWindow()
+    let hourlyWindow = currentHourlyMetricWindow()
     let baseArgs: [String: Any] = [
       "database_path": databasePath,
       "start": "0000",
@@ -55,24 +57,25 @@ extension HealthDataStore {
       )
       reports["resting_hr_rollup"] = try bridge.request(
         method: "metrics.resting_hr_daily_rollup",
-        args: restingHeartRateDailyRollupArgs(databasePath: databasePath, writeMetric: true)
+        args: restingHeartRateDailyRollupArgs(databasePath: databasePath, window: dailyWindow, writeMetric: true)
       )
       reports["step_counter_rollup"] = try bridge.request(
         method: "metrics.step_counter_daily_rollup",
-        args: stepCounterDailyRollupArgs(databasePath: databasePath, writeMetric: true)
+        args: stepCounterDailyRollupArgs(databasePath: databasePath, window: dailyWindow, writeMetric: true)
       )
       reports["step_counter_hourly_rollup"] = try bridge.request(
         method: "metrics.step_counter_hourly_rollup",
-        args: stepCounterHourlyRollupArgs(databasePath: databasePath, writeMetric: true)
+        args: stepCounterHourlyRollupArgs(databasePath: databasePath, window: hourlyWindow, writeMetric: true)
       )
       reports["activity_unavailable_status"] = try bridge.request(
         method: "metrics.activity_unavailable_daily_status",
-        args: activityUnavailableDailyStatusArgs(databasePath: databasePath, writeMetric: true)
+        args: activityUnavailableDailyStatusArgs(databasePath: databasePath, window: dailyWindow, writeMetric: true)
       )
       reports["energy_rollup"] = try bridge.request(
         method: "metrics.energy_daily_rollup",
         args: energyDailyRollupArgs(
           databasePath: databasePath,
+          window: dailyWindow,
           restingHeartRateRollup: reports["resting_hr_rollup"],
           writeMetric: true
         )
@@ -81,6 +84,7 @@ extension HealthDataStore {
         method: "metrics.energy_hourly_rollup",
         args: energyHourlyRollupArgs(
           databasePath: databasePath,
+          window: hourlyWindow,
           restingHeartRateRollup: reports["resting_hr_rollup"],
           writeMetric: true
         )
@@ -89,29 +93,30 @@ extension HealthDataStore {
         method: "metrics.energy_unavailable_daily_status",
         args: energyDailyRollupArgs(
           databasePath: databasePath,
+          window: dailyWindow,
           restingHeartRateRollup: reports["resting_hr_rollup"],
           writeMetric: true
         )
       )
       reports["recovery_sensor_rollup"] = try bridge.request(
         method: "metrics.recovery_sensor_daily_rollup",
-        args: recoveryUnavailableDailyStatusArgs(databasePath: databasePath, writeMetric: true)
+        args: recoveryUnavailableDailyStatusArgs(databasePath: databasePath, window: dailyWindow, writeMetric: true)
       )
       reports["recovery_unavailable_status"] = try bridge.request(
         method: "metrics.recovery_unavailable_daily_status",
-        args: recoveryUnavailableDailyStatusArgs(databasePath: databasePath, writeMetric: true)
+        args: recoveryUnavailableDailyStatusArgs(databasePath: databasePath, window: dailyWindow, writeMetric: true)
       )
       reports["daily_activity"] = try bridge.request(
         method: "metrics.daily_activity_metrics",
-        args: dailyActivityMetricListArgs(databasePath: databasePath)
+        args: dailyActivityMetricListArgs(databasePath: databasePath, window: dailyWindow)
       )
       reports["hourly_activity"] = try bridge.request(
         method: "metrics.hourly_activity_metrics",
-        args: hourlyActivityMetricListArgs(databasePath: databasePath)
+        args: hourlyActivityMetricListArgs(databasePath: databasePath, window: hourlyWindow)
       )
       reports["daily_recovery"] = try bridge.request(
         method: "metrics.daily_recovery_metrics",
-        args: dailyRecoveryMetricListArgs(databasePath: databasePath)
+        args: dailyRecoveryMetricListArgs(databasePath: databasePath, window: dailyWindow)
       )
       return .success(reports)
     } catch {
@@ -121,11 +126,10 @@ extension HealthDataStore {
 
   nonisolated static func restingHeartRateDailyRollupArgs(
     databasePath: String,
+    window: DailyMetricWindow,
     writeMetric: Bool
   ) -> [String: Any] {
-    let window = currentDailyMetricWindow()
-
-    return [
+    [
       "database_path": databasePath,
       "date_key": window.dateKey,
       "timezone": window.timezone,
@@ -142,10 +146,10 @@ extension HealthDataStore {
 
   nonisolated static func stepCounterDailyRollupArgs(
     databasePath: String,
+    window: DailyMetricWindow,
     writeMetric: Bool
   ) -> [String: Any] {
-    let window = currentDailyMetricWindow()
-    return [
+    [
       "database_path": databasePath,
       "date_key": window.dateKey,
       "timezone": window.timezone,
@@ -158,10 +162,10 @@ extension HealthDataStore {
 
   nonisolated static func recoveryUnavailableDailyStatusArgs(
     databasePath: String,
+    window: DailyMetricWindow,
     writeMetric: Bool
   ) -> [String: Any] {
-    let window = currentDailyMetricWindow()
-    return [
+    [
       "database_path": databasePath,
       "date_key": window.dateKey,
       "timezone": window.timezone,
@@ -176,10 +180,10 @@ extension HealthDataStore {
 
   nonisolated static func activityUnavailableDailyStatusArgs(
     databasePath: String,
+    window: DailyMetricWindow,
     writeMetric: Bool
   ) -> [String: Any] {
-    let window = currentDailyMetricWindow()
-    return [
+    [
       "database_path": databasePath,
       "date_key": window.dateKey,
       "timezone": window.timezone,
@@ -192,10 +196,10 @@ extension HealthDataStore {
 
   nonisolated static func stepCounterHourlyRollupArgs(
     databasePath: String,
+    window: DailyMetricWindow,
     writeMetric: Bool
   ) -> [String: Any] {
-    let window = currentHourlyMetricWindow()
-    return [
+    [
       "database_path": databasePath,
       "date_key": window.dateKey,
       "timezone": window.timezone,
@@ -206,8 +210,7 @@ extension HealthDataStore {
     ]
   }
 
-  nonisolated static func dailyActivityMetricListArgs(databasePath: String) -> [String: Any] {
-    let window = currentDailyMetricWindow()
+  nonisolated static func dailyActivityMetricListArgs(databasePath: String, window: DailyMetricWindow) -> [String: Any] {
     var calendar = Calendar.autoupdatingCurrent
     calendar.locale = Locale(identifier: "en_US_POSIX")
     let historyStart = calendar.date(byAdding: .day, value: -29, to: window.start)
@@ -219,8 +222,7 @@ extension HealthDataStore {
     ]
   }
 
-  nonisolated static func hourlyActivityMetricListArgs(databasePath: String) -> [String: Any] {
-    let window = currentHourlyMetricWindow()
+  nonisolated static func hourlyActivityMetricListArgs(databasePath: String, window: DailyMetricWindow) -> [String: Any] {
     let historyStart = window.start.addingTimeInterval(-48 * 3_600)
     return [
       "database_path": databasePath,
@@ -229,8 +231,7 @@ extension HealthDataStore {
     ]
   }
 
-  nonisolated static func dailyRecoveryMetricListArgs(databasePath: String) -> [String: Any] {
-    let window = currentDailyMetricWindow()
+  nonisolated static func dailyRecoveryMetricListArgs(databasePath: String, window: DailyMetricWindow) -> [String: Any] {
     var calendar = Calendar.autoupdatingCurrent
     calendar.locale = Locale(identifier: "en_US_POSIX")
     let historyStart = calendar.date(byAdding: .day, value: -29, to: window.start)
@@ -244,10 +245,10 @@ extension HealthDataStore {
 
   nonisolated static func energyDailyRollupArgs(
     databasePath: String,
+    window: DailyMetricWindow,
     restingHeartRateRollup: [String: Any]?,
     writeMetric: Bool
   ) -> [String: Any] {
-    let window = currentDailyMetricWindow()
     var calendar = Calendar.autoupdatingCurrent
     calendar.locale = Locale(identifier: "en_US_POSIX")
 
@@ -285,10 +286,10 @@ extension HealthDataStore {
 
   nonisolated static func energyHourlyRollupArgs(
     databasePath: String,
+    window: DailyMetricWindow,
     restingHeartRateRollup: [String: Any]?,
     writeMetric: Bool
   ) -> [String: Any] {
-    let window = currentHourlyMetricWindow()
     var calendar = Calendar.autoupdatingCurrent
     calendar.locale = Locale(identifier: "en_US_POSIX")
 

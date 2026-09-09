@@ -316,8 +316,7 @@ final class GooseBLEClient: NSObject, ObservableObject {
 
   var lastDeadLinkRecovery = Date.distantPast // throttle for zombie-connection recovery
   var deadLinkFallbackWorkItem: DispatchWorkItem?
-  var lastDataFrameAt = Date.distantPast      // last raw notification — stall watchdog
-  var gen4ReEnableTimer: Timer?
+  var lastDataFrameAt = Date.distantPast      // last raw notification — stall watchdog  var gen4ReEnableTimer: Timer?
   let gen4ProbeLock = NSLock()
   var gen4OpticalFrameCount = 0
   var gen4HeartRateFrameCount = 0

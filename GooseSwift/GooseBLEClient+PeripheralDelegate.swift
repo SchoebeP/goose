@@ -162,8 +162,7 @@ extension GooseBLEClient: CBPeripheralDelegate {
         // is active. Outside a sync these are high-rate live-stream frames that
         // should stay off-main for performance. Without this guard,
         // historicalPacketsReceivedThisSync is never incremented and every
-        // sync fails with "no packet47 bodies" even when the band is streaming.
-        if isHistoricalSyncing {
+        // sync fails with "no packet47 bodies" even when the band is streaming.        if isHistoricalSyncing {
           return true
         }
         continue
@@ -224,6 +223,10 @@ extension GooseBLEClient: CBPeripheralDelegate {
   }
 
   func fanOutRawNotification(_ event: GooseNotificationEvent) {
+    // Stall watchdog: EVERY live source counts as data flowing — fd4b000x (5.0)
+    // and standard 2A37 HR too, not just the 6108 family — otherwise
+    // healConnectionIfStale tears down healthy non-GEN4 links on foreground.
+    lastDataFrameAt = Date()
     gen4ObserveRawNotification(event.value, characteristicUUID: event.characteristicUUID)
     if let onRawNotificationWithContext {
       onRawNotificationWithContext(event, notificationContextSnapshot())

@@ -99,7 +99,41 @@ extension GooseAppModel {
     heartRateStorageStatus = snapshot.status
   }
 
+  /// Key for the opt-in "Live Heart Rate on Lock Screen / Dynamic Island" toggle.
+  static let liveHeartRateActivityDefaultsKey = "liveHeartRateActivityEnabled"
+
+  /// Push the band's current live values into the standalone Live Heart Rate
+  /// activity (no-op unless the user enabled it). Safe to call on every HR
+  /// sample and on connection changes — the controller starts/throttles/ends.
+  func syncLiveHeartRateActivity() {
+    let enabled = UserDefaults.standard.bool(forKey: Self.liveHeartRateActivityDefaultsKey)
+    let connected = ble.connectionState == "ready" || ble.connectionState == "connected"
+    let state = LiveHeartRateActivityAttributes.ContentState(
+      bpm: connected ? ble.liveHeartRateBPM : nil,
+      hrvRMSSD: ble.liveHRVRMSSD,
+      source: ble.liveHeartRateSource,
+      connection: ble.connectionState,
+      batteryPercent: ble.batteryLevelPercent,
+      charging: ble.batteryIsCharging ?? false,
+      updatedAt: Date()
+    )
+    LiveHeartRateActivityController.shared.sync(
+      enabled: enabled,
+      deviceName: ble.activeDeviceName,
+      state: state
+    )
+  }
+
   func handleBLEConnectionStateChange(_ state: String) {
+    syncLiveHeartRateActivity()
+    if state != "ready" {
+      // A partial frame stranded by a dropped link must not absorb the next
+      // connection's bytes into a chimera frame — drop all partial state on
+      // disconnect (mirrors resetFrameReassembly() on the cloud path).
+      notificationIngestQueue.async { [weak self] in
+        self?.frameReassemblyBuffers.removeAll()
+      }
+    }
     if overnightGuardActive {
       if state == "ready" {
         resumeOvernightGuardStreamsIfReady(reason: "ble_ready")
@@ -206,7 +240,10 @@ extension GooseAppModel {
 
     let taskName = "Goose Overnight \(reason)"
     let taskID = UIApplication.shared.beginBackgroundTask(withName: taskName) { [weak self] in
-      Task { @MainActor [weak self] in
+      // Must end the task before the expiration handler returns (deferring to
+      // a later main-actor hop risks watchdog termination). UIKit invokes the
+      // handler on the main thread, so assumeIsolated is valid.
+      MainActor.assumeIsolated {
         self?.expireOvernightGuardCriticalBackgroundTask()
       }
     }

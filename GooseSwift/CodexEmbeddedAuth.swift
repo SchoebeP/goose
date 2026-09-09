@@ -139,6 +139,7 @@ actor CodexSelfContainedAuthClient {
   private let clientID = "app_EMoamEEZ73f0CkXaXp7hrann"
   private let maxDeviceCodeWaitSeconds: UInt64 = 15 * 60
   private let session: URLSession
+  private var refreshInFlight: Task<CodexStoredChatGPTAuth?, Error>?
 
   init() {
     let configuration = URLSessionConfiguration.ephemeral
@@ -205,15 +206,32 @@ actor CodexSelfContainedAuthClient {
   }
 
   func storedAuth(refreshIfNeeded: Bool = true) async throws -> CodexStoredChatGPTAuth? {
-    guard var auth = try CodexSelfContainedAuthKeychain.load() else {
+    guard let auth = try CodexSelfContainedAuthKeychain.load() else {
       return nil
     }
     guard refreshIfNeeded, auth.needsRefresh else {
       return auth
     }
-    auth = try await refreshStoredAuth(auth)
-    try CodexSelfContainedAuthKeychain.save(auth)
-    return auth
+    // Actors are reentrant across awaits: overlapping callers must share one
+    // refresh, or the losing call burns an already-rotated refresh token.
+    if let refreshInFlight {
+      return try await refreshInFlight.value
+    }
+    let task = Task<CodexStoredChatGPTAuth?, Error> {
+      defer { self.refreshInFlight = nil }
+      // Re-load after suspension: another caller may have refreshed or signed out.
+      guard let current = try CodexSelfContainedAuthKeychain.load() else {
+        return nil
+      }
+      guard current.needsRefresh else {
+        return current
+      }
+      let refreshed = try await self.refreshStoredAuth(current)
+      try CodexSelfContainedAuthKeychain.save(refreshed)
+      return refreshed
+    }
+    refreshInFlight = task
+    return try await task.value
   }
 
   func clearStoredAuth() throws {
@@ -232,7 +250,13 @@ actor CodexSelfContainedAuthClient {
             userCode: deviceCode.userCode
           )
         )
-      } catch CodexSelfContainedAuthError.httpStatus(let status, _) where status == 403 || status == 404 {
+      } catch CodexSelfContainedAuthError.httpStatus(let status, _)
+        where status == 403 || status == 404 || status == 429 || (500..<600).contains(status) {
+        try await Task.sleep(for: .seconds(max(deviceCode.interval, 1)))
+      } catch is URLError {
+        // Transient network failures (Wi-Fi blip, app backgrounded while the user
+        // approves in the browser) must not abort the 15-minute poll; cancellation
+        // still propagates via checkCancellation/Task.sleep.
         try await Task.sleep(for: .seconds(max(deviceCode.interval, 1)))
       }
     }

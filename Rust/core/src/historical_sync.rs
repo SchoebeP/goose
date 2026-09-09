@@ -897,7 +897,7 @@ pub fn historical_sync_physical_evidence_template(
                 },
                 HistoricalSyncObservedCommand {
                     command: "historical_data_result".to_string(),
-                    sequence: 8,
+                    sequence: 7,
                     response_observed: false,
                     capture_session_id: Some(capture_session_id.clone()),
                 },
@@ -915,7 +915,7 @@ pub fn historical_sync_physical_evidence_template(
                 },
                 HistoricalSyncObservedEvent {
                     name: "HistoryComplete".to_string(),
-                    sequence: 7,
+                    sequence: 8,
                     capture_session_id: Some(capture_session_id.clone()),
                 },
             ],
@@ -1579,10 +1579,10 @@ fn physical_validation_issue_action(issue: &str) -> String {
             "Record connect, authenticated, and subscribed session transitions before sending historical commands.".to_string()
         }
         "historical_command_flow_incomplete" => {
-            "Capture SendHistoricalData, HistoryStart, HistoryEnd, HistoryComplete, and HistoricalDataResult in order.".to_string()
+            "Capture SendHistoricalData, HistoryStart, HistoryEnd, HistoricalDataResult, and HistoryComplete in order.".to_string()
         }
         "historical_event_order_unproven" => {
-            "Attach ordered connected, authenticated, subscribed, SendHistoricalData, HistoryStart, HistoryEnd, HistoryComplete, and HistoricalDataResult observations from one physical sync.".to_string()
+            "Attach ordered connected, authenticated, subscribed, SendHistoricalData, HistoryStart, HistoryEnd, HistoricalDataResult, and HistoryComplete observations from one physical sync.".to_string()
         }
         "historical_evidence_session_mismatch" => {
             "Set every physical notification, session event, command, metadata event, timestamp row, and raw evidence anchor to the same capture_session_id as the validation bundle.".to_string()
@@ -1715,8 +1715,11 @@ fn physical_event_order_confirmed(input: &HistoricalSyncPhysicalValidationInput)
         && subscribed < send_historical_data
         && send_historical_data < history_start
         && history_start < history_end
-        && history_end < history_complete
-        && history_complete < historical_data_result
+        // Chunk-ack protocol: each `HistoryEnd` is acked with `HistoricalDataResult`
+        // immediately, so the first ack precedes `HistoryComplete` (min-sequence
+        // semantics: first HistoryEnd -> first ack -> HistoryComplete).
+        && history_end < historical_data_result
+        && historical_data_result < history_complete
 }
 
 fn physical_evidence_session_confirmed(input: &HistoricalSyncPhysicalValidationInput) -> bool {
