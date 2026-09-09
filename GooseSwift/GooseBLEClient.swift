@@ -8,6 +8,9 @@ final class GooseBLEClient: NSObject, ObservableObject {
   @Published var connectionState = "disconnected"
   @Published var isScanning = false
   @Published var discoveredDevices: [GooseDiscoveredDevice] = []
+  /// Appareils à portée vus pendant le scan courant (tous, pas seulement WHOOP) —
+  /// purement indicatif pour l'UI: prouve que le scan tourne.
+  @Published var scanNeighborCount = 0
   @Published var liveHeartRateBPM: Int?
   @Published var liveHeartRateSource = "waiting"
   @Published var liveHeartRateUpdatedAt: Date?
