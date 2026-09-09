@@ -68,7 +68,8 @@ extension GooseAppModel {
           body: "\(event.characteristicUUID) droppedThisWindow=\(total) last=\(result.droppedBytes) buffered=\(result.bufferedBytes)"
         )
       }
-    }    if result.usedBufferedData && !result.frames.isEmpty {
+    }
+     if result.usedBufferedData && !result.frames.isEmpty {
       ble.record(
         source: "rust",
         title: "notification.frame.reassembled",
@@ -138,7 +139,8 @@ extension GooseAppModel {
           body: "\(event.characteristicUUID) droppedThisWindow=\(total) last=\(result.droppedBytes) buffered=\(result.bufferedBytes)"
         )
       }
-    }    if result.usedBufferedData && !result.frames.isEmpty {
+    }
+     if result.usedBufferedData && !result.frames.isEmpty {
       ble.record(
         source: "rust",
         title: "notification.frame.reassembled",

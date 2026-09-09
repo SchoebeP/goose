@@ -162,7 +162,8 @@ extension GooseBLEClient: CBPeripheralDelegate {
         // is active. Outside a sync these are high-rate live-stream frames that
         // should stay off-main for performance. Without this guard,
         // historicalPacketsReceivedThisSync is never incremented and every
-        // sync fails with "no packet47 bodies" even when the band is streaming.        if isHistoricalSyncing {
+        // sync fails with "no packet47 bodies" even when the band is streaming.
+        if isHistoricalSyncing {
           return true
         }
         continue

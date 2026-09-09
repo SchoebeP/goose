@@ -1247,7 +1247,8 @@ final class WhoopCloudForwarder {
       req.setValue("application/json", forHTTPHeaderField: "Content-Type")
       req.setValue(self.token, forHTTPHeaderField: "X-Ingest-Token")
       req.httpBody = try? JSONSerialization.data(withJSONObject: body)
-      URLSession.shared.dataTask(with: req).resume()  // fire-and-forget    }
+      URLSession.shared.dataTask(with: req).resume()  // fire-and-forget
+    }
   }
 
   // MARK: Raw GEN4 frame forwarding (powers the live /pulse waveform)
@@ -1414,7 +1415,8 @@ final class WhoopCloudForwarder {
   /// Shares the single-POST gate with the live path so a drain chain and a live
   /// flush can never run concurrent uploads.
   private func drainOutbox() {
-    guard !framesPostInFlight else { return }    let fm = FileManager.default
+    guard !framesPostInFlight else { return }
+     let fm = FileManager.default
     guard let url = (try? fm.contentsOfDirectory(at: Self.outboxDir, includingPropertiesForKeys: nil))?
       .filter({ $0.pathExtension == "json" })
       .sorted(by: { $0.lastPathComponent < $1.lastPathComponent }).first else { return }
@@ -1422,7 +1424,8 @@ final class WhoopCloudForwarder {
     framesPostInFlight = true
     postFrames(body) { [weak self] ok in
       self?.queue.async {
-        self?.framesPostInFlight = false        guard ok else { return }
+        self?.framesPostInFlight = false
+         guard ok else { return }
         try? fm.removeItem(at: url)
         self?.drainOutbox()
       }
