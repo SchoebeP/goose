@@ -23,6 +23,11 @@ final class GooseBLEClient: NSObject, ObservableObject {
   @Published var liveHRVSource = "waiting"
   @Published var liveHRVUpdatedAt: Date?
   @Published var liveHRVRMSSDSampleCount = 0
+  @Published var latestBodyHistoryMetrics: BodyHistoryMetricsSample?
+  /// 1-minute rolling average of skin_temp_raw (by arrival time) so the Body
+  /// card doesn't flicker while history records stream in every second.
+  @Published var skinTempRawSmoothed: Int?
+  var skinTempSmoothingWindow: [(arrivedAt: Date, raw: Int)] = []
   @Published var reconnectState = "idle"
   @Published var rememberedDeviceDescription = "none"
   @Published var activeDeviceName = "WHOOP"
@@ -42,6 +47,7 @@ final class GooseBLEClient: NSObject, ObservableObject {
   @Published var isHistoricalSyncing = false
   @Published var historicalSyncStatus = "idle"
   @Published var historicalPacketCount = 0
+  @Published var historySyncProgressSnapshot: GooseHistorySyncProgressSnapshot?
   @Published var lastHistoricalSyncCompletedAt: Date?
   // GEN4 (WHOOP 4.0) backfill state — the V5-shaped published vars above are
   // driven by the fd4b path only; the 4.0 uses its own engine (see
@@ -245,6 +251,14 @@ final class GooseBLEClient: NSObject, ObservableObject {
   var messages: [GooseMessage] {
     messageStore.messages
   }
+  /// Only mutated and read on the main thread — `activeCommandGeneration` (and
+  /// every generation-aware framing decision) derives from this property.
+  /// CoreBluetooth delegates land on `coreBluetoothQueue` but every entry point
+  /// that touches it bounces to main via
+  /// `dispatchCoreBluetoothDelegateToMainIfNeeded` first; the off-main
+  /// notification fast paths (`fanOutRawNotification` / standard-HR handling)
+  /// deliberately avoid this property. UI callers (SwiftUI buttons, @MainActor
+  /// app-model paths) are already on main.
   var commandCharacteristic: CBCharacteristic?
   var debugMenuCharacteristic: CBCharacteristic?
   var batteryLevelCharacteristic: CBCharacteristic?
@@ -299,6 +313,7 @@ final class GooseBLEClient: NSObject, ObservableObject {
     gen4JournalTemp = 0
     gen4JournalOther = 0
   }
+
   var lastDeadLinkRecovery = Date.distantPast // throttle for zombie-connection recovery
   var deadLinkFallbackWorkItem: DispatchWorkItem?
   var lastDataFrameAt = Date.distantPast      // last raw notification — stall watchdog
@@ -331,6 +346,10 @@ final class GooseBLEClient: NSObject, ObservableObject {
   var pendingHistoricalCommand: PendingHistoricalCommand?
   var nextHistoricalCommandSequence: UInt8 = 57
   var historicalPacketsReceivedThisSync = 0
+  /// Passes chained back-to-back because the band ended a history session
+  /// while its buffer was still hours behind (see completeHistoricalSync).
+  var chainedHistoricalSyncPassCount = 0
+  var historySyncProgressEstimator = HistorySyncProgressEstimator()
   var historicalRangePendingResponses = 0
   var historicalRangeRetryCount = 0
   var historicalTransferRequestAttemptCount = 0
@@ -427,6 +446,25 @@ final class GooseBLEClient: NSObject, ObservableObject {
   static let hrvRMSSDAverageWindowSize = 12
   static let hrvEstimatePublishInterval: TimeInterval = 60
   static let historicalPacketCountPublishInterval: TimeInterval = 1
+  // Max historical packets to ingest in a single sync pass before completing. The
+  // band's full backlog observed in testing was ~13k packets (it reaches
+  // HistoryComplete), so 20k covers a full sync in one pass while still bounding a
+  // runaway; raw-payload compaction keeps the database bounded regardless.
+  static let historicalSyncPacketCap = 20000
+  // Per-packet diagnostics at sync rate (~95 packets/s for hours) fan out to the
+  // message store, OSLog, three fsync'd log files and the cloud log stream for
+  // EVERY type-47 packet — the recording pipeline backs up without bound and iOS
+  // jetsam-kills the app every couple of minutes. Diagnostics are droppable, so
+  // record only the first packet and every Nth (progress publishing is already
+  // throttled separately via historicalPacketCountPublishInterval).
+  static let historicalPacketRecordStride = 250
+  // Gen4 history preamble timing. These are conservative fixed delays; the BLE
+  // connection interval is negotiated per-device (7.5 ms – 4 s), so on a device with a
+  // long interval these may need raising. Named here so they are tunable without hunting
+  // through the send path (a fully event-driven kickoff off the get_name response would
+  // be the more robust long-term fix).
+  static let gen4HistoryKickoffDelay: TimeInterval = 0.7
+  static let gen4HistoryPreambleStepDelay: TimeInterval = 0.2
   static let historicalProgressCallbackInterval: TimeInterval = 1
   static let strapClockAutoSyncThresholdSeconds: TimeInterval = 5
   static let diagnosticLogFormatter: ISO8601DateFormatter = {
@@ -622,6 +660,22 @@ final class GooseBLEClient: NSObject, ObservableObject {
 
     static let stopMovementHeartRateCapture = [
       SensorStreamCommandKind(commandNumber: 63, payload: [0], name: "SEND_R10_R11_REALTIME_OFF"),
+      SensorStreamCommandKind(commandNumber: 3, payload: [0], name: "TOGGLE_REALTIME_HR_OFF"),
+    ]
+
+    // WHOOP 4.0 (Gen4) realtime capture. On a real Gen4 strap, live heart rate is
+    // delivered over the STANDARD BLE Heart Rate service (180D/2A37), which the app
+    // already subscribes to and reads directly — so HR needs no proprietary command.
+    // We send only TOGGLE_REALTIME_HR (cmd 3). We deliberately do NOT send
+    // SEND_R10_R11_REALTIME (cmd 63): it turns on the raw K10/K11 motion firehose
+    // (hundreds of accel/gyro samples per packet at high rate) which bloats storage
+    // to hundreds of MB in minutes and overwhelms this alpha pipeline — and it is not
+    // needed for HR. The Gen5-only optical/persistent toggles are likewise omitted.
+    static let startRealtimeHeartRateGen4 = [
+      SensorStreamCommandKind(commandNumber: 3, payload: [1], name: "TOGGLE_REALTIME_HR_ON"),
+    ]
+
+    static let stopRealtimeHeartRateGen4 = [
       SensorStreamCommandKind(commandNumber: 3, payload: [0], name: "TOGGLE_REALTIME_HR_OFF"),
     ]
 
@@ -925,11 +979,11 @@ final class GooseBLEClient: NSObject, ObservableObject {
   }
 
   var canSyncHistorical: Bool {
-    canSendHello && !isHistoricalSyncing && supportsV5HistoricalSync
+    canSendHello && !isHistoricalSyncing && supportsHistoricalSync
   }
 
   var canWriteHighFrequencyHistorySync: Bool {
-    canSendHello && !isHistoricalSyncing && supportsV5SensorCommands
+    canSendHello && !isHistoricalSyncing && supportsSensorCommands
   }
 
   var debugResearchCommands: [GooseDebugCommandDefinition] {
@@ -937,13 +991,13 @@ final class GooseBLEClient: NSObject, ObservableObject {
   }
 
   var canWriteAlarm: Bool {
-    canSendHello && !isHistoricalSyncing && supportsV5AlarmCommands && pendingAlarmCommand == nil
+    canSendHello && !isHistoricalSyncing && supportsAlarmCommands && pendingAlarmCommand == nil
   }
 
   var canSyncClock: Bool {
     canSendHello
       && !isHistoricalSyncing
-      && supportsV5ClockCommands
+      && supportsClockCommands
       && pendingClockCommand == nil
       && pendingAlarmCommand == nil
   }
@@ -974,7 +1028,7 @@ final class GooseBLEClient: NSObject, ObservableObject {
     if pendingAlarmCommand != nil {
       return "Alarm command in flight"
     }
-    if !supportsV5AlarmCommands {
+    if !supportsAlarmCommands {
       return "Alarm writes need fd4b0002 V5 command framing; active \(commandCharacteristic.uuid.uuidString)"
     }
     if !canSendHello {

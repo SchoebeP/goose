@@ -144,24 +144,57 @@ extension GooseBLEClient {
     }
   }
 
-  var supportsV5HistoricalSync: Bool {
-    commandCharacteristic.map(isV5CommandCharacteristic) == true
+  // Generation of the active strap command channel. Gen4 (WHOOP 4.0) uses the
+  // 61080002 command-to-strap characteristic and a 4-byte framed packet; Gen5
+  // (WHOOP 5.0) uses fd4b0002 and the 8-byte frame. Outbound framing and a few
+  // command payloads differ per generation; the inbound parser is already
+  // generation-aware via GooseNotificationEvent.rustDeviceType.
+  enum CommandGeneration: Equatable {
+    case gen4
+    case gen5
   }
 
-  var supportsV5AlarmCommands: Bool {
-    commandCharacteristic.map(isV5CommandCharacteristic) == true
+  var activeCommandGeneration: CommandGeneration? {
+    guard let commandCharacteristic else {
+      return nil
+    }
+    if isGen4CommandCharacteristic(commandCharacteristic) {
+      return .gen4
+    }
+    if isV5CommandCharacteristic(commandCharacteristic) {
+      return .gen5
+    }
+    return nil
   }
 
-  var supportsV5ClockCommands: Bool {
-    commandCharacteristic.map(isV5CommandCharacteristic) == true
+  // True when there is a usable WHOOP command characteristic (either generation)
+  // we know how to frame commands for. Replaces the former fd4b0002-only gate.
+  var supportsStrapCommands: Bool {
+    activeCommandGeneration != nil
   }
 
-  var supportsV5SensorCommands: Bool {
-    commandCharacteristic.map(isV5CommandCharacteristic) == true
+  var supportsHistoricalSync: Bool {
+    supportsStrapCommands
+  }
+
+  var supportsAlarmCommands: Bool {
+    supportsStrapCommands
+  }
+
+  var supportsClockCommands: Bool {
+    supportsStrapCommands
+  }
+
+  var supportsSensorCommands: Bool {
+    supportsStrapCommands
   }
 
   func isV5CommandCharacteristic(_ characteristic: CBCharacteristic) -> Bool {
     characteristic.uuid.uuidString.lowercased().hasPrefix("fd4b0002")
+  }
+
+  func isGen4CommandCharacteristic(_ characteristic: CBCharacteristic) -> Bool {
+    characteristic.uuid.uuidString.lowercased().hasPrefix("61080002")
   }
 
   func shouldUseCommandCharacteristic(_ characteristic: CBCharacteristic) -> Bool {
@@ -206,7 +239,7 @@ extension GooseBLEClient {
       failClockCommand("Clock command needs ready connection; current state \(connectionState).")
       return
     }
-    guard supportsV5ClockCommands else {
+    guard supportsClockCommands else {
       failClockCommand("Clock command needs fd4b0002 V5 command framing. Active command characteristic: \(commandCharacteristic.uuid.uuidString).")
       return
     }
@@ -216,7 +249,7 @@ extension GooseBLEClient {
     }
 
     let sequence = nextClockSequence()
-    let frame = Self.buildV5CommandFrame(
+    let frame = buildCommandFrame(
       sequence: sequence,
       command: kind.commandNumber,
       data: kind.payload
@@ -299,7 +332,7 @@ extension GooseBLEClient {
       record(level: .warn, source: "ble.alarm", title: "alarm.write.blocked", body: alarmCommandStatus)
       return
     }
-    guard supportsV5AlarmCommands else {
+    guard supportsAlarmCommands else {
       alarmCommandStatus = "Alarm writes need fd4b0002 V5 command framing"
       record(level: .warn, source: "ble.alarm", title: "alarm.write.blocked", body: commandCharacteristic.uuid.uuidString)
       return
@@ -311,7 +344,7 @@ extension GooseBLEClient {
     }
 
     let sequence = nextAlarmSequence()
-    let frame = Self.buildV5CommandFrame(
+    let frame = buildCommandFrame(
       sequence: sequence,
       command: kind.commandNumber,
       data: kind.payload
@@ -390,7 +423,7 @@ extension GooseBLEClient {
       record(level: .warn, source: "ble.sensor", title: "sensor.write.blocked", body: "Needs ready connection; current state \(connectionState)")
       return
     }
-    guard supportsV5SensorCommands else {
+    guard supportsSensorCommands else {
       if updatePhysiologyStatus {
         physiologyCaptureStatus = "Needs fd4b0002 V5 command framing"
       }
@@ -438,7 +471,7 @@ extension GooseBLEClient {
   ) {
     let sequence = nextSensorCommandSequence
     nextSensorCommandSequence = nextSensorCommandSequence == UInt8.max ? 180 : nextSensorCommandSequence + 1
-    let frame = Self.buildV5CommandFrame(
+    let frame = buildCommandFrame(
       sequence: sequence,
       command: command.commandNumber,
       data: command.payload
@@ -703,11 +736,8 @@ extension GooseBLEClient {
     lastDeadLinkRecovery = Date()
     record(level: .warn, source: "ble", title: "connection.recover",
            body: "dead link (\(reason)) — tearing down for a fresh reconnect")
-    // Clear stale per-connection GEN4 state so the enable + history pull re-run.
+    // Clear stale per-connection GEN4 state so the enable sequence re-runs.
     gen4StartedPulseStream = false
-    gen4StartedHistoricalBackfill = false
-    isGen4Backfilling = false
-    gen4HistoryDeadline = nil
     gen4ReEnableTimer?.invalidate()
     gen4ReEnableTimer = nil
     // Cancel the zombie connection. didDisconnectPeripheral fires the normal
@@ -979,7 +1009,7 @@ extension GooseBLEClient {
           connectionState == "ready",
           activePeripheral != nil,
           commandCharacteristic != nil,
-          supportsV5SensorCommands else {
+          supportsSensorCommands else {
       return
     }
 
@@ -1000,7 +1030,7 @@ extension GooseBLEClient {
           connectionState == "ready",
           activePeripheral != nil,
           commandCharacteristic != nil,
-          supportsV5HistoricalSync,
+          supportsHistoricalSync,
           !isHistoricalSyncing else {
       return
     }
@@ -1082,11 +1112,9 @@ extension GooseBLEClient {
   }
 
   // MARK: Activation
-
-  /// True for the WHOOP 4.0 command characteristic (61080002); the V5 path uses fd4b0002.
-  func isGen4CommandCharacteristic(_ characteristic: CBCharacteristic) -> Bool {
-    characteristic.uuid.uuidString.lowercased().hasPrefix("61080002")
-  }
+  // (isGen4CommandCharacteristic lives with the generation gates above; the
+  // duplicate that used to sit here was removed when porting the po-sc Gen4
+  // support, which defines the same check.)
 
   /// True once connected to a WHOOP 4.0. Used to put the app in "4.0 quiet mode":
   /// the 5.0-oriented subsystems (overnight-guard resume, V5 physiology capture +
@@ -1129,6 +1157,16 @@ extension GooseBLEClient {
             self.isGen4CommandCharacteristic(ch) else {
         return
       }
+      // While a Gen4 history sync is running, do NOT re-enable the raw/pulse
+      // stream: the high-frequency raw-motion path (cmd 63 + research packets)
+      // blocks normal_history delivery on the 4.0, so re-sending the enable
+      // sequence mid-pull would starve the sync. The sync's completion path
+      // (completeHistoricalSync / failHistoricalSync) resumes the stream.
+      if self.isHistoricalSyncing {
+        self.record(level: .debug, source: "ble.gen4", title: "gen4.pulse.re_enable.skipped",
+                    body: "history sync active — raw/pulse stream paused")
+        return
+      }
       // Stall watchdog: if we're "ready" but no frame has arrived for >70 s, the
       // link is silently dead — re-enabling won't help, so force a reconnect.
       let stale = Date().timeIntervalSince(self.lastDataFrameAt)
@@ -1139,6 +1177,28 @@ extension GooseBLEClient {
       } else {
         self.startGen4PulseStreamSequence(reason: "re_enable", bond: false)
       }
+    }
+  }
+
+  /// Resume the 4.0 raw/pulse stream once a Gen4 history sync ends (success or
+  /// failure). The enable writes are paused while `isHistoricalSyncing` (the
+  /// high-frequency raw stream blocks normal_history delivery on the 4.0), so
+  /// after the pull finishes we re-send the enable sequence rather than waiting
+  /// up to 60 s for the next re-enable tick. No-op for 5.0 / never-enabled links
+  /// and on the disconnect-driven failure path (connection no longer ready).
+  func resumeGen4PulseStreamAfterHistorySyncIfNeeded(reason: String) {
+    guard gen4StartedPulseStream,
+          connectionState == "ready",
+          activePeripheral != nil,
+          let characteristic = commandCharacteristic,
+          isGen4CommandCharacteristic(characteristic) else {
+      return
+    }
+    record(source: "ble.gen4", title: "gen4.pulse.resume",
+           body: "history sync ended (\(reason)) — re-enabling raw/pulse stream")
+    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+      guard let self, self.connectionState == "ready", !self.isHistoricalSyncing else { return }
+      self.startGen4PulseStreamSequence(reason: reason, bond: false)
     }
   }
 
@@ -1161,10 +1221,9 @@ extension GooseBLEClient {
     Array(token.utf8) + [0]
   }
 
-  /// Send the enable sequence with the proven inter-command timing.
-  /// Zulusierra MITM refinement (2026-09-08): the official app opens with
-  /// GET_HELLO_HARVARD(35) — timestamp exchange + 133B status incl. serial —
-  /// BEFORE anything else. We greet the band the same way on bond.
+  /// Send the enable sequence with the proven inter-command timing. On the
+  /// initial bond this first runs a historical sync (the raw stream blocks
+  /// normal_history) and the enable sequence follows via the sync's resume hook.
   func startGen4PulseStreamSequence(reason: String, bond: Bool) {
     record(source: "ble.gen4", title: "gen4.pulse.enable.start", body: "reason=\(reason) bond=\(bond)")
     if bond {
@@ -1176,7 +1235,26 @@ extension GooseBLEClient {
     // also serves as the bond write on connect, and refreshes battery every
     // re-enable (~60 s). On the initial bond, wait for it to settle first.
     writeGen4Command(26, payload: [0x00], label: bond ? "GET_BATTERY(bond)" : "GET_BATTERY(refresh)")
-    let base = bond ? 1.2 : 0.3
+    if bond {
+      // Initial connect: pull the band's buffered history FIRST, before enabling
+      // the raw/pulse stream — the high-frequency raw stream blocks normal_history
+      // delivery on the 4.0, so enabling it first would starve the pull. The
+      // automatic-sync path (autoHistoricalSyncOnReady) is launch-arg gated and
+      // off by default, so this is what keeps the nightly backfill alive on Gen4.
+      // When the sync completes (or fails), completeHistoricalSync /
+      // failHistoricalSync resume us via
+      // resumeGen4PulseStreamAfterHistorySyncIfNeeded, which sends the full
+      // enable sequence with bond=false.
+      DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { [weak self] in
+        guard let self, self.connectionState == "ready" else { return }
+        guard !self.isHistoricalSyncing else { return }   // a sync beat us to it
+        self.record(source: "ble.gen4", title: "gen4.history.bond_pull",
+                    body: "pulling buffered history before enabling the raw/pulse stream")
+        self.beginHistoricalSync(trigger: "gen4_connect_backfill", automatic: true)
+      }
+      return
+    }
+    let base = 0.3
     let steps: [(UInt8, [UInt8], String)] = [
       (3, [0x01], "TOGGLE_REALTIME_HR"),
       (63, [0x01], "SEND_R10_R11_REALTIME"),
@@ -1190,15 +1268,12 @@ extension GooseBLEClient {
         self?.writeGen4Command(step.0, payload: step.1, label: step.2)
       }
     }
-    // After the initial bond enable settles, pull the band's buffered HR history
-    // once (backfills the gap since the last sync). Only on bond (first connect),
-    // never on the 60 s re-enable.
-    if bond {
-      let after = base + Double(steps.count) * 0.25 + 1.0
-      DispatchQueue.main.asyncAfter(deadline: .now() + after) { [weak self] in
-        self?.requestGen4HistoricalBackfillIfNeeded()
-      }
-    }
+    // NOTE: the automatic bond pull now uses the po-sc Gen4 historical sync
+    // state machine (beginHistoricalSync, generation-aware) — see the bond
+    // branch above. The one-shot raw-backfill engine below is kept only for
+    // manual/Réglages entry (SimpleAppView, SyncSection, official handshake);
+    // two engines never run at once because writeGen4Command defers raw/pulse
+    // writes while isHistoricalSyncing.
   }
 
   /// One-shot request for the band's onboard HR history. GET_DATA_RANGE(34) asks
@@ -1305,6 +1380,16 @@ extension GooseBLEClient {
   }
 
   func writeGen4Command(_ command: UInt8, payload: [UInt8], label: String) {
+    // While a Gen4 history sync is active the band must stay in the
+    // normal-history mode: the raw/pulse enable writes (cmd 63 raw motion +
+    // research packets) switch it to the high-frequency stream and starve the
+    // history pull, so they are dropped here. The sync completion/failure path
+    // re-runs the enable sequence.
+    guard !isHistoricalSyncing else {
+      record(level: .debug, source: "ble.gen4", title: "gen4.command.deferred",
+             body: "\(label) — history sync active; raw/pulse writes paused")
+      return
+    }
     guard let peripheral = activePeripheral,
           let characteristic = commandCharacteristic,
           let writeType = writeType(for: characteristic) else {
@@ -1359,65 +1444,10 @@ extension GooseBLEClient {
       gen4Trace("← rép cmd\(bytes[6]) (\(value.count) octets)")
     }
 
-    // type-47 HISTORICAL_DATA: the band is streaming buffered history. ACK with
-    // HISTORICAL_DATA_RESULT(23) to pull the next chunk. OpenStrap finding (2026-09):
-    // each batch is followed by a MARKER frame carrying an 8-byte token — the ACK
-    // must echo that token back EXACTLY, using a withResponse write. A blind
-    // fixed payload (what we did before) makes the band stop serving history.
-    if type == 47 {
-      gen4ProbeLock.lock()
-      let now = Date()
-      gen4BackfillPacketCount += 1
-      gen4BackfillBytes += value.count
-      let withinWindow = (gen4HistoryDeadline.map { now < $0 }) ?? false
-      gen4ProbeLock.unlock()
-      if !withinWindow { return }
-
-      // Token capture: an 8-byte token arrives in a type-47 MARKER (sub/id byte
-      // differs from data frames; data frames carry epoch@11). If bytes[8..16]
-      // look like a token (no plausible epoch), stash it for the next ACK.
-      let bytes = [UInt8](value)
-      let plausibleEpoch = bytes.count >= 15 && (bytes[11] > 0x20 || bytes[12] > 0x20)
-      if !plausibleEpoch && bytes.count >= 16 {
-        let token = Array(bytes[8..<16])
-        gen4ProbeLock.lock()
-        gen4HistoryToken = token
-        gen4HistoryTokenAt = now
-        gen4ProbeLock.unlock()
-        record(level: .warn, source: "ble.gen4", title: "gen4.history.token",
-               body: "marker token captured: \(Data(token).hexString)")
-        gen4Trace("⭐ MARKER token \(Data(token).hexString.prefix(8))…")
-        gen4Journal("✅ Le bracelet a répondu ! Il commence à m'envoyer ses données.")
-        // OpenStrap: ACK the marker immediately with the echoed token.
-        DispatchQueue.main.async { [weak self] in
-          self?.writeGen4Command(23, payload: token,
-                                 label: "HISTORICAL_DATA_RESULT(token-echo)")
-        }
-        return
-      }
-
-      // Data frames: decode the timestamped HR (epoch@11 LE, hr@21 per CLAUDE.md)
-      // and count what kind of payload arrived for the human journal.
-      if bytes.count >= 22 {
-        let epoch = Int(bytes[11]) | (Int(bytes[12]) << 8) | (Int(bytes[13]) << 16) | (Int(bytes[14]) << 24)
-        let hr = Int(bytes[21])
-        let when = Date(timeIntervalSince1970: TimeInterval(epoch))
-        let df = DateFormatter()
-        df.dateFormat = "dd/MM HH:mm"
-        gen4ProbeLock.lock()
-        if hr > 20 && hr < 230 { gen4JournalHR += 1 } else { gen4JournalOther += 1 }
-        let hrCount = gen4JournalHR
-        let otherCount = gen4JournalOther
-        gen4ProbeLock.unlock()
-        if hrCount == 1 {
-          gen4Journal("❤️ Première mesure reçue : FC \(hr) bpm du \(df.string(from: when)) — les données arrivent !")
-        } else if hrCount % 25 == 0 {
-          gen4Journal("❤️ \(hrCount) mesures reçues… (dernière : \(hr) bpm du \(df.string(from: when)))")
-        } else if otherCount == 1 {
-          gen4Journal("📦 Mesures secondaires reçues (pas de FC lisible dedans)")
-        }
-      }
-    }
+    // type-47 HISTORICAL_DATA frames are forwarded to the VPS by ingestRawFrame
+    // above. The cmd-23 ACK loop that used to live here was removed: the ported
+    // po-sc historical sync state machine (GooseBLEClient+HistoricalHandlers)
+    // owns history paging/acking now, and a second ACK driver would skip pages.
 
     // type-48 EVENT: event id is frame[6]. Decode charging directly here — the
     // authoritative signal the VPS uses — instead of relying on the Rust parser,

@@ -68,8 +68,25 @@ extension GooseAppModel {
       return true
     }
 
-    ble.record(source: "ui", title: "debug_command.deep_link", body: "\(commandID) payload=\(payloadHex ?? "nil")")
-    _ = ble.sendDebugResearchCommand(id: commandID, payloadHex: payloadHex, source: "deep_link")
+    let normalizedID = commandID.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    guard let command = ble.debugResearchCommands.first(where: { $0.id == normalizedID }) else {
+      ble.setDebugCommandStatus("Unknown debug command: \(commandID)")
+      ble.record(level: .warn, source: "ble.debug_command", title: "deep_link.unknown", body: commandID)
+      return true
+    }
+    guard command.allowsRemoteInvocation else {
+      ble.setDebugCommandStatus("\(command.title) blocked from external deep link")
+      ble.record(
+        level: .warn,
+        source: "ble.debug_command",
+        title: "deep_link.blocked",
+        body: "\(command.id) risk=\(command.risk)"
+      )
+      return true
+    }
+
+    ble.record(source: "ui", title: "debug_command.deep_link", body: "\(command.id) payload=\(payloadHex ?? "nil")")
+    _ = ble.sendDebugResearchCommand(id: command.id, payloadHex: payloadHex, source: "deep_link")
     return true
   }
 
@@ -101,8 +118,17 @@ extension GooseAppModel {
       return
     }
     refreshOvernightReadiness(reason: "ble_ready")
-    schedulePassiveActivityCapture(reason: "ble_ready")
+    // Do NOT auto-start passive packet capture on connect. It began a 12-hour,
+    // full-rate capture that persisted every frame to SQLite via the Rust bridge —
+    // the dominant source of UI lag and unbounded database growth — with no user
+    // opt-in. It is also redundant on WHOOP 4.0, where live heart rate already comes
+    // from the standard 180D/2A37 service. Packet capture remains available on demand
+    // from the More tab (startHealthPacketCapture).
     scheduleAutoStartRespiratoryPacketWatchIfNeeded()
+    if ble.canSyncClock {
+      ble.writeClockCommand(.get, syncIfNeeded: true)
+      ble.record(source: "ble.clock", title: "clock.auto_sync.triggered", body: "state=ready")
+    }
   }
 
   func schedulePassiveActivityCapture(reason: String) {

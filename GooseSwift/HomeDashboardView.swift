@@ -71,6 +71,18 @@ struct HomeDashboardView: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel("Température cutanée")
+
+        HomeMinutelyStepsSection(feed: stepsFeed)
+
+        // Cached, off-main computed snapshot: the full `landingSnapshot(for:)`
+        // chain recomputed every metric (incl. synchronous cardio-load bridge
+        // calls) on the main thread on every body pass — seconds of "loading".
+        HomeStressEnergySection(
+          stress: healthStore.homeStressSnapshot(),
+          openStress: { openHealth(.stress) }
+        )
+
+        HomeBodySection()
       }
       .padding(.horizontal, 16)
       .padding(.vertical, 18)
@@ -107,6 +119,7 @@ struct HomeDashboardView: View {
     }
     .task {
       healthStore.loadBridgeCatalogsIfNeeded()
+      healthStore.refreshHomeStressSnapshotIfNeeded()
       model.refreshActivityTimeline(for: selectedDate)
       stepsFeed.refresh()
       hrFeed.refresh()
@@ -746,6 +759,195 @@ private struct HomeStatCardRowContent: View {
         Text(value)
           .font(.system(size: 30, weight: .semibold, design: .rounded))
           .monospacedDigit()
+        if !unit.isEmpty {
+          Text(unit).font(.subheadline).foregroundStyle(.secondary)
+        }
+      }
+      Text(caption)
+        .font(.caption2)
+        .foregroundStyle(.secondary)
+        .lineLimit(2)
+    }
+    .gooseCard()
+  }
+}
+
+// MARK: - Skin-temp calibration (raw-word -> °C fit, computed on the VPS)
+
+/// Server-side linear fit mapping the band's raw skin-temp word to °C, built
+/// from reference thermometer readings we logged ourselves. `ready` is the
+/// server's verdict that the fit is usable; slope/intercept define raw -> °C.
+struct SkinTempCalibration: Decodable {
+  let ready: Bool
+  let slope: Double?
+  let intercept: Double?
+  let pointsUsed: Int?
+  let rmse: Double?
+}
+
+/// Fetches the skin-temp calibration the same way MinutelyHRFeed fetches the
+/// HR recap. `calibration` is non-nil ONLY when the server answered 2xx with
+/// `ready:true` and a usable slope+intercept — any failure (endpoint missing,
+/// transport error, decode error, ready:false) publishes nil so the UI falls
+/// back to the raw display and never shows an unconfirmed °C.
+@MainActor
+final class SkinTempCalibrationFeed: ObservableObject {
+  @Published var calibration: SkinTempCalibration?
+  // Token-only read path (auth-basic OFF on /whoop/ingest/) — same token the app uploads with.
+  private let url = URL(string: "https://latenightgames.fr/whoop/ingest/calibration/skin-temp")!
+  private let token = "c0067852565b4d0d46606172de35c6ba120112c447e1f25b"
+
+  func refresh() {
+    var req = URLRequest(url: url, timeoutInterval: 15)
+    req.setValue(token, forHTTPHeaderField: "X-Ingest-Token")
+    URLSession.shared.dataTask(with: req) { [weak self] data, response, _ in
+      let decoder = JSONDecoder()
+      decoder.keyDecodingStrategy = .convertFromSnakeCase // points_used -> pointsUsed
+      var result: SkinTempCalibration?
+      if let data,
+         let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode),
+         let cal = try? decoder.decode(SkinTempCalibration.self, from: data),
+         cal.ready, cal.slope != nil, cal.intercept != nil {
+        result = cal
+      }
+      Task { @MainActor in self?.calibration = result }
+    }.resume()
+  }
+}
+
+// MARK: - Body (respiratory rate, skin temp, SpO2 from the band's history records)
+
+/// "Body" section: the latest values our own decode pulls out of the band's
+/// normal-history records (see BodyHistoryMetrics.swift). Raw signals and rough
+/// estimates from the band — our numbers, not WHOOP's, and not medical readings.
+struct HomeBodySection: View {
+  @EnvironmentObject private var model: GooseAppModel
+  var body: some View { HomeBodySectionContent(ble: model.ble) }
+}
+
+private struct HomeBodySectionContent: View {
+  @ObservedObject var ble: GooseBLEClient
+  @StateObject private var calibrationFeed = SkinTempCalibrationFeed()
+  private let calibrationRefresh = Timer.publish(every: 3600, on: .main, in: .common).autoconnect()
+
+  private var sample: BodyHistoryMetricsSample? { ble.latestBodyHistoryMetrics }
+
+  /// Raw u16 / 200 -> rpm; "—" unless a history record landed in the last 24 h.
+  private var respiratoryValue: String {
+    guard let sample, sample.isRecent, let rpm = sample.respiratoryRateRPM else {
+      return "—"
+    }
+    return String(format: "%.1f", rpm)
+  }
+
+  /// 1-minute smoothed raw value when available (records stream every second
+  /// during a sync — the average keeps the card steady); falls back to the
+  /// latest single record.
+  private var displayRaw: Int? {
+    ble.skinTempRawSmoothed ?? sample?.skinTempRaw
+  }
+
+  /// The raw skin-temperature word as decoded (real captures ~464–860).
+  /// Never converted to °C until calibration lands.
+  private var skinTempValue: String {
+    guard let raw = displayRaw else {
+      return "—"
+    }
+    return "raw \(raw)"
+  }
+
+  /// Skin-temp card content. °C is shown ONLY when the server-side calibration
+  /// answered ready:true AND the raw reading is from the last 24 h — otherwise
+  /// the card stays exactly the raw display until calibration lands.
+  private var skinTempDisplay: (value: String, unit: String, caption: String) {
+    if let cal = calibrationFeed.calibration, cal.ready,
+       let slope = cal.slope, let intercept = cal.intercept,
+       let sample, sample.isRecent, let raw = displayRaw {
+      let celsius = slope * Double(raw) + intercept
+      // Sanity clamp: a linear fit built from only a few reference points can
+      // go wild (wrong slope sign, axis mix-up, outlier reading). No human
+      // wrist skin temp lands outside 25–45 °C, so a value out of that range
+      // means the fit is bad — fall back to the raw display rather than show
+      // a nonsense temperature.
+      if (25.0...45.0).contains(celsius) {
+        let readings = cal.pointsUsed.map { " (\($0) readings)" } ?? ""
+        return (
+          String(format: "%.1f", celsius),
+          "°C",
+          "our own calibration\(readings) · 1-min avg · raw \(raw)"
+        )
+      }
+    }
+    return (skinTempValue, "", "calibrating — reference readings logged; °C soon")
+  }
+
+  /// Red/IR optical channels carried signal within the last 24 h.
+  private var spo2HasRecentSignal: Bool {
+    guard let sample, sample.isRecent else {
+      return false
+    }
+    return sample.hasSpO2Signal
+  }
+
+  var body: some View {
+    let skinTemp = skinTempDisplay
+    VStack(alignment: .leading, spacing: 12) {
+      Text("Body")
+        .font(.title3.weight(.bold))
+
+      HStack(spacing: 12) {
+        bodyStatCard(
+          label: "Respiratory",
+          icon: "lungs.fill",
+          accent: GooseTheme.Accent.respiratory,
+          value: respiratoryValue,
+          unit: respiratoryValue == "—" ? "" : "rpm",
+          caption: "from band history — our own decode"
+        )
+        bodyStatCard(
+          label: "Skin Temp",
+          icon: "thermometer.medium",
+          accent: GooseTheme.Accent.range,
+          value: skinTemp.value,
+          unit: skinTemp.unit,
+          caption: skinTemp.caption
+        )
+      }
+
+      spo2Card
+    }
+    .onAppear { calibrationFeed.refresh() }
+    .onReceive(calibrationRefresh) { _ in calibrationFeed.refresh() }
+  }
+
+  private var spo2Card: some View {
+    VStack(alignment: .leading, spacing: 8) {
+      HStack {
+        GooseMetricLabel(systemImage: "drop.fill", title: "SpO₂", accent: GooseTheme.Accent.sleep)
+        Spacer()
+        Text(spo2HasRecentSignal ? "signal ✓" : "no recent signal")
+          .font(.caption.weight(.semibold))
+          .foregroundStyle(spo2HasRecentSignal ? GooseTheme.Accent.activity : Color.secondary)
+      }
+      Text("needs oximeter calibration")
+        .font(.subheadline.weight(.semibold))
+        .foregroundStyle(.secondary)
+      Text("Red/IR optical channels decoded from band history; a percentage stays off until calibrated against a reference oximeter.")
+        .font(.caption2)
+        .foregroundStyle(.secondary)
+    }
+    .gooseCard()
+  }
+
+  private func bodyStatCard(label: String, icon: String, accent: Color, value: String, unit: String, caption: String) -> some View {
+    VStack(alignment: .leading, spacing: 8) {
+      GooseMetricLabel(systemImage: icon, title: label, accent: accent)
+      HStack(alignment: .firstTextBaseline, spacing: 4) {
+        Text(value)
+          .font(.system(size: 30, weight: .semibold, design: .rounded))
+          .monospacedDigit()
+          .lineLimit(1)
+          .minimumScaleFactor(0.55)
         if !unit.isEmpty {
           Text(unit).font(.subheadline).foregroundStyle(.secondary)
         }

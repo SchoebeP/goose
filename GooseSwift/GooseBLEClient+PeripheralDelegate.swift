@@ -144,8 +144,8 @@ extension GooseBLEClient: CBPeripheralDelegate {
       return false
     }
 
-    for frame in Self.v5Frames(in: value) {
-      guard let payload = Self.v5Payload(in: frame),
+    for frame in strapFrames(in: value) {
+      guard let payload = strapPayload(in: frame),
             let packetType = payload.first else {
         continue
       }
@@ -156,6 +156,17 @@ extension GooseBLEClient: CBPeripheralDelegate {
            V5PacketType.metadata,
            V5PacketType.puffinMetadata:
         return true
+      case V5PacketType.historicalData,
+           V5PacketType.historicalIMUDataStream:
+        // Route historical body packets to the main handler only while a sync
+        // is active. Outside a sync these are high-rate live-stream frames that
+        // should stay off-main for performance. Without this guard,
+        // historicalPacketsReceivedThisSync is never incremented and every
+        // sync fails with "no packet47 bodies" even when the band is streaming.
+        if isHistoricalSyncing {
+          return true
+        }
+        continue
       default:
         continue
       }

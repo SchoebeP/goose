@@ -55,34 +55,61 @@ struct RootView: View {
 
 private struct SyncToastHost: View {
   @ObservedObject var ble: GooseBLEClient
+  @State private var showSyncProgressDetail = false
 
   var body: some View {
     VStack {
       if let toast = ble.syncToast {
-        Button {
-          if toast.phase == .failed, let failure = ble.lastSyncFailure {
-            ble.syncFailureSheet = failure
+        if toast.phase == .syncing, let progress = ble.historySyncProgressSnapshot {
+          Button {
+            showSyncProgressDetail = true
+          } label: {
+            HistorySyncProgressToastView(snapshot: progress)
           }
-        } label: {
-          SyncStatusToastView(toast: toast)
+          .buttonStyle(.plain)
+          .padding(.horizontal, 16)
+          .padding(.top, 12)
+          .transition(.asymmetric(
+            insertion: .move(edge: .top).combined(with: .opacity),
+            removal: .move(edge: .top).combined(with: .opacity)
+          ))
+        } else {
+          Button {
+            if toast.phase == .failed, let failure = ble.lastSyncFailure {
+              ble.syncFailureSheet = failure
+            }
+          } label: {
+            SyncStatusToastView(toast: toast)
+          }
+          .buttonStyle(.plain)
+          .allowsHitTesting(toast.phase == .failed)
+          .padding(.horizontal, 16)
+          .padding(.top, 12)
+          .transition(.asymmetric(
+            insertion: .move(edge: .top).combined(with: .opacity),
+            removal: .move(edge: .top).combined(with: .opacity)
+          ))
         }
-        .buttonStyle(.plain)
-        .allowsHitTesting(toast.phase == .failed)
-        .padding(.horizontal, 16)
-        .padding(.top, 12)
-        .transition(.asymmetric(
-          insertion: .move(edge: .top).combined(with: .opacity),
-          removal: .move(edge: .top).combined(with: .opacity)
-        ))
       }
       Spacer(minLength: 0)
     }
     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-    .allowsHitTesting(ble.syncToast?.phase == .failed)
+    .allowsHitTesting(toastIsInteractive)
     .animation(.spring(response: 0.34, dampingFraction: 0.86), value: ble.syncToast?.id)
     .sheet(item: $ble.syncFailureSheet) { failure in
       SyncFailureSheet(failure: failure)
     }
+    .sheet(isPresented: $showSyncProgressDetail) {
+      HistorySyncProgressDetailSheet(ble: ble)
+    }
+  }
+
+  private var toastIsInteractive: Bool {
+    guard let toast = ble.syncToast else {
+      return false
+    }
+    return toast.phase == .failed
+      || (toast.phase == .syncing && ble.historySyncProgressSnapshot != nil)
   }
 }
 

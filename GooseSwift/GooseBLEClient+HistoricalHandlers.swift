@@ -8,13 +8,13 @@ extension GooseBLEClient {
     guard isHistoricalSyncing else {
       return
     }
-    for frame in Self.v5Frames(in: value) {
+    for frame in strapFrames(in: value) {
       handleHistoricalSyncFrame(frame, characteristic: characteristic)
     }
   }
 
   func handleHistoricalSyncFrame(_ frame: Data, characteristic: CBCharacteristic) {
-    guard let payload = Self.v5Payload(in: frame),
+    guard let payload = strapPayload(in: frame),
           let packetType = payload.first else {
       return
     }
@@ -24,6 +24,34 @@ extension GooseBLEClient {
       handleHistoricalCommandResponse(payload)
     case V5PacketType.historicalData, V5PacketType.historicalIMUDataStream:
       historicalPacketsReceivedThisSync += 1
+      // Honest progress: every type-47 record carries its unix timestamp as a
+      // u32 LE at payload offset 7 (frame offset 11; matches the Rust parser's
+      // data_packet `timestamp_seconds`). Min epoch seen = oldest buffered
+      // record; running max = how far the drain has reached. Type-52 IMU
+      // packets are skipped — their body layout is undecoded.
+      if packetType == V5PacketType.historicalData, payload.count >= 11 {
+        let epoch = TimeInterval(
+          UInt32(payload[7])
+            | UInt32(payload[8]) << 8
+            | UInt32(payload[9]) << 16
+            | UInt32(payload[10]) << 24
+        )
+        historySyncProgressEstimator.noteRecordEpoch(epoch, at: Date())
+      }
+      // Bound a single sync: a never-synced WHOOP can stream its entire multi-week
+      // backlog (oldest-first), which never reaches HistoryComplete in one pass and
+      // would balloon storage. Stop after a sane cap; the ACK'd read pointer persists,
+      // so a later Sync continues from where this one left off.
+      if historicalPacketsReceivedThisSync >= Self.historicalSyncPacketCap {
+        record(
+          level: .warn,
+          source: "ble.sync",
+          title: "historical_sync.packet_cap",
+          body: "reached \(Self.historicalSyncPacketCap) packets; completing this pass to bound storage"
+        )
+        completeHistoricalSync(reason: "historical_sync_packet_cap")
+        return
+      }
       publishHistoricalPacketCountIfNeeded()
       scheduleHistoricalIdleCompletion(reason: "historical_data_idle")
       notifyHistoricalSyncProgress(
@@ -32,12 +60,20 @@ extension GooseBLEClient {
         terminal: false,
         failed: false
       )
-      record(
-        level: .debug,
-        source: "ble.sync",
-        title: "historical_sync.packet",
-        body: "\(characteristic.uuid.uuidString) count=\(historicalPacketsReceivedThisSync)"
-      )
+      // "ble.sync" is on the always-record list, so this used to run the full
+      // record fan-out (message store + OSLog + 3 fsync'd files + cloud log
+      // POSTs) once per packet at ~95 packets/s for hours — unbounded backlog
+      // in the diagnostic pipeline and the jetsam kill loop during long syncs.
+      // The packet counter itself stays exact; only the log line is strided.
+      if historicalPacketsReceivedThisSync == 1
+        || historicalPacketsReceivedThisSync.isMultiple(of: Self.historicalPacketRecordStride) {
+        record(
+          level: .debug,
+          source: "ble.sync",
+          title: "historical_sync.packet",
+          body: "\(characteristic.uuid.uuidString) count=\(historicalPacketsReceivedThisSync) stride=\(Self.historicalPacketRecordStride)"
+        )
+      }
     case V5PacketType.metadata, V5PacketType.puffinMetadata:
       handleHistoricalMetadata(payload)
     default:
@@ -53,14 +89,20 @@ extension GooseBLEClient {
 
     lastHistoricalPacketCountPublishedAt = date
     historicalPacketCount = historicalPacketsReceivedThisSync
+    if isHistoricalSyncing, historySyncProgressEstimator.startedAt != nil {
+      historySyncProgressSnapshot = historySyncProgressEstimator.makeSnapshot(
+        now: date,
+        packetCount: historicalPacketsReceivedThisSync
+      )
+    }
   }
 
   func handleAlarmValue(_ value: Data, characteristic: CBCharacteristic) {
     guard notificationCharacteristicIDs.contains(characteristic.uuid) else {
       return
     }
-    for frame in Self.v5Frames(in: value) {
-      guard let payload = Self.v5Payload(in: frame),
+    for frame in strapFrames(in: value) {
+      guard let payload = strapPayload(in: frame),
             let packetType = payload.first else {
         continue
       }
@@ -79,8 +121,8 @@ extension GooseBLEClient {
     guard notificationCharacteristicIDs.contains(characteristic.uuid) else {
       return
     }
-    for frame in Self.v5Frames(in: value) {
-      guard let payload = Self.v5Payload(in: frame),
+    for frame in strapFrames(in: value) {
+      guard let payload = strapPayload(in: frame),
             payload.count >= 5,
             let packetType = payload.first,
             packetType == V5PacketType.commandResponse || packetType == V5PacketType.puffinCommandResponse,
@@ -140,8 +182,8 @@ extension GooseBLEClient {
     guard notificationCharacteristicIDs.contains(characteristic.uuid) else {
       return
     }
-    for frame in Self.v5Frames(in: value) {
-      guard let payload = Self.v5Payload(in: frame),
+    for frame in strapFrames(in: value) {
+      guard let payload = strapPayload(in: frame),
             payload.count >= 5,
             let packetType = payload.first,
             packetType == V5PacketType.commandResponse || packetType == V5PacketType.puffinCommandResponse,
@@ -538,6 +580,7 @@ extension GooseBLEClient {
       pendingHistoryEndAckPayload = nil
     case .historyEnd:
       historyEndReceived = true
+      historySyncProgressEstimator.notePage()
       guard !historyEndAckSentThisBurst else {
         record(
           level: .debug,
@@ -571,6 +614,14 @@ extension GooseBLEClient {
       }
     case .historyComplete:
       historyCompleteReceived = true
+      // The band signalled that the full history has been transferred. If we already
+      // pulled packet bodies this run, the sync succeeded — complete it now. Otherwise
+      // the post-completion idle/retry path treats the trailing empty pages as "no
+      // bodies" and marks a successful 13k-packet transfer as failed.
+      if historicalPacketsReceivedThisSync > 0 {
+        completeHistoricalSync(reason: "history_complete_after_data")
+        return
+      }
       guard !historyEndAckSentThisBurst else {
         return
       }
@@ -612,9 +663,48 @@ extension GooseBLEClient {
     isHistoricalSyncing = false
     historicalRangePollOnly = false
     publishHistoricalPacketCountIfNeeded(force: true, at: completedAt)
-    historicalSyncStatus = "synced"
+    // The band ends each history SESSION (pass) with a completion signal even
+    // when its buffer holds days more — field-verified: a pass "completed" while
+    // the newest delivered record was still ~30 h old. Before declaring the UI
+    // "synced", check how far behind the newest record of this pass is; if the
+    // gap is still large and this pass actually delivered packets, chain the
+    // next pass instead of lying.
+    let behindSeconds: TimeInterval? = historySyncProgressEstimator.newestRecordEpoch
+      .map { completedAt.timeIntervalSince1970 - $0 }
+    let shouldChainNextPass = !rangeOnly
+      && historicalPacketsReceivedThisSync > 0
+      && (behindSeconds ?? 0) > 3600
+      && chainedHistoricalSyncPassCount < 400
+    historySyncProgressEstimator.reset()
+    historySyncProgressSnapshot = nil
     lastHistoricalSyncCompletedAt = completedAt
     lastSyncAt = completedAt
+    if shouldChainNextPass {
+      chainedHistoricalSyncPassCount += 1
+      let behindHours = (behindSeconds ?? 0) / 3600
+      let detail = String(
+        format: "Pass done — still %.1f h of band history to pull, continuing…",
+        behindHours
+      )
+      historicalSyncStatus = "syncing"
+      publishSyncToast(phase: .syncing, detail: detail, clearAfter: nil)
+      notifyHistoricalSyncProgress(status: "syncing", detail: detail, terminal: false, failed: false)
+      record(
+        source: "ble.sync",
+        title: "historical_sync.pass_chained",
+        body: String(
+          format: "reason=%@ pass=%d behind_h=%.1f packets=%d",
+          reason, chainedHistoricalSyncPassCount, behindHours, historicalPacketsReceivedThisSync
+        )
+      )
+      DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { [weak self] in
+        guard let self, !self.isHistoricalSyncing, self.activePeripheral != nil else { return }
+        self.beginHistoricalSync(trigger: "chain_pass_\(self.chainedHistoricalSyncPassCount)", automatic: true)
+      }
+      return
+    }
+    chainedHistoricalSyncPassCount = 0
+    historicalSyncStatus = "synced"
     let detail = rangeOnly
       ? "Historical range poll complete"
       : sawHistoricalMetadata && historicalPacketsReceivedThisSync == 0
@@ -625,6 +715,7 @@ extension GooseBLEClient {
     publishSyncToast(phase: .synced, detail: detail, clearAfter: 2.2)
     notifyHistoricalSyncProgress(status: "synced", detail: detail, terminal: true, failed: false)
     record(source: "ble.sync", title: "historical_sync.completed", body: "reason=\(reason) \(detail)")
+    resumeGen4PulseStreamAfterHistorySyncIfNeeded(reason: "history_sync_completed")
   }
 
   func failHistoricalSync(_ message: String) {
@@ -646,6 +737,8 @@ extension GooseBLEClient {
     isHistoricalSyncing = false
     historicalRangePollOnly = false
     publishHistoricalPacketCountIfNeeded(force: true)
+    historySyncProgressEstimator.reset()
+    historySyncProgressSnapshot = nil
     historicalSyncStatus = "failed"
     let failure = GooseSyncFailure(title: "Sync Failed", message: message, occurredAt: Date())
     lastSyncFailure = failure
@@ -653,6 +746,7 @@ extension GooseBLEClient {
     publishSyncToast(phase: .failed, detail: "Tap for details", clearAfter: 4.5)
     notifyHistoricalSyncProgress(status: "failed", detail: message, terminal: true, failed: true)
     record(level: .error, source: "ble.sync", title: "historical_sync.failed", body: message)
+    resumeGen4PulseStreamAfterHistorySyncIfNeeded(reason: "history_sync_failed")
   }
 
   func notifyHistoricalSyncProgress(status: String, detail: String, terminal: Bool, failed: Bool) {
