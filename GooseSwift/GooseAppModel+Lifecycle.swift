@@ -52,6 +52,11 @@ extension GooseAppModel {
 
   @discardableResult
   func handleDebugCommandDeepLink(_ url: URL) -> Bool {
+#if !DEBUG
+    // Clean builds accept no remote/raw BLE command channel at all — a
+    // Release app must never let an arbitrary URL push bytes to the band.
+    return false
+#else
     guard ["gooseswift", "goose"].contains(url.scheme?.lowercased() ?? ""),
           url.host == "debug-command" else {
       return false
@@ -88,6 +93,7 @@ extension GooseAppModel {
     ble.record(source: "ui", title: "debug_command.deep_link", body: "\(command.id) payload=\(payloadHex ?? "nil")")
     _ = ble.sendDebugResearchCommand(id: command.id, payloadHex: payloadHex, source: "deep_link")
     return true
+#endif
   }
 
   func refreshHeartRateHourlyRanges(for date: Date = Date()) {

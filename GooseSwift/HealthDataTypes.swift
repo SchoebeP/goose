@@ -28,6 +28,18 @@ struct HealthTrendPoint: Identifiable {
   let id = UUID()
   let label: String
   let value: Double
+  /// Real calendar date for this point, when the source data has one
+  /// (server-computed daily trends always do — see `serverDailyTrend`). Nil
+  /// for series without a meaningful per-point calendar date (e.g. packet-
+  /// derived hourly buckets), which keep the existing point-count-based
+  /// slicing instead of a date-window slice.
+  let date: Date?
+
+  init(label: String, value: Double, date: Date? = nil) {
+    self.label = label
+    self.value = value
+    self.date = date
+  }
 }
 
 enum MetricSourceKind: String, Codable, CaseIterable, Equatable {

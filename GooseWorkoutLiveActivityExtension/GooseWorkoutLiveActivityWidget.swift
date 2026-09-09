@@ -194,14 +194,16 @@ private extension Color {
   }
 }
 
+/// Radiograph palette (mirrors InkTheme "negative"; the extension can't
+/// import app sources, so values are duplicated here by design).
 private enum WorkoutLiveActivityStyle {
-  static let background = Color.black
-  static let secondaryText = Color(red: 0.58, green: 0.58, blue: 0.62)
-  static let workoutYellow = Color(red: 1.0, green: 0.91, blue: 0.24)
-  static let exerciseGreen = Color(red: 0.62, green: 1.0, blue: 0.12)
-  static let movePink = Color(red: 1.0, green: 0.10, blue: 0.34)
-  static let standCyan = Color(red: 0.39, green: 0.92, blue: 0.95)
-  static let heartRed = Color(red: 1.0, green: 0.23, blue: 0.18)
+  static let background = Color(red: 0.063, green: 0.075, blue: 0.082)
+  static let secondaryText = Color(red: 0.545, green: 0.580, blue: 0.620)
+  static let workoutYellow = Color(red: 0.910, green: 0.925, blue: 0.937)
+  static let exerciseGreen = Color(red: 0.910, green: 0.925, blue: 0.937)
+  static let movePink = Color(red: 0.878, green: 0.290, blue: 0.322)
+  static let standCyan = Color(red: 0.545, green: 0.580, blue: 0.620)
+  static let heartRed = Color(red: 0.878, green: 0.290, blue: 0.322)
 }
 
 // MARK: - Live Heart Rate activity (standalone, not workout-tied)

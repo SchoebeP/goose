@@ -4,12 +4,135 @@ import SwiftUI
 import UIKit
 
 extension HealthDataStore {
+  /// Server-first Health Monitor vital: the newest `/ingest/metrics/daily`
+  /// day carrying a non-nil value for this metric, with a 7-day trend from
+  /// the same feed. Returns nil when the server has no data for the metric —
+  /// callers then fall back to their existing honest local chain. Never
+  /// invents a value.
+  func serverVitalHealthMonitorSnapshot(
+    base snapshot: HealthMetricSnapshot,
+    unit: String,
+    fractionDigits: Int,
+    metricName: String,
+    value: (ServerMetricsDay) -> Double?
+  ) -> HealthMetricSnapshot? {
+    guard !usesPreviewPacketData, !previewMissingData else {
+      return nil
+    }
+    ServerMetricsFeed.shared.refreshIfStale()
+    // Feed days are sorted newest-first.
+    let daysWithValue: [(date: String, value: Double)] = ServerMetricsFeed.shared.days.compactMap { day in
+      value(day).map { (date: day.date, value: $0) }
+    }
+    guard let latest = daysWithValue.first,
+          let valueText = Self.numberText(latest.value, fractionDigits: fractionDigits) else {
+      return nil
+    }
+    return replacingHealthMonitorSnapshot(
+      snapshot,
+      value: valueText,
+      unit: unit,
+      status: "Server-computed",
+      freshness: latest.date,
+      provenance: "server-computed \(metricName) (self-hosted VPS /metrics/daily)",
+      source: .local("server-computed \(metricName) (self-hosted VPS /metrics/daily)"),
+      trend: Self.serverDailyTrend(
+        base: snapshot.trend,
+        days: Array(daysWithValue.reversed()),
+        unit: unit,
+        fractionDigits: fractionDigits
+      )
+    )
+  }
+
+  /// Server-first Trends-tab row: same idea as `serverVitalHealthMonitorSnapshot`
+  /// above, but reads the Trends tab's own longer-window cache
+  /// (`ServerMetricsFeed.trendDays`, currently the server's 31-day cap)
+  /// instead of the 7-day "today" cache, and requires at least two days with
+  /// a real value before it counts as a trend (one point can't draw a line).
+  /// `status` receives the day the latest value came from (so callers can
+  /// read e.g. a server-computed band alongside the number) plus that value.
+  /// Returns nil when the server has fewer than two days of real data for
+  /// this metric — callers then fall back to their existing honest
+  /// local/bridge trend chain. Never fabricates a point.
+  func serverDailyTrendRow(
+    base snapshot: HealthMetricSnapshot,
+    unit: String,
+    fractionDigits: Int,
+    value: (ServerMetricsDay) -> Double?,
+    status: (ServerMetricsDay, Double) -> String
+  ) -> HealthMetricSnapshot? {
+    guard !usesPreviewPacketData, !previewMissingData else {
+      return nil
+    }
+    ServerMetricsFeed.shared.refreshTrendIfStale()
+    // Chronological (oldest -> newest) so trend points read left-to-right.
+    let daysWithValue: [(day: ServerMetricsDay, value: Double)] = ServerMetricsFeed.shared.trendDays
+      .sorted { $0.date < $1.date }
+      .compactMap { day in value(day).map { (day: day, value: $0) } }
+    guard daysWithValue.count >= 2,
+          let latest = daysWithValue.last,
+          let valueText = Self.numberText(latest.value, fractionDigits: fractionDigits) else {
+      return nil
+    }
+    return replacingHealthMonitorSnapshot(
+      snapshot,
+      value: valueText,
+      unit: unit,
+      status: status(latest.day, latest.value),
+      freshness: latest.day.date,
+      provenance: "server-computed (self-hosted VPS /metrics/daily)",
+      source: .local("server-computed (self-hosted VPS /metrics/daily)"),
+      trend: Self.serverDailyTrend(
+        base: snapshot.trend,
+        days: daysWithValue.map { (date: $0.day.date, value: $0.value) },
+        unit: unit,
+        fractionDigits: fractionDigits
+      )
+    )
+  }
+
+  /// Trend model over server-computed daily values (chronological order).
+  static func serverDailyTrend(
+    base trend: HealthTrendModel,
+    days: [(date: String, value: Double)],
+    unit: String,
+    fractionDigits: Int
+  ) -> HealthTrendModel {
+    let points = days.map { day in
+      HealthTrendPoint(
+        label: String(day.date.suffix(5)),
+        value: day.value,
+        date: ServerMetricsDay.date(fromDayKey: day.date)
+      )
+    }
+    let range = rangeText(values: days.map(\.value), unit: unit, fractionDigits: fractionDigits)
+    return HealthTrendModel(
+      id: trend.id,
+      title: trend.title,
+      rangeLabel: range ?? "\(points.count) days",
+      summary: "\(points.count) server-computed daily values",
+      analysis: "Daily values computed on the self-hosted VPS from band history. Our own computation, not WHOOP's.",
+      resources: trend.resources,
+      points: points
+    )
+  }
+
   func packetBackedHealthMonitorSnapshot(
     base snapshot: HealthMetricSnapshot,
     allowLiveFallbacks: Bool = true
   ) -> HealthMetricSnapshot {
     switch snapshot.id {
     case "respiratory-rate":
+      if let server = serverVitalHealthMonitorSnapshot(
+        base: snapshot,
+        unit: "rpm",
+        fractionDigits: 1,
+        metricName: "respiratory rate",
+        value: { $0.respRPM }
+      ) {
+        return server
+      }
       if let stored = dailyRecoveryMetricSnapshot(
         base: snapshot,
         valueKey: "respiratory_rate_rpm",
@@ -102,6 +225,49 @@ extension HealthDataStore {
   }
 
   func wristTemperatureHealthMonitorSnapshot(base snapshot: HealthMetricSnapshot) -> HealthMetricSnapshot {
+    if !usesPreviewPacketData, !previewMissingData {
+      ServerMetricsFeed.shared.refreshIfStale()
+      // Feed days are sorted newest-first.
+      let daysWithTemp: [(date: String, temp: ServerMetricsSkinTemp)] = ServerMetricsFeed.shared.days.compactMap { day in
+        day.skinTemp.map { (date: day.date, temp: $0) }
+      }
+      if let latest = daysWithTemp.first {
+        if latest.temp.isCalibratedCelsius,
+           let value = latest.temp.value,
+           let valueText = Self.numberText(value, fractionDigits: 1) {
+          let calibratedDays: [(date: String, value: Double)] = daysWithTemp.reversed().compactMap { day in
+            guard day.temp.isCalibratedCelsius, let dayValue = day.temp.value else {
+              return nil
+            }
+            return (date: day.date, value: dayValue)
+          }
+          return replacingHealthMonitorSnapshot(
+            snapshot,
+            value: valueText,
+            unit: "°C",
+            status: "Server-computed",
+            freshness: latest.date,
+            provenance: "server-computed skin temperature, calibrated (self-hosted VPS /metrics/daily)",
+            source: .local("server-computed skin temperature, calibrated (self-hosted VPS /metrics/daily)"),
+            trend: Self.serverDailyTrend(
+              base: snapshot.trend,
+              days: calibratedDays,
+              unit: "°C",
+              fractionDigits: 1
+            )
+          )
+        }
+        // The server has skin temperature, but only in uncalibrated raw
+        // sensor units — never display raw units as a temperature.
+        return unavailablePacketSnapshot(
+          base: snapshot,
+          status: "Uncalibrated raw only",
+          freshness: latest.date,
+          provenance: "server skin temperature (self-hosted VPS /metrics/daily) is uncalibrated raw",
+          sourceDetail: "server skin temperature is uncalibrated raw only; add calibration reference points"
+        )
+      }
+    }
     if let stored = dailyRecoveryMetricSnapshot(
       base: snapshot,
       valueKey: "skin_temperature_delta_c",
@@ -135,6 +301,15 @@ extension HealthDataStore {
     base snapshot: HealthMetricSnapshot,
     allowLiveFallbacks: Bool = true
   ) -> HealthMetricSnapshot {
+    if let server = serverVitalHealthMonitorSnapshot(
+      base: snapshot,
+      unit: "bpm",
+      fractionDigits: 0,
+      metricName: "resting heart rate",
+      value: { $0.rhrBPM }
+    ) {
+      return server
+    }
     let dailyRecoveryRHRMetrics = dailyRecoveryMetricsWithRestingHR()
     if let metric = Self.preferredDailyRecoveryMetricWithRestingHR(from: dailyRecoveryRHRMetrics),
        let value = Self.doubleValue(metric["resting_hr_bpm"]),
@@ -327,6 +502,15 @@ extension HealthDataStore {
   }
 
   func hrvHealthMonitorSnapshot(base snapshot: HealthMetricSnapshot) -> HealthMetricSnapshot {
+    if let server = serverVitalHealthMonitorSnapshot(
+      base: snapshot,
+      unit: "ms",
+      fractionDigits: 0,
+      metricName: "HRV (RMSSD)",
+      value: { $0.hrvRMSSDMs }
+    ) {
+      return server
+    }
     if let stored = dailyRecoveryMetricSnapshot(
       base: snapshot,
       valueKey: "hrv_rmssd_ms",

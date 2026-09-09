@@ -9,17 +9,7 @@ struct RecoveryV2ScenicBackground: View {
   var body: some View {
     ZStack {
       LinearGradient(
-        colors: palette.light
-          ? [
-              Color(red: 0.84, green: 0.93, blue: 0.87),
-              Color(red: 0.72, green: 0.86, blue: 0.77),
-              palette.background,
-            ]
-          : [
-              Color(red: 0.06, green: 0.12, blue: 0.10),
-              Color(red: 0.09, green: 0.18, blue: 0.13),
-              palette.background,
-            ],
+        colors: [InkTheme.wash, InkTheme.film, InkTheme.film],
         startPoint: .top,
         endPoint: .bottom
       )
@@ -33,7 +23,7 @@ struct RecoveryV2ScenicBackground: View {
         )
         context.fill(
           primaryBand,
-          with: .color(Color(red: 0.36, green: 0.78, blue: 0.48).opacity(palette.light ? 0.20 : 0.16))
+          with: .color(InkTheme.graphite.opacity(0.08))
         )
 
         let secondaryBand = filledRecoveryBand(
@@ -44,7 +34,7 @@ struct RecoveryV2ScenicBackground: View {
         )
         context.fill(
           secondaryBand,
-          with: .color(Color(red: 0.66, green: 0.90, blue: 0.70).opacity(palette.light ? 0.16 : 0.10))
+          with: .color(InkTheme.graphite.opacity(0.05))
         )
 
         let signalPath = recoverySignalPath(
@@ -54,7 +44,7 @@ struct RecoveryV2ScenicBackground: View {
         )
         context.stroke(
           signalPath,
-          with: .color(Color(red: 0.54, green: 0.92, blue: 0.60).opacity(palette.light ? 0.24 : 0.20)),
+          with: .color(InkTheme.graphite.opacity(0.22)),
           style: StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round)
         )
       }
@@ -64,7 +54,7 @@ struct RecoveryV2ScenicBackground: View {
         Rectangle()
           .fill(
             LinearGradient(
-              colors: [.clear, palette.background.opacity(0.72), palette.background],
+              colors: [.clear, InkTheme.film.opacity(0.72), InkTheme.film],
               startPoint: .top,
               endPoint: .bottom
             )
@@ -149,18 +139,18 @@ struct RecoveryV2TrendCard: View {
               .lineLimit(1)
               .minimumScaleFactor(0.70)
           }
-          .foregroundStyle(palette.mutedText)
+          .foregroundStyle(InkTheme.graphite)
 
           HStack(alignment: .firstTextBaseline, spacing: 5) {
             Text(valueText)
               .font(.system(size: 42, weight: .regular, design: .rounded))
-              .foregroundStyle(palette.text)
+              .foregroundStyle(InkTheme.ink)
               .lineLimit(1)
               .minimumScaleFactor(0.64)
             if !unitText.isEmpty {
               Text(unitText)
                 .font(.title2.weight(.semibold))
-                .foregroundStyle(palette.mutedText)
+                .foregroundStyle(InkTheme.graphite)
             }
           }
 
@@ -185,7 +175,7 @@ struct RecoveryV2TrendCard: View {
 
           Image(systemName: "arrow.right")
             .font(.title2.weight(.medium))
-            .foregroundStyle(palette.mutedText.opacity(0.80))
+            .foregroundStyle(InkTheme.graphite.opacity(0.80))
         }
         .frame(width: 122, height: 112)
       }
@@ -195,18 +185,17 @@ struct RecoveryV2TrendCard: View {
       .background(
         RoundedRectangle(cornerRadius: 28, style: .continuous)
           .fill(cardFill)
-          .shadow(color: palette.shadow.opacity(0.46), radius: 12, x: 0, y: 5)
       )
       .overlay(
         RoundedRectangle(cornerRadius: 28, style: .continuous)
-          .stroke(palette.separator.opacity(0.70), lineWidth: 1)
+          .stroke(InkTheme.hairline, lineWidth: 1)
       )
     }
     .buttonStyle(.plain)
   }
 
   private var cardFill: Color {
-    palette.surfaceElevated
+    InkTheme.wash
   }
 
   private var valueText: String {
@@ -233,12 +222,8 @@ struct RecoveryV2TrendCard: View {
   }
 
   private var statusColor: Color {
-    if !snapshot.trend.hasData {
-      return palette.mutedText
-    }
-    return snapshot.status.localizedCaseInsensitiveContains("below")
-      ? Color(red: 0.94, green: 0.62, blue: 0.22)
-      : palette.accent
+    // Radiograph: status reads in ink; "no data" recedes to graphite.
+    snapshot.trend.hasData ? InkTheme.ink : InkTheme.graphite
   }
 }
 
@@ -283,17 +268,17 @@ struct RecoveryV2TrendBand: View {
   }
 
   private var lineColor: Color {
-    snapshot.trend.hasData ? tint : palette.mutedText.opacity(0.54)
+    snapshot.trend.hasData ? tint : InkTheme.graphite.opacity(0.54)
   }
 
   private var bandColor: Color {
     snapshot.trend.hasData
-      ? Color(red: 0.29, green: 0.58, blue: 0.43).opacity(0.56)
-      : palette.separator.opacity(0.70)
+      ? InkTheme.hairline
+      : InkTheme.hairline.opacity(0.6)
   }
 
   private var cardInnerFill: Color {
-    palette.light ? Color(red: 0.93, green: 0.94, blue: 0.97) : Color(red: 0.20, green: 0.21, blue: 0.26)
+    InkTheme.film
   }
 
   private func valueDomain(_ values: [Double]) -> (min: Double, max: Double) {

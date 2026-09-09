@@ -10,16 +10,21 @@ struct DeviceView: View {
   }
 }
 
+#if DEBUG
 private enum DevicePanel {
   case status
   case advanced
 }
+#endif
 
 private struct DeviceContentView: View {
   @EnvironmentObject private var model: GooseAppModel
   @EnvironmentObject private var packetMonitor: PacketMonitorModel
   @ObservedObject var ble: GooseBLEClient
+#if DEBUG
   @State private var selectedPanel: DevicePanel = .status
+  @ObservedObject private var developerSettings = DeveloperSettings.shared
+#endif
 
   var body: some View {
     ZStack {
@@ -34,17 +39,34 @@ private struct DeviceContentView: View {
           )
           .padding(.bottom, 30)
 
-          DeviceStatusTabs(selectedPanel: $selectedPanel)
-            .padding(.bottom, 46)
+#if DEBUG
+          if developerSettings.isEnabled {
+            DeviceStatusTabs(selectedPanel: $selectedPanel)
+              .padding(.bottom, 46)
 
-          if selectedPanel == .status {
+            if selectedPanel == .status {
+              DeviceImageAndBattery(
+                batteryPercent: ble.batteryLevelPercent,
+                isCharging: ble.batteryIsCharging == true
+              )
+            } else {
+              DeviceAdvancedPanel(model: model, packetMonitor: packetMonitor, ble: ble)
+            }
+          } else {
+            // Developer tools off: no "Advanced" diagnostics tab — just the
+            // status view, same as Release always shows.
             DeviceImageAndBattery(
               batteryPercent: ble.batteryLevelPercent,
               isCharging: ble.batteryIsCharging == true
             )
-          } else {
-            DeviceAdvancedPanel(model: model, packetMonitor: packetMonitor, ble: ble)
           }
+#else
+          // Clean builds: no "Advanced" diagnostics tab — just the status view.
+          DeviceImageAndBattery(
+            batteryPercent: ble.batteryLevelPercent,
+            isCharging: ble.batteryIsCharging == true
+          )
+#endif
         }
         .padding(.horizontal, 22)
         .padding(.top, 36)
@@ -103,6 +125,7 @@ private struct DeviceContentView: View {
   }
 }
 
+#if DEBUG
 private struct DeviceStatusTabs: View {
   @Binding var selectedPanel: DevicePanel
 
@@ -153,6 +176,7 @@ private struct DeviceTabButton: View {
     label == "ADVANCED" ? 76 : 52
   }
 }
+#endif
 
 private struct DeviceImageAndBattery: View {
   let batteryPercent: Int?
@@ -284,15 +308,15 @@ private struct BatteryRail: View {
 
   private var fillStyle: LinearGradient {
     LinearGradient(
-      colors: isCharging
-        ? [batteryYellow, Color(red: 0.74, green: 1.0, blue: 0.56), batteryYellow]
-        : [batteryYellow, batteryYellow],
+      colors: [batteryYellow, batteryYellow],
       startPoint: .bottom,
       endPoint: .top
     )
   }
 }
 
+// Raw firmware/Rust/frame/event-log diagnostics + BLE action grid — Dev only.
+#if DEBUG
 private struct DeviceAdvancedPanel: View {
   @EnvironmentObject private var messageStore: GooseMessageStore
   @ObservedObject var model: GooseAppModel
@@ -646,6 +670,7 @@ private struct EventLogPreview: View {
     }
   }
 }
+#endif
 
 private func relativeSummary(for date: Date?) -> String? {
   guard let date else {
@@ -659,36 +684,18 @@ private func relativeSummary(for date: Date?) -> String? {
   return formatter.localizedString(for: date, relativeTo: Date()).capitalized
 }
 
-private let deviceScreenBackground = GooseTheme.appBackground
-private let devicePrimaryText = Color(uiColor: .label)
-private let controlBackground = Color(uiColor: UIColor { traits in
-  traits.userInterfaceStyle == .dark
-    ? UIColor(red: 0.12, green: 0.16, blue: 0.18, alpha: 1)
-    : .secondarySystemGroupedBackground
-})
-private let deviceRailBackground = Color(uiColor: UIColor { traits in
-  traits.userInterfaceStyle == .dark
-    ? UIColor(red: 0.23, green: 0.25, blue: 0.27, alpha: 1)
-    : .systemGray4
-})
-private let dividerColor = Color(uiColor: UIColor { traits in
-  traits.userInterfaceStyle == .dark
-    ? UIColor(red: 0.19, green: 0.22, blue: 0.25, alpha: 1)
-    : .separator
-})
-private let secondaryText = Color(uiColor: UIColor { traits in
-  traits.userInterfaceStyle == .dark
-    ? UIColor(red: 0.63, green: 0.65, blue: 0.67, alpha: 1)
-    : .secondaryLabel
-})
-private let mutedText = Color(uiColor: UIColor { traits in
-  traits.userInterfaceStyle == .dark
-    ? UIColor(red: 0.56, green: 0.58, blue: 0.60, alpha: 1)
-    : .tertiaryLabel
-})
-private let connectedGreen = Color(red: 0.42, green: 0.84, blue: 0.30)
-private let disconnectedRed = Color(red: 1.0, green: 0.27, blue: 0.23)
-private let batteryYellow = Color(red: 1.0, green: 0.89, blue: 0.36)
+// Radiograph retint: constant names kept, values remapped to InkTheme tokens.
+private let deviceScreenBackground = InkTheme.film
+private let devicePrimaryText = InkTheme.ink
+private let controlBackground = InkTheme.wash
+private let deviceRailBackground = InkTheme.hairline
+private let dividerColor = InkTheme.hairline
+private let secondaryText = InkTheme.graphite
+private let mutedText = InkTheme.graphite.opacity(0.8)
+// Arterial = live link right now; everything else stays quiet.
+private let connectedGreen = InkTheme.arterial
+private let disconnectedRed = InkTheme.graphite
+private let batteryYellow = InkTheme.ink
 private let deviceLabelFont = Font.system(size: 15, weight: .black, design: .default)
 private let deviceBodyFont = Font.system(size: 17, weight: .bold, design: .default)
 private let advancedBodyFont = Font.system(size: 17, weight: .regular, design: .default)

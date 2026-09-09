@@ -57,19 +57,20 @@ struct HRDayDetailView: View {
 
   var body: some View {
     let buckets = self.buckets
-    let accent = GooseTheme.Accent.range
+    let accent = InkTheme.arterial
     ScrollView {
-      VStack(alignment: .leading, spacing: 18) {
+      VStack(alignment: .leading, spacing: 0) {
         if buckets.isEmpty {
           Text("No heart-rate data for today yet.")
-            .font(.subheadline).foregroundStyle(.secondary)
+            .font(InkTheme.footnote)
+            .foregroundStyle(InkTheme.graphite)
             .frame(maxWidth: .infinity, minHeight: 200, alignment: .center)
         } else {
           let idx = min(max(selected, 0), buckets.count - 1)
           let sel = buckets[idx]
 
           // Header panel for the selected hour.
-          VStack(alignment: .leading, spacing: 10) {
+          VStack(alignment: .leading, spacing: 12) {
             HStack {
               Button {
                 if idx > 0 { selected = idx - 1 }
@@ -80,7 +81,7 @@ struct HRDayDetailView: View {
 
               Spacer()
               Text(hourRangeLabel(sel.hour))
-                .font(.headline.weight(.semibold))
+                .font(InkTheme.mono(15, weight: .semibold))
                 .foregroundStyle(accent)
               Spacer()
 
@@ -93,15 +94,18 @@ struct HRDayDetailView: View {
             }
             .tint(accent)
 
-            HStack(spacing: 22) {
+            HStack(spacing: 26) {
               hrStat("Avg", "\(sel.avg)", accent)
-              hrStat("Low", "\(sel.lo)", .secondary)
-              hrStat("High", "\(sel.hi)", .secondary)
+              hrStat("Low", "\(sel.lo)", InkTheme.graphite)
+              hrStat("High", "\(sel.hi)", InkTheme.graphite)
             }
             Text("\(sel.minuteCount) min recorded · bpm · computed on our server")
-              .font(.caption).foregroundStyle(.secondary)
+              .font(InkTheme.footnote)
+              .foregroundStyle(InkTheme.graphite)
           }
-          .gooseCard()
+          .padding(.vertical, 16)
+
+          InkRule()
 
           SelectableRangeChart(
             buckets: buckets,
@@ -111,8 +115,10 @@ struct HRDayDetailView: View {
               if let i = buckets.firstIndex(where: { $0.hour == hour }) { selected = i }
             }
           )
-          .frame(height: 260)
-          .gooseCard()
+          .frame(height: 220)
+          .padding(.vertical, 16)
+
+          InkRule()
 
           // Per-hour list.
           VStack(alignment: .leading, spacing: 0) {
@@ -122,39 +128,37 @@ struct HRDayDetailView: View {
               } label: {
                 HStack {
                   Text(hourRangeLabel(b.hour))
-                    .font(.subheadline.weight(b.hour == sel.hour ? .bold : .regular))
-                    .foregroundStyle(b.hour == sel.hour ? accent : Color.primary)
+                    .font(InkTheme.mono(13, weight: b.hour == sel.hour ? .bold : .regular))
+                    .foregroundStyle(b.hour == sel.hour ? accent : InkTheme.ink)
                   Spacer()
                   Text("avg \(b.avg) · \(b.lo)–\(b.hi) bpm")
-                    .font(.subheadline).monospacedDigit()
-                    .foregroundStyle(.secondary)
+                    .font(InkTheme.mono(13))
+                    .foregroundStyle(InkTheme.graphite)
                 }
-                .padding(.vertical, 10)
+                .padding(.vertical, 12)
+                .contentShape(Rectangle())
               }
               .buttonStyle(.plain)
-              if b.hour != buckets.last?.hour {
-                Divider().overlay(Color.primary.opacity(0.06))
-              }
+              InkRule()
             }
           }
-          .gooseCard()
         }
       }
-      .padding(.horizontal, 16)
+      .padding(.horizontal, InkTheme.screenMargin)
       .padding(.vertical, 18)
     }
-    .gooseScreenBackground()
+    .inkScreen()
     .navigationTitle("Heart Rate · Today")
     .navigationBarTitleDisplayMode(.inline)
   }
 
   private func hrStat(_ label: String, _ value: String, _ color: Color) -> some View {
-    VStack(alignment: .leading, spacing: 2) {
-      Text(label).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+    VStack(alignment: .leading, spacing: 4) {
+      Text(label).inkEyebrow()
       Text(value)
-        .font(.system(size: 30, weight: .bold, design: .rounded))
-        .monospacedDigit()
+        .font(InkTheme.displayNumeral(28))
         .foregroundStyle(color)
+        .monospacedDigit()
     }
   }
 }
@@ -230,18 +234,19 @@ struct StepsDayDetailView: View {
 
   var body: some View {
     let buckets = self.buckets
-    let accent = GooseTheme.Accent.activity
+    let accent = InkTheme.ink
     ScrollView {
-      VStack(alignment: .leading, spacing: 18) {
+      VStack(alignment: .leading, spacing: 0) {
         if buckets.isEmpty {
           Text("No steps for today yet.")
-            .font(.subheadline).foregroundStyle(.secondary)
+            .font(InkTheme.footnote)
+            .foregroundStyle(InkTheme.graphite)
             .frame(maxWidth: .infinity, minHeight: 200, alignment: .center)
         } else {
           let idx = min(max(selected, 0), buckets.count - 1)
           let sel = buckets[idx]
 
-          VStack(alignment: .leading, spacing: 10) {
+          VStack(alignment: .leading, spacing: 12) {
             HStack {
               Button {
                 if idx > 0 { selected = idx - 1 }
@@ -252,7 +257,7 @@ struct StepsDayDetailView: View {
 
               Spacer()
               Text(hourRangeLabel(sel.hour))
-                .font(.headline.weight(.semibold))
+                .font(InkTheme.mono(15, weight: .semibold))
                 .foregroundStyle(accent)
               Spacer()
 
@@ -265,17 +270,22 @@ struct StepsDayDetailView: View {
             }
             .tint(accent)
 
-            HStack(alignment: .firstTextBaseline, spacing: 4) {
+            HStack(alignment: .firstTextBaseline, spacing: 5) {
               Text("\(sel.total)")
-                .font(.system(size: 34, weight: .bold, design: .rounded))
+                .font(InkTheme.displayNumeral(34))
                 .monospacedDigit()
                 .foregroundStyle(accent)
-              Text("steps").font(.subheadline).foregroundStyle(.secondary)
+              Text("steps")
+                .font(InkTheme.mono(12))
+                .foregroundStyle(InkTheme.graphite)
             }
             Text("Most active minute: \(sel.busiestMinuteLabel) (\(sel.busiestMinuteSteps) steps) · our own count")
-              .font(.caption).foregroundStyle(.secondary)
+              .font(InkTheme.footnote)
+              .foregroundStyle(InkTheme.graphite)
           }
-          .gooseCard()
+          .padding(.vertical, 16)
+
+          InkRule()
 
           SelectableStepsChart(
             buckets: buckets,
@@ -285,8 +295,10 @@ struct StepsDayDetailView: View {
               if let i = buckets.firstIndex(where: { $0.hour == hour }) { selected = i }
             }
           )
-          .frame(height: 260)
-          .gooseCard()
+          .frame(height: 220)
+          .padding(.vertical, 16)
+
+          InkRule()
 
           VStack(alignment: .leading, spacing: 0) {
             ForEach(buckets) { b in
@@ -295,28 +307,26 @@ struct StepsDayDetailView: View {
               } label: {
                 HStack {
                   Text(hourRangeLabel(b.hour))
-                    .font(.subheadline.weight(b.hour == sel.hour ? .bold : .regular))
-                    .foregroundStyle(b.hour == sel.hour ? accent : Color.primary)
+                    .font(InkTheme.mono(13, weight: b.hour == sel.hour ? .bold : .regular))
+                    .foregroundStyle(b.hour == sel.hour ? accent : InkTheme.ink)
                   Spacer()
                   Text("\(b.total) steps")
-                    .font(.subheadline).monospacedDigit()
-                    .foregroundStyle(.secondary)
+                    .font(InkTheme.mono(13))
+                    .foregroundStyle(InkTheme.graphite)
                 }
-                .padding(.vertical, 10)
+                .padding(.vertical, 12)
+                .contentShape(Rectangle())
               }
               .buttonStyle(.plain)
-              if b.hour != buckets.last?.hour {
-                Divider().overlay(Color.primary.opacity(0.06))
-              }
+              InkRule()
             }
           }
-          .gooseCard()
         }
       }
-      .padding(.horizontal, 16)
+      .padding(.horizontal, InkTheme.screenMargin)
       .padding(.vertical, 18)
     }
-    .gooseScreenBackground()
+    .inkScreen()
     .navigationTitle("Steps · Today")
     .navigationBarTitleDisplayMode(.inline)
   }

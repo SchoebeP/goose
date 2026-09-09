@@ -1,5 +1,9 @@
 import SwiftUI
 
+// Raw byte-level export tooling and the operational algorithm-variant picker
+// (distinct from the consumer-facing metric explanations in the Health tab).
+// Dev only: compiled out of Release entirely (see DeveloperSettings.swift).
+#if DEBUG
 struct MoreRawExportView: View {
   @ObservedObject var store: MoreDataStore
 
@@ -200,4 +204,5 @@ struct MoreAlgorithmsView: View {
     }
   }
 }
+#endif
 

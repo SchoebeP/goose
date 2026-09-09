@@ -53,12 +53,28 @@ struct MoreGreetingHeader: View {
   }
 }
 
+// The "Developer" hub — Dev only. Compiled out of Release entirely (see
+// DeveloperSettings.swift). This is the ONE entry point that stays reachable
+// regardless of the `DeveloperSettings.isEnabled` toggle below, so flipping
+// dev tools off never strands you without a way back to turn them on.
+#if DEBUG
 struct MoreDeveloperView: View {
   let routes: [MoreRoute]
   let routeStatus: MoreRouteStatus
+  @ObservedObject private var developerSettings = DeveloperSettings.shared
 
   var body: some View {
     List {
+      Section("Visibility") {
+        Toggle("Show Developer Tools", isOn: Binding(
+          get: { developerSettings.isEnabled },
+          set: { developerSettings.isEnabled = $0 }
+        ))
+        Text("Off hides Capture & Sync, Debug, and other dev rows elsewhere in More (and the Home ledger's Packet Inputs / Algorithms / Calibration cards) — useful for a clean screenshot without a Release build. This screen stays reachable either way.")
+          .font(.caption)
+          .foregroundStyle(.secondary)
+      }
+
       Section("Tools") {
         ForEach(routes) { route in
           NavigationLink(value: route) {
@@ -84,6 +100,7 @@ struct MoreDeveloperView: View {
     .toolbarBackground(.hidden, for: .navigationBar)
   }
 }
+#endif
 
 struct MoreProfileView: View {
   @EnvironmentObject private var model: GooseAppModel

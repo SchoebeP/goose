@@ -11,17 +11,17 @@ struct HealthSummaryPill: View {
     VStack(alignment: .leading, spacing: 3) {
       Text(title)
         .font(.caption2.weight(.semibold))
-        .foregroundStyle(.secondary)
+        .foregroundStyle(InkTheme.graphite)
       Text(value)
         .font(.caption.weight(.bold))
-        .foregroundStyle(.primary)
+        .foregroundStyle(InkTheme.ink)
         .lineLimit(1)
         .minimumScaleFactor(0.7)
     }
     .frame(maxWidth: .infinity, alignment: .leading)
     .padding(.horizontal, 10)
     .padding(.vertical, 8)
-    .background(Color(.tertiarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+    .background(InkTheme.wash, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
   }
 }
 
@@ -39,10 +39,10 @@ struct HealthSourceBadge: View {
 
   private var color: Color {
     switch source.kind {
-    case .bridge: .green
-    case .local: .teal
-    case .live: .blue
-    case .unavailable: .secondary
+    case .bridge: InkTheme.ink
+    case .local: InkTheme.ink
+    case .live: InkTheme.arterial
+    case .unavailable: InkTheme.graphite
     }
   }
 }
@@ -64,12 +64,12 @@ struct LegacyCardioWeeklyLoadChart: View {
               .overlay(alignment: .top) {
                 Text("\(Int(day.load))")
                   .font(.caption2.weight(.bold))
-                  .foregroundStyle(.white)
+                  .foregroundStyle(InkTheme.film)
                   .padding(.top, 4)
               }
             Text(day.dateLabel)
               .font(.caption2.weight(.semibold))
-              .foregroundStyle(.secondary)
+              .foregroundStyle(InkTheme.graphite)
           }
           .frame(maxWidth: .infinity)
         }
@@ -80,18 +80,9 @@ struct LegacyCardioWeeklyLoadChart: View {
   }
 
   private func color(for status: String) -> Color {
-    switch status {
-    case "Productive", "Peaking":
-      return .green
-    case "Maintaining":
-      return .blue
-    case "Detraining":
-      return .orange
-    case "Fatigued", "Overtraining":
-      return .red
-    default:
-      return .pink
-    }
+    // Radiograph: charts are ink-monochrome; status is carried by the label.
+    _ = status
+    return InkTheme.ink
   }
 }
 
@@ -108,13 +99,13 @@ struct LegacyEnergyAndStressChart: View {
         GeometryReader { proxy in
           ZStack {
             chartPath(values: points.map(\.energy), size: proxy.size)
-              .stroke(.teal, style: StrokeStyle(lineWidth: 3, lineCap: .round, lineJoin: .round))
+              .stroke(InkTheme.ink, style: StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round))
             chartPath(values: points.map(\.stress), size: proxy.size)
-              .stroke(.orange, style: StrokeStyle(lineWidth: 3, lineCap: .round, lineJoin: .round))
+              .stroke(InkTheme.graphite, style: StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round))
             if let selectedPoint, let index = points.firstIndex(where: { $0.id == selectedPoint.id }) {
               let x = proxy.size.width * CGFloat(index) / CGFloat(max(points.count - 1, 1))
               Rectangle()
-                .fill(Color.primary.opacity(0.16))
+                .fill(InkTheme.ink.opacity(0.16))
                 .frame(width: 2)
                 .position(x: x, y: proxy.size.height / 2)
             }
@@ -123,9 +114,9 @@ struct LegacyEnergyAndStressChart: View {
 
         HStack(spacing: 16) {
           Label("Energy", systemImage: "bolt.fill")
-            .foregroundStyle(.teal)
+            .foregroundStyle(InkTheme.ink)
           Label("Stress", systemImage: "waveform.path.ecg")
-            .foregroundStyle(.orange)
+            .foregroundStyle(InkTheme.graphite)
         }
         .font(.caption.weight(.semibold))
       }
@@ -165,12 +156,12 @@ struct CompactEnergyAndStressChart: View {
         GeometryReader { proxy in
           ZStack(alignment: .bottomLeading) {
             chartLine(points.map(\.energy), in: proxy.size)
-              .stroke(.green, style: StrokeStyle(lineWidth: 3, lineCap: .round, lineJoin: .round))
+              .stroke(InkTheme.ink, style: StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round))
             chartLine(points.map(\.stress), in: proxy.size)
-              .stroke(.orange, style: StrokeStyle(lineWidth: 3, lineCap: .round, lineJoin: .round))
+              .stroke(InkTheme.graphite, style: StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round))
             ForEach(points) { point in
               Circle()
-                .fill(point.id == selectedPoint?.id ? Color.primary : Color.secondary.opacity(0.45))
+                .fill(point.id == selectedPoint?.id ? InkTheme.ink : InkTheme.graphite.opacity(0.45))
                 .frame(width: point.id == selectedPoint?.id ? 9 : 6, height: point.id == selectedPoint?.id ? 9 : 6)
                 .position(position(for: point.energy, index: index(of: point), size: proxy.size))
             }
@@ -179,13 +170,13 @@ struct CompactEnergyAndStressChart: View {
         .frame(height: 126)
 
         HStack(spacing: 12) {
-          ChartLegend(color: .green, label: "Energy")
-          ChartLegend(color: .orange, label: "Stress")
+          ChartLegend(color: InkTheme.ink, label: "Energy")
+          ChartLegend(color: InkTheme.graphite, label: "Stress")
           Spacer()
           if let selectedPoint {
             Text(selectedPoint.timeLabel)
               .font(.caption.weight(.semibold))
-              .foregroundStyle(.secondary)
+              .foregroundStyle(InkTheme.graphite)
           }
         }
       }
@@ -228,7 +219,7 @@ struct ChartLegend: View {
         .frame(width: 7, height: 7)
       Text(label)
         .font(.caption.weight(.semibold))
-        .foregroundStyle(.secondary)
+        .foregroundStyle(InkTheme.graphite)
     }
   }
 }
@@ -241,11 +232,11 @@ struct HealthSparkline: View {
     GeometryReader { proxy in
       if points.isEmpty {
         RoundedRectangle(cornerRadius: 8, style: .continuous)
-          .fill(Color(.tertiarySystemFill))
+          .fill(InkTheme.wash)
           .overlay {
             Text("No data")
               .font(.caption2.weight(.semibold))
-              .foregroundStyle(.secondary)
+              .foregroundStyle(InkTheme.graphite)
           }
       } else {
         Path { path in
@@ -263,7 +254,8 @@ struct HealthSparkline: View {
             }
           }
         }
-        .stroke(tint, style: StrokeStyle(lineWidth: 3, lineCap: .round, lineJoin: .round))
+        // Radiograph: sparklines are always ink, regardless of the caller-supplied tint.
+        .stroke(InkTheme.ink, style: StrokeStyle(lineWidth: 1.5, lineCap: .round, lineJoin: .round))
       }
     }
   }
@@ -276,29 +268,30 @@ struct CardioWeeklyLoadChart: View {
     GeometryReader { proxy in
       if days.isEmpty {
         RoundedRectangle(cornerRadius: 8, style: .continuous)
-          .fill(Color(.tertiarySystemFill))
+          .fill(InkTheme.wash)
           .overlay {
             Text("No weekly load data")
               .font(.caption.weight(.semibold))
-              .foregroundStyle(.secondary)
+              .foregroundStyle(InkTheme.graphite)
           }
       } else {
         ZStack(alignment: .topLeading) {
           RoundedRectangle(cornerRadius: 8, style: .continuous)
-            .fill(Color(.secondarySystemGroupedBackground))
+            .fill(InkTheme.wash)
           rangeBand(in: proxy.size)
           chartPath(in: proxy.size)
-            .stroke(.pink, style: StrokeStyle(lineWidth: 3, lineCap: .round, lineJoin: .round))
+            .stroke(InkTheme.ink, style: StrokeStyle(lineWidth: 1.5, lineCap: .round, lineJoin: .round))
           ForEach(Array(days.enumerated()), id: \.element.id) { index, day in
             let point = chartPoint(index: index, load: day.load, size: proxy.size)
             Circle()
-              .fill(index == days.count - 1 ? Color.pink : Color.white)
-              .stroke(.pink, lineWidth: 2)
-              .frame(width: index == days.count - 1 ? 12 : 8, height: index == days.count - 1 ? 12 : 8)
+              // Arterial marks "today" — the newest point only.
+              .fill(index == days.count - 1 ? InkTheme.arterial : InkTheme.film)
+              .stroke(index == days.count - 1 ? InkTheme.arterial : InkTheme.ink, lineWidth: 1.5)
+              .frame(width: index == days.count - 1 ? 10 : 7, height: index == days.count - 1 ? 10 : 7)
               .position(point)
             Text(day.dateLabel)
               .font(.caption2)
-              .foregroundStyle(.secondary)
+              .foregroundStyle(InkTheme.graphite)
               .position(x: point.x, y: proxy.size.height - 12)
           }
           VStack(alignment: .trailing, spacing: 0) {
@@ -309,13 +302,13 @@ struct CardioWeeklyLoadChart: View {
             Text("0")
           }
           .font(.caption2)
-          .foregroundStyle(.secondary)
+          .foregroundStyle(InkTheme.graphite)
           .frame(width: proxy.size.width - 8, height: proxy.size.height - 24, alignment: .trailing)
           .padding(.top, 8)
           if let last = days.last {
             Text("\(Int(last.load)) load | \(last.status)")
               .font(.caption.weight(.semibold))
-              .foregroundStyle(.pink)
+              .foregroundStyle(InkTheme.ink)
               .padding(.horizontal, 8)
               .padding(.vertical, 5)
               .background(.thinMaterial, in: Capsule())
@@ -330,7 +323,7 @@ struct CardioWeeklyLoadChart: View {
     let top = yPosition(load: 45, height: size.height)
     let bottom = yPosition(load: 30, height: size.height)
     return Rectangle()
-      .fill(Color.green.opacity(0.12))
+      .fill(InkTheme.graphite.opacity(0.08))
       .frame(width: size.width, height: max(bottom - top, 1))
       .position(x: size.width / 2, y: (top + bottom) / 2)
   }

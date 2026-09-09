@@ -446,6 +446,7 @@ extension GooseAppModel {
     publishWhoopEventStatus(sample.statusSummary, at: sample.capturedAt)
     recordOvernightEventTarget(sample)
     applyChargingFromEvent(sample)
+    applyWristStateFromEvent(sample)
     if shouldLogWhoopEvent(sample) {
       ble.record(level: .debug, source: "whoop.event", title: "event.received", body: sample.logSummary)
     }
@@ -476,6 +477,13 @@ extension GooseAppModel {
 
   /// Authoritative charging state from the band's own events (the bit-packed
   /// status characteristic is unreliable on the WHOOP 4.0).
+  /// GEN4 wrist events (field decode 2026-07): 9 = WRIST_ON, 10 = WRIST_OFF.
+  func applyWristStateFromEvent(_ sample: WhoopEventSample) {
+    guard let id = sample.eventID, id == 9 || id == 10 else { return }
+    ble.isOnWrist = id == 9
+    ble.wristStateUpdatedAt = sample.capturedAt
+  }
+
   func applyChargingFromEvent(_ sample: WhoopEventSample) {
     guard let id = sample.eventID else { return }
     switch id {

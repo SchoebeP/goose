@@ -57,7 +57,15 @@ struct HeartRateSeriesFile: Codable {
   let samples: [HeartRateSamplePoint]
 }
 
-final class HeartRateSeriesStore {
+/// All mutable state is guarded by `stateLock` (see `append`,
+/// `timelineSnapshot`, `samples(from:to:)`, etc. below, which all lock
+/// around every read/write of `samples`/`pendingWrite`/`lastNotificationAt`)
+/// — safe to call from any thread. Marked `@unchecked Sendable` so it can be
+/// captured by `@Sendable` closures (e.g.
+/// `HealthDataStore.refreshHeartRateTimeline`'s background-queue dispatch)
+/// without a compiler warning; this only documents an invariant the class
+/// already upholds and changes no behavior.
+final class HeartRateSeriesStore: @unchecked Sendable {
   static let shared = HeartRateSeriesStore()
   static let didUpdateNotification = Notification.Name("GooseHeartRateSeriesStoreDidUpdate")
 

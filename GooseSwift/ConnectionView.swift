@@ -1,5 +1,9 @@
 import SwiftUI
 
+// "Connection Lab" — raw BLE scan/connect/hello/event-log tooling. Dev only:
+// compiled out of Release entirely (see DeveloperSettings.swift for the
+// gating convention this follows).
+#if DEBUG
 struct ConnectionView: View {
   @EnvironmentObject private var model: GooseAppModel
 
@@ -185,3 +189,4 @@ private struct ConnectionContentView: View {
     return "\(ble.historicalSyncStatus) | \(packets)"
   }
 }
+#endif

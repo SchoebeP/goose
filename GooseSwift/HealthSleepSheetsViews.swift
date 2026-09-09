@@ -15,57 +15,57 @@ struct SleepV2SleepNeededSheet: View {
 	          VStack(alignment: .center, spacing: 14) {
 	            Image(systemName: "moon.zzz.fill")
 	              .font(.title2.weight(.semibold))
-	              .foregroundStyle(palette.accent)
+	              .foregroundStyle(InkTheme.ink)
 	              .frame(width: 50, height: 50)
-	              .background(palette.accent.opacity(0.12), in: Circle())
+	              .background(InkTheme.ink.opacity(0.12), in: Circle())
 	            VStack(spacing: 4) {
 	              Text("Tonight's sleep needed")
 	                .font(.headline.weight(.semibold))
-	                .foregroundStyle(palette.secondaryText)
+	                .foregroundStyle(InkTheme.graphite)
 	              Text(sleepNeededText)
 	                .font(.system(size: 52, weight: .semibold, design: .rounded))
-	                .foregroundStyle(palette.text)
+	                .foregroundStyle(InkTheme.ink)
 	                .lineLimit(1)
 	                .minimumScaleFactor(0.70)
 	              Text("Target time in bed for the next sleep window.")
 	                .font(.subheadline)
 	                .multilineTextAlignment(.center)
-	                .foregroundStyle(palette.secondaryText)
+	                .foregroundStyle(InkTheme.graphite)
 	            }
 	          }
 	          .frame(maxWidth: .infinity)
 	          .padding(24)
-	          .background(palette.surface, in: RoundedRectangle(cornerRadius: 30, style: .continuous))
-	          .overlay(RoundedRectangle(cornerRadius: 30, style: .continuous).stroke(palette.separator.opacity(0.70), lineWidth: 1))
+	          .background(InkTheme.wash, in: RoundedRectangle(cornerRadius: 30, style: .continuous))
+	          .overlay(RoundedRectangle(cornerRadius: 30, style: .continuous).stroke(InkTheme.hairline.opacity(0.70), lineWidth: 1))
 
             VStack(alignment: .leading, spacing: 14) {
               HStack(alignment: .firstTextBaseline) {
                 VStack(alignment: .leading, spacing: 3) {
                   Text("Target amount")
                     .font(.headline.weight(.semibold))
-                    .foregroundStyle(palette.text)
+                    .foregroundStyle(InkTheme.ink)
                   Text("Your preferred sleep duration before buffers.")
                     .font(.caption.weight(.medium))
-                    .foregroundStyle(palette.secondaryText)
+                    .foregroundStyle(InkTheme.graphite)
                 }
                 Spacer()
                 Text(targetSleepText)
                   .font(.title3.weight(.semibold))
                   .fontDesign(.rounded)
-                  .foregroundStyle(palette.text)
+                  .foregroundStyle(InkTheme.ink)
               }
 
               Stepper("Target sleep", value: $targetSleepMinutes, in: 5 * 60...10 * 60, step: 15)
                 .labelsHidden()
             }
             .padding(20)
-            .background(palette.surface, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 24, style: .continuous).stroke(palette.separator.opacity(0.70), lineWidth: 1))
+            .background(InkTheme.wash, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 24, style: .continuous).stroke(InkTheme.hairline.opacity(0.70), lineWidth: 1))
 
 	          VStack(alignment: .leading, spacing: 12) {
 	            Text("Calculation")
 	              .font(.headline.weight(.semibold))
-	              .foregroundStyle(palette.text)
+	              .foregroundStyle(InkTheme.ink)
 	            VStack(spacing: 10) {
 	              SleepV2SleepNeedFactorRow(
 	                palette: palette,
@@ -73,7 +73,7 @@ struct SleepV2SleepNeededSheet: View {
 	                title: "Sleep goal",
 	                detail: "Base target before adjustments",
 	                value: targetSleepText,
-	                tint: palette.accent
+	                tint: InkTheme.ink
 	              )
 	              SleepV2SleepNeedFactorRow(
 	                palette: palette,
@@ -81,7 +81,7 @@ struct SleepV2SleepNeededSheet: View {
 	                title: "Recent strain",
 	                detail: "No extra recovery time added",
 	                value: "+0m",
-	                tint: Color(red: 0.94, green: 0.45, blue: 0.30)
+	                tint: InkTheme.graphite
 	              )
 	              SleepV2SleepNeedFactorRow(
 	                palette: palette,
@@ -89,7 +89,7 @@ struct SleepV2SleepNeededSheet: View {
 	                title: "Sleep debt",
 	                detail: "No repayment needed tonight",
 	                value: "+0m",
-	                tint: palette.success
+	                tint: InkTheme.graphite
 	              )
 	              SleepV2SleepNeedFactorRow(
 	                palette: palette,
@@ -97,38 +97,38 @@ struct SleepV2SleepNeededSheet: View {
 	                title: "Efficiency buffer",
 	                detail: "Covers awake time in bed",
 	                value: "+9m",
-	                tint: Color(red: 0.42, green: 0.78, blue: 0.86)
+	                tint: InkTheme.graphite
 	              )
 	            }
 	          }
 	          .padding(20)
-	          .background(palette.surface, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
-	          .overlay(RoundedRectangle(cornerRadius: 24, style: .continuous).stroke(palette.separator.opacity(0.70), lineWidth: 1))
+	          .background(InkTheme.wash, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+	          .overlay(RoundedRectangle(cornerRadius: 24, style: .continuous).stroke(InkTheme.hairline.opacity(0.70), lineWidth: 1))
 
 	          VStack(alignment: .leading, spacing: 10) {
 	            HStack {
 	              Text("Total")
 	                .font(.headline.weight(.semibold))
-	                .foregroundStyle(palette.text)
+	                .foregroundStyle(InkTheme.ink)
 	              Spacer()
 	              Text(sleepNeededText)
 	                .font(.title2.weight(.semibold))
 	                .fontDesign(.rounded)
-	                .foregroundStyle(palette.text)
+	                .foregroundStyle(InkTheme.ink)
 	            }
 	            Text("Use this as the time-in-bed target. Your actual sleep score still depends on sleep continuity, wake time, and stage balance.")
 	              .font(.subheadline)
-	              .foregroundStyle(palette.secondaryText)
+	              .foregroundStyle(InkTheme.graphite)
 	              .fixedSize(horizontal: false, vertical: true)
 	          }
 	          .padding(20)
-	          .background(palette.surfaceHeader.opacity(0.72), in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+	          .background(InkTheme.wash.opacity(0.72), in: RoundedRectangle(cornerRadius: 24, style: .continuous))
 	        }
 	        .padding(.horizontal, 18)
 	        .padding(.top, 18)
 	        .padding(.bottom, 30)
       }
-      .background(palette.background.ignoresSafeArea())
+      .background(InkTheme.film.ignoresSafeArea())
       .navigationTitle("Sleep Needed")
       .navigationBarTitleDisplayMode(.inline)
       .toolbar {
@@ -138,7 +138,7 @@ struct SleepV2SleepNeededSheet: View {
           } label: {
             Image(systemName: "xmark")
           }
-          .foregroundStyle(palette.text)
+          .foregroundStyle(InkTheme.ink)
         }
       }
       .toolbarBackground(.hidden, for: .navigationBar)
@@ -177,10 +177,10 @@ struct SleepV2SleepNeedFactorRow: View {
       VStack(alignment: .leading, spacing: 3) {
         Text(title)
           .font(.subheadline.weight(.semibold))
-          .foregroundStyle(palette.text)
+          .foregroundStyle(InkTheme.ink)
         Text(detail)
           .font(.caption.weight(.medium))
-          .foregroundStyle(palette.secondaryText)
+          .foregroundStyle(InkTheme.graphite)
           .lineLimit(1)
           .minimumScaleFactor(0.72)
       }
@@ -188,10 +188,10 @@ struct SleepV2SleepNeedFactorRow: View {
       Text(value)
         .font(.subheadline.weight(.semibold))
         .fontDesign(.rounded)
-        .foregroundStyle(palette.text)
+        .foregroundStyle(InkTheme.ink)
     }
     .padding(12)
-    .background(palette.surfaceElevated.opacity(0.48), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+    .background(InkTheme.wash.opacity(0.48), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
   }
 }
 
@@ -207,15 +207,15 @@ struct SleepV2CalculationRow: View {
       Text(label)
       Spacer()
       Text(value)
-        .foregroundStyle(muted ? palette.mutedText : palette.text)
+        .foregroundStyle(muted ? InkTheme.graphite : InkTheme.ink)
     }
     .font(.system(size: prominent ? 17 : 15, weight: prominent ? .semibold : .regular, design: .rounded))
-    .foregroundStyle(palette.text)
+    .foregroundStyle(InkTheme.ink)
     .padding(.horizontal, 16)
     .padding(.vertical, 14)
-    .background(prominent ? palette.surfaceHeader : .clear)
+    .background(prominent ? InkTheme.wash : .clear)
     .overlay(alignment: .bottom) {
-      Rectangle().fill(palette.separator).frame(height: prominent ? 0 : 1)
+      Rectangle().fill(InkTheme.hairline).frame(height: prominent ? 0 : 1)
     }
   }
 }
@@ -247,7 +247,7 @@ struct SleepV2AlarmSheet: View {
         .padding(.top, 18)
         .padding(.bottom, 98)
       }
-      .background(palette.background.ignoresSafeArea())
+      .background(InkTheme.film.ignoresSafeArea())
       .navigationTitle("Sleep Alarm")
       .navigationBarTitleDisplayMode(.inline)
       .toolbar {
@@ -257,7 +257,7 @@ struct SleepV2AlarmSheet: View {
           } label: {
             Image(systemName: "xmark")
           }
-          .foregroundStyle(palette.text)
+          .foregroundStyle(InkTheme.ink)
         }
       }
       .toolbarBackground(.hidden, for: .navigationBar)
@@ -267,9 +267,9 @@ struct SleepV2AlarmSheet: View {
         } label: {
           Text(alarmType == "No alarm" ? "Disable alarm on band" : "Save to band")
             .font(.headline.weight(.semibold))
-            .foregroundStyle(.white)
+            .foregroundStyle(InkTheme.film)
             .frame(maxWidth: .infinity, minHeight: 56)
-            .background(Capsule().fill(palette.accent))
+            .background(Capsule().fill(InkTheme.ink))
         }
         .buttonStyle(.plain)
         .disabled(!ble.canWriteAlarm)
@@ -318,16 +318,16 @@ struct SleepV2AlarmSheet: View {
       HStack(spacing: 12) {
         Image(systemName: "alarm.fill")
           .font(.headline.weight(.semibold))
-          .foregroundStyle(palette.accent)
+          .foregroundStyle(InkTheme.ink)
           .frame(width: 38, height: 38)
-          .background(palette.accent.opacity(0.12), in: Circle())
+          .background(InkTheme.ink.opacity(0.12), in: Circle())
         VStack(alignment: .leading, spacing: 2) {
           Text("Alarm config")
             .font(.title3.weight(.semibold))
-            .foregroundStyle(palette.text)
+            .foregroundStyle(InkTheme.ink)
           Text(ble.canWriteAlarm ? "Ready to write to band" : "Connect a band to write alarms")
             .font(.caption.weight(.medium))
-            .foregroundStyle(palette.secondaryText)
+            .foregroundStyle(InkTheme.graphite)
         }
       }
 
@@ -340,19 +340,19 @@ struct SleepV2AlarmSheet: View {
           VStack(alignment: .leading, spacing: 4) {
             Text("Wake up at")
               .font(.caption.weight(.semibold))
-              .foregroundStyle(palette.secondaryText)
+              .foregroundStyle(InkTheme.graphite)
             Text(alarmTimeLabel)
               .font(.system(size: 44, weight: .semibold, design: .rounded))
-              .foregroundStyle(palette.text)
+              .foregroundStyle(InkTheme.ink)
           }
           Spacer()
           Image(systemName: showWheelPicker ? "chevron.up" : "chevron.down")
             .font(.headline.weight(.semibold))
-            .foregroundStyle(palette.mutedText)
+            .foregroundStyle(InkTheme.graphite)
             .frame(width: 28, height: 28)
         }
         .padding(16)
-        .background(palette.surfaceElevated.opacity(0.50), in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .background(InkTheme.wash.opacity(0.50), in: RoundedRectangle(cornerRadius: 20, style: .continuous))
       }
       .buttonStyle(.plain)
 
@@ -368,7 +368,7 @@ struct SleepV2AlarmSheet: View {
       VStack(alignment: .leading, spacing: 10) {
         Text("Alarm mode")
           .font(.subheadline.weight(.semibold))
-          .foregroundStyle(palette.text)
+          .foregroundStyle(InkTheme.ink)
         Picker("Alarm mode", selection: $alarmType) {
           Text("Smart").tag("Smart alarm")
           Text("Regular").tag("Regular")
@@ -390,24 +390,24 @@ struct SleepV2AlarmSheet: View {
           VStack(alignment: .leading, spacing: 3) {
             Text("Target amount")
               .font(.subheadline.weight(.semibold))
-              .foregroundStyle(palette.text)
+              .foregroundStyle(InkTheme.ink)
             Text("Used by Needed mode and sleep-needed planning.")
               .font(.caption.weight(.medium))
-              .foregroundStyle(palette.secondaryText)
+              .foregroundStyle(InkTheme.graphite)
           }
           Spacer(minLength: 10)
           Text(targetSleepText)
             .font(.subheadline.weight(.semibold))
             .fontDesign(.rounded)
-            .foregroundStyle(palette.text)
+            .foregroundStyle(InkTheme.ink)
         }
       }
       .padding(14)
-      .background(palette.surfaceElevated.opacity(0.50), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+      .background(InkTheme.wash.opacity(0.50), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
     }
     .padding(20)
-    .background(palette.surface, in: RoundedRectangle(cornerRadius: 28, style: .continuous))
-    .overlay(RoundedRectangle(cornerRadius: 28, style: .continuous).stroke(palette.separator.opacity(0.70), lineWidth: 1))
+    .background(InkTheme.wash, in: RoundedRectangle(cornerRadius: 28, style: .continuous))
+    .overlay(RoundedRectangle(cornerRadius: 28, style: .continuous).stroke(InkTheme.hairline.opacity(0.70), lineWidth: 1))
   }
 
   private func hapticCard(palette: SleepV2Palette) -> some View {
@@ -415,7 +415,7 @@ struct SleepV2AlarmSheet: View {
       VStack(alignment: .leading, spacing: 10) {
         Text("Choose the vibration pattern Goose should use for this alarm profile.")
           .font(.footnote)
-          .foregroundStyle(palette.secondaryText)
+          .foregroundStyle(InkTheme.graphite)
           .fixedSize(horizontal: false, vertical: true)
         VStack(spacing: 8) {
           ForEach(["Progressive", "Gentle", "Medium", "Intense"], id: \.self) { option in
@@ -434,22 +434,22 @@ struct SleepV2AlarmSheet: View {
       HStack(spacing: 12) {
         Image(systemName: "waveform")
           .font(.subheadline.weight(.semibold))
-          .foregroundStyle(palette.accent)
+          .foregroundStyle(InkTheme.ink)
           .frame(width: 32, height: 32)
-          .background(palette.accent.opacity(0.12), in: Circle())
+          .background(InkTheme.ink.opacity(0.12), in: Circle())
         VStack(alignment: .leading, spacing: 2) {
           Text("Haptic")
             .font(.headline.weight(.semibold))
-            .foregroundStyle(palette.text)
+            .foregroundStyle(InkTheme.ink)
           Text(haptic)
             .font(.caption.weight(.medium))
-            .foregroundStyle(palette.secondaryText)
+            .foregroundStyle(InkTheme.graphite)
         }
       }
     }
     .padding(20)
-    .background(palette.surface, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
-    .overlay(RoundedRectangle(cornerRadius: 24, style: .continuous).stroke(palette.separator.opacity(0.70), lineWidth: 1))
+    .background(InkTheme.wash, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+    .overlay(RoundedRectangle(cornerRadius: 24, style: .continuous).stroke(InkTheme.hairline.opacity(0.70), lineWidth: 1))
   }
 
   private func bandControlsCard(palette: SleepV2Palette) -> some View {
@@ -457,10 +457,10 @@ struct SleepV2AlarmSheet: View {
       VStack(alignment: .leading, spacing: 4) {
         Text("Band controls")
           .font(.headline.weight(.semibold))
-          .foregroundStyle(palette.text)
+          .foregroundStyle(InkTheme.ink)
         Text("Test the vibration or clear the alarm from the connected band.")
           .font(.footnote)
-          .foregroundStyle(palette.secondaryText)
+          .foregroundStyle(InkTheme.graphite)
           .fixedSize(horizontal: false, vertical: true)
       }
 
@@ -489,18 +489,22 @@ struct SleepV2AlarmSheet: View {
       }
       .opacity(ble.canWriteAlarm ? 1 : 0.52)
 
-      DisclosureGroup(isExpanded: $showingDiagnostics) {
-        SleepV2AlarmDiagnostics(ble: ble, palette: palette)
-          .padding(.top, 10)
-      } label: {
-        Label("Band write diagnostics", systemImage: "stethoscope")
-          .font(.subheadline.weight(.semibold))
-          .foregroundStyle(palette.text)
+#if DEBUG
+      if DeveloperSettings.shared.isEnabled {
+        DisclosureGroup(isExpanded: $showingDiagnostics) {
+          SleepV2AlarmDiagnostics(ble: ble, palette: palette)
+            .padding(.top, 10)
+        } label: {
+          Label("Band write diagnostics", systemImage: "stethoscope")
+            .font(.subheadline.weight(.semibold))
+            .foregroundStyle(InkTheme.ink)
+        }
       }
+#endif
     }
     .padding(20)
-    .background(palette.surface, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
-    .overlay(RoundedRectangle(cornerRadius: 24, style: .continuous).stroke(palette.separator.opacity(0.70), lineWidth: 1))
+    .background(InkTheme.wash, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+    .overlay(RoundedRectangle(cornerRadius: 24, style: .continuous).stroke(InkTheme.hairline.opacity(0.70), lineWidth: 1))
   }
 
   private var alarmTimeLabel: String {
@@ -546,9 +550,8 @@ struct SleepV2AlarmSheet: View {
 
   private var alarmModeTint: Color {
     switch alarmType {
-    case "No alarm": return Color(red: 1.0, green: 0.50, blue: 0.28)
-    case "Sleep needed": return Color(red: 0.42, green: 0.78, blue: 0.86)
-    default: return Color(red: 0.48, green: 0.49, blue: 1.0)
+    case "No alarm": return InkTheme.graphite
+    default: return InkTheme.ink
     }
   }
 
@@ -596,16 +599,16 @@ struct SleepV2AlarmModeHelp: View {
       VStack(alignment: .leading, spacing: 3) {
         Text(title)
           .font(.subheadline.weight(.semibold))
-          .foregroundStyle(palette.text)
+          .foregroundStyle(InkTheme.ink)
         Text(detail)
           .font(.caption.weight(.medium))
-          .foregroundStyle(palette.secondaryText)
+          .foregroundStyle(InkTheme.graphite)
           .fixedSize(horizontal: false, vertical: true)
       }
     }
     .padding(12)
     .frame(maxWidth: .infinity, alignment: .leading)
-    .background(palette.surfaceElevated.opacity(0.46), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+    .background(InkTheme.wash.opacity(0.46), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
   }
 }
 
@@ -628,21 +631,21 @@ struct SleepV2AlarmControlButton: View {
         VStack(alignment: .leading, spacing: 2) {
           Text(title)
             .font(.subheadline.weight(.semibold))
-            .foregroundStyle(palette.text)
+            .foregroundStyle(InkTheme.ink)
           Text(detail)
             .font(.caption.weight(.medium))
-            .foregroundStyle(palette.secondaryText)
+            .foregroundStyle(InkTheme.graphite)
         }
       }
       .frame(maxWidth: .infinity, alignment: .leading)
       .padding(14)
-      .background(palette.surfaceElevated.opacity(0.50), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+      .background(InkTheme.wash.opacity(0.50), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
     }
     .buttonStyle(.plain)
   }
 
   private var tint: Color {
-    destructive ? Color(red: 1.0, green: 0.50, blue: 0.28) : palette.accent
+    destructive ? InkTheme.graphite : InkTheme.ink
   }
 }
 
@@ -657,16 +660,16 @@ struct SleepV2AlarmOptionRow: View {
       HStack {
         Text(title)
           .font(.subheadline.weight(.semibold))
-          .foregroundStyle(palette.text)
+          .foregroundStyle(InkTheme.ink)
         Spacer()
         Image(systemName: selected ? "checkmark.circle.fill" : "circle")
           .font(.headline.weight(.semibold))
-          .foregroundStyle(selected ? palette.accent : palette.mutedText.opacity(0.72))
+          .foregroundStyle(selected ? InkTheme.ink : InkTheme.graphite.opacity(0.72))
       }
       .padding(.horizontal, 14)
       .padding(.vertical, 12)
       .background(
-        palette.surfaceElevated.opacity(selected ? 0.74 : 0.42),
+        InkTheme.wash.opacity(selected ? 0.74 : 0.42),
         in: RoundedRectangle(cornerRadius: 16, style: .continuous)
       )
     }
@@ -756,6 +759,9 @@ struct SleepV2AlarmTileBackground: View {
   }
 }
 
+// Raw BLE hex frame/response/event dump — Dev only (see the DisclosureGroup
+// gate in bandControlsCard above).
+#if DEBUG
 struct SleepV2AlarmDiagnostics: View {
   @ObservedObject var ble: GooseBLEClient
   let palette: SleepV2Palette
@@ -764,7 +770,7 @@ struct SleepV2AlarmDiagnostics: View {
     VStack(alignment: .leading, spacing: 8) {
       Text("Diagnostics")
         .font(.system(size: 14, weight: .heavy))
-        .foregroundStyle(palette.secondaryText)
+        .foregroundStyle(InkTheme.graphite)
       SleepV2AlarmDiagnosticRow(label: "Write support", value: ble.alarmWriteSupportSummary, palette: palette)
       SleepV2AlarmDiagnosticRow(label: "Last response", value: ble.lastAlarmResponseSummary, palette: palette)
       SleepV2AlarmDiagnosticRow(label: "Last event", value: ble.lastAlarmEventSummary, palette: palette)
@@ -779,7 +785,7 @@ struct SleepV2AlarmDiagnostics: View {
       }
     }
     .padding(14)
-    .background(palette.surfaceElevated.opacity(0.48), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+    .background(InkTheme.wash.opacity(0.48), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
   }
 }
 
@@ -792,14 +798,15 @@ struct SleepV2AlarmDiagnosticRow: View {
     HStack(alignment: .top, spacing: 12) {
       Text(label)
         .font(.caption.weight(.bold))
-        .foregroundStyle(palette.secondaryText)
+        .foregroundStyle(InkTheme.graphite)
         .frame(width: 92, alignment: .leading)
       Text(value)
         .font(.caption.weight(.semibold))
-        .foregroundStyle(palette.text)
+        .foregroundStyle(InkTheme.ink)
         .lineLimit(2)
         .minimumScaleFactor(0.75)
       Spacer(minLength: 0)
     }
   }
 }
+#endif

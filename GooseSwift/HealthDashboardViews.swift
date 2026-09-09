@@ -12,30 +12,32 @@ struct HealthDashboardStatusHeader: View {
       HStack(spacing: 10) {
         Image(systemName: usesSampleData ? "testtube.2" : "checkmark.seal")
           .font(.system(size: 16, weight: .semibold))
-          .foregroundStyle(usesSampleData ? .orange : .green)
+          .foregroundStyle(usesSampleData ? InkTheme.graphite : InkTheme.ink)
           .frame(width: 30, height: 30)
-          .background((usesSampleData ? Color.orange : Color.green).opacity(0.14), in: Circle())
+          .background(InkTheme.wash, in: Circle())
         VStack(alignment: .leading, spacing: 2) {
           Text("Health Sources")
             .font(.headline.weight(.semibold))
+            .foregroundStyle(InkTheme.ink)
           Text(catalogStatus)
             .font(.caption)
-            .foregroundStyle(.secondary)
+            .foregroundStyle(InkTheme.graphite)
             .lineLimit(1)
             .minimumScaleFactor(0.74)
         }
         Spacer()
+        // Arterial only for "Live" — data flowing right now.
         Text(usesSampleData ? "Preview" : "Live")
           .font(.caption.weight(.bold))
-          .foregroundStyle(usesSampleData ? .orange : .green)
+          .foregroundStyle(usesSampleData ? InkTheme.graphite : InkTheme.arterial)
           .padding(.horizontal, 9)
           .padding(.vertical, 5)
-          .background((usesSampleData ? Color.orange : Color.green).opacity(0.12), in: Capsule())
+          .background((usesSampleData ? InkTheme.graphite : InkTheme.arterial).opacity(0.12), in: Capsule())
       }
 
     }
     .padding(16)
-    .healthDashboardSurface(tint: usesSampleData ? .orange : .green, tintOpacity: 0.05)
+    .healthDashboardSurface(tint: InkTheme.ink, tintOpacity: 0.05)
   }
 }
 
@@ -69,9 +71,9 @@ struct HealthTodayFocusCard: View {
       HStack {
         Image(systemName: snapshot.systemImage)
           .font(.system(size: 16, weight: .semibold))
-          .foregroundStyle(snapshot.tint)
+          .foregroundStyle(InkTheme.ink)
           .frame(width: 30, height: 30)
-          .background(snapshot.tint.opacity(0.14), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+          .background(InkTheme.wash, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
         Spacer()
         HealthSourceBadge(source: snapshot.source)
       }
@@ -79,23 +81,23 @@ struct HealthTodayFocusCard: View {
       VStack(alignment: .leading, spacing: 4) {
         Text(snapshot.title)
           .font(.subheadline.weight(.semibold))
-          .foregroundStyle(.secondary)
+          .foregroundStyle(InkTheme.graphite)
           .lineLimit(1)
         Text(snapshot.displayValue)
-          .font(.system(size: 30, weight: .bold, design: .rounded))
-          .foregroundStyle(.primary)
+          .font(.system(size: 30, weight: .medium, design: .serif))
+          .foregroundStyle(InkTheme.ink)
           .lineLimit(1)
           .minimumScaleFactor(0.62)
         Text(snapshot.status)
           .font(.caption.weight(.semibold))
-          .foregroundStyle(snapshot.tint)
+          .foregroundStyle(InkTheme.graphite)
           .lineLimit(1)
       }
       Spacer(minLength: 0)
     }
     .frame(maxWidth: .infinity, minHeight: 154, alignment: .topLeading)
     .padding(16)
-    .healthDashboardSurface(tint: snapshot.tint, tintOpacity: 0.08)
+    .healthDashboardSurface(tint: InkTheme.ink, tintOpacity: 0.08)
   }
 }
 
@@ -124,7 +126,7 @@ struct HealthActivityOverviewSection: View {
             value: steps,
             subtitle: stepsFreshness,
             systemImage: "shoeprints.fill",
-            tint: .green,
+            tint: InkTheme.ink,
             source: stepsSource
           )
         }
@@ -136,7 +138,7 @@ struct HealthActivityOverviewSection: View {
             value: activeEnergy,
             subtitle: activeEnergyFreshness,
             systemImage: "flame.fill",
-            tint: .orange,
+            tint: InkTheme.ink,
             source: activeEnergySource
           )
         }
@@ -148,7 +150,7 @@ struct HealthActivityOverviewSection: View {
             value: heartRateValue,
             subtitle: heartRateStatus,
             systemImage: "heart.fill",
-            tint: .red,
+            tint: InkTheme.ink,
             source: heartRateSource
           )
         }
@@ -171,26 +173,26 @@ struct HealthDashboardMetricCard: View {
       HStack {
         Image(systemName: systemImage)
           .font(.system(size: 16, weight: .semibold))
-          .foregroundStyle(tint)
+          .foregroundStyle(InkTheme.ink)
           .frame(width: 30, height: 30)
-          .background(tint.opacity(0.14), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+          .background(InkTheme.wash, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
         Spacer()
         HealthSourceBadge(source: source)
       }
 
       VStack(alignment: .leading, spacing: 4) {
         Text(value)
-          .font(.system(size: 28, weight: .bold, design: .rounded))
-          .foregroundStyle(.primary)
+          .font(.system(size: 28, weight: .medium, design: .serif))
+          .foregroundStyle(InkTheme.ink)
           .lineLimit(1)
           .minimumScaleFactor(0.62)
         Text(title)
           .font(.subheadline.weight(.semibold))
-          .foregroundStyle(.primary)
+          .foregroundStyle(InkTheme.ink)
           .lineLimit(1)
         Text(subtitle)
           .font(.caption)
-          .foregroundStyle(.secondary)
+          .foregroundStyle(InkTheme.graphite)
           .lineLimit(2)
           .fixedSize(horizontal: false, vertical: true)
       }
@@ -198,7 +200,7 @@ struct HealthDashboardMetricCard: View {
     }
     .frame(maxWidth: .infinity, minHeight: 148, alignment: .topLeading)
     .padding(16)
-    .healthDashboardSurface(tint: tint, tintOpacity: 0.08)
+    .healthDashboardSurface(tint: InkTheme.ink, tintOpacity: 0.08)
   }
 }
 
@@ -216,9 +218,9 @@ struct HealthVitalsPreviewSection: View {
         NavigationLink(value: HealthRoute.healthMonitor) {
           Image(systemName: "chevron.right")
             .font(.caption.weight(.bold))
-            .foregroundStyle(.secondary)
+            .foregroundStyle(InkTheme.graphite)
             .frame(width: 30, height: 30)
-            .background(Color(.tertiarySystemGroupedBackground), in: Circle())
+            .background(InkTheme.wash, in: Circle())
         }
         .buttonStyle(.plain)
         .accessibilityLabel("Open Health Monitor")
@@ -243,29 +245,29 @@ struct HealthVitalsPreviewCard: View {
     HStack(alignment: .top, spacing: 10) {
       Image(systemName: snapshot.systemImage)
         .font(.system(size: 15, weight: .semibold))
-        .foregroundStyle(snapshot.tint)
+        .foregroundStyle(InkTheme.ink)
         .frame(width: 28, height: 28)
-        .background(snapshot.tint.opacity(0.13), in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+        .background(InkTheme.wash, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
       VStack(alignment: .leading, spacing: 4) {
         Text(snapshot.title)
           .font(.caption.weight(.semibold))
-          .foregroundStyle(.secondary)
+          .foregroundStyle(InkTheme.graphite)
           .lineLimit(1)
         Text(snapshot.displayValue)
           .font(.headline.weight(.bold))
-          .foregroundStyle(.primary)
+          .foregroundStyle(InkTheme.ink)
           .lineLimit(1)
           .minimumScaleFactor(0.7)
         Text(snapshot.status)
           .font(.caption2)
-          .foregroundStyle(.secondary)
+          .foregroundStyle(InkTheme.graphite)
           .lineLimit(1)
       }
       Spacer(minLength: 0)
     }
     .frame(maxWidth: .infinity, minHeight: 92, alignment: .topLeading)
     .padding(14)
-    .healthDashboardSurface(tint: snapshot.tint, tintOpacity: 0.05)
+    .healthDashboardSurface(tint: InkTheme.ink, tintOpacity: 0.05)
   }
 }
 
@@ -295,16 +297,16 @@ struct HealthRouteShortcutCard: View {
     HStack(spacing: 12) {
       Image(systemName: snapshot.systemImage)
         .font(.system(size: 17, weight: .semibold))
-        .foregroundStyle(snapshot.tint)
+        .foregroundStyle(InkTheme.ink)
         .frame(width: 34, height: 34)
-        .background(snapshot.tint.opacity(0.13), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .background(InkTheme.wash, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
       VStack(alignment: .leading, spacing: 3) {
         Text(snapshot.title)
           .font(.subheadline.weight(.semibold))
-          .foregroundStyle(.primary)
+          .foregroundStyle(InkTheme.ink)
         Text("\(snapshot.displayValue) | \(snapshot.status)")
           .font(.caption)
-          .foregroundStyle(.secondary)
+          .foregroundStyle(InkTheme.graphite)
           .lineLimit(1)
           .minimumScaleFactor(0.78)
       }
@@ -312,10 +314,10 @@ struct HealthRouteShortcutCard: View {
       HealthSourceBadge(source: snapshot.source)
       Image(systemName: "chevron.right")
         .font(.caption.weight(.bold))
-        .foregroundStyle(.tertiary)
+        .foregroundStyle(InkTheme.graphite)
     }
     .padding(14)
-    .healthDashboardSurface(tint: snapshot.tint, tintOpacity: 0.04)
+    .healthDashboardSurface(tint: InkTheme.ink, tintOpacity: 0.04)
   }
 }
 
@@ -371,6 +373,7 @@ struct HealthRouteContentView: View {
       CardioLoadView(store: store)
     case .energyBank:
       EnergyBankView(store: store)
+#if DEBUG
     case .packetInputs:
       PacketHealthView(store: store)
     case .algorithms:
@@ -379,6 +382,13 @@ struct HealthRouteContentView: View {
       ReferenceComparisonsView(store: store)
     case .calibration:
       CalibrationHealthView(store: store)
+#else
+    case .packetInputs, .algorithms, .referenceComparisons, .calibration:
+      // Compiled out of Release entirely — engineering/RE tooling. The Home
+      // ledger never links here in a Clean build either, see
+      // HealthDataStore+StaticSnapshots.swift's developerOnlyLandingRoutes.
+      EmptyView()
+#endif
     }
   }
 }
@@ -390,15 +400,15 @@ struct HealthStatusBanner: View {
     VStack(alignment: .leading, spacing: 10) {
       HStack(spacing: 10) {
         Image(systemName: store.usesSampleData ? "testtube.2" : "checkmark.seal")
-          .foregroundStyle(store.usesSampleData ? .orange : .green)
+          .foregroundStyle(store.usesSampleData ? InkTheme.graphite : InkTheme.ink)
         Text(store.catalogStatus)
           .font(.subheadline.weight(.semibold))
-          .foregroundStyle(.primary)
+          .foregroundStyle(InkTheme.ink)
         Spacer()
       }
       Text("Every row below declares bridge, live, local, or unavailable provenance.")
         .font(.caption)
-        .foregroundStyle(.secondary)
+        .foregroundStyle(InkTheme.graphite)
     }
     .padding(14)
     .healthCardSurface()
@@ -437,29 +447,37 @@ struct HealthMetricCard: View {
       HStack {
         Image(systemName: snapshot.systemImage)
           .font(.system(size: 16, weight: .semibold))
-          .foregroundStyle(snapshot.tint)
+          .foregroundStyle(InkTheme.ink)
         Spacer()
         HealthSourceBadge(source: snapshot.source)
       }
 
-      Text(snapshot.displayValue)
-        .font(.title2.bold())
-        .foregroundStyle(.primary)
-        .lineLimit(1)
-        .minimumScaleFactor(0.7)
+      if snapshot.isAwaitingServer {
+        ProgressView()
+          .controlSize(.small)
+          .tint(InkTheme.graphite)
+          .frame(height: 27, alignment: .leading)
+          .frame(maxWidth: .infinity, alignment: .leading)
+      } else {
+        Text(snapshot.displayValue)
+          .font(.system(size: 22, weight: .medium, design: .serif))
+          .foregroundStyle(InkTheme.ink)
+          .lineLimit(1)
+          .minimumScaleFactor(0.7)
+      }
 
       VStack(alignment: .leading, spacing: 3) {
         Text(snapshot.title)
           .font(.subheadline.weight(.semibold))
-          .foregroundStyle(.primary)
+          .foregroundStyle(InkTheme.ink)
           .lineLimit(1)
         Text("\(snapshot.status) | \(snapshot.freshness)")
           .font(.caption)
-          .foregroundStyle(.secondary)
+          .foregroundStyle(InkTheme.graphite)
           .lineLimit(2)
         Text(snapshot.provenance)
           .font(.caption2)
-          .foregroundStyle(.tertiary)
+          .foregroundStyle(InkTheme.graphite.opacity(0.75))
           .lineLimit(1)
       }
     }
@@ -537,7 +555,7 @@ struct HealthMonitorView: View {
       }
       .padding(16)
     }
-    .gooseScreenBackground()
+    .inkScreen()
     .navigationTitle("Health Monitor")
     .task {
       store.refreshHeartRateTimeline()
@@ -554,6 +572,9 @@ struct HealthMonitorView: View {
   }
 }
 
+// Raw feature-extraction/provenance internals — Dev only. Compiled out of
+// Release entirely (see the #if DEBUG in HealthRouteContentView above).
+#if DEBUG
 struct PacketHealthView: View {
   @EnvironmentObject private var model: GooseAppModel
   @ObservedObject var store: HealthDataStore
@@ -642,7 +663,9 @@ struct PacketHealthView: View {
         HealthInfoRow(row: HealthSummaryRow("Next action", value: store.packetDerivedScoreNextActionSummary(), source: store.packetScoreSource("packetDerivedScoreNextActionSummary()"), systemImage: "arrow.triangle.2.circlepath"))
       }
     }
-    .gooseListBackground()
+    .scrollContentBackground(.hidden)
+    .inkScreen()
     .navigationTitle("Packet Inputs")
   }
 }
+#endif

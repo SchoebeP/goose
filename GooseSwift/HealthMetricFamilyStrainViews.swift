@@ -8,6 +8,10 @@ struct HealthMetricFamilyView: View {
   @EnvironmentObject private var router: AppRouter
   let route: HealthRoute
   @ObservedObject var store: HealthDataStore
+  // Observed (not just referenced) so the generic Trends section re-renders
+  // the instant ServerMetricsFeed's longer-window fetch resolves, instead of
+  // waiting on unrelated state to redraw this view.
+  @ObservedObject private var metricsFeed = ServerMetricsFeed.shared
   var externalSelectedDate: Binding<Date>? = nil
   @State private var selectedTrend: HealthMetricSnapshot?
   @State private var selectedPrimarySleep: PrimarySleepDetail?
@@ -86,7 +90,7 @@ struct HealthMetricFamilyView: View {
       }
       .padding(16)
     }
-    .gooseScreenBackground()
+    .inkScreen()
     .navigationTitle(route.title)
     .navigationBarTitleDisplayMode(.inline)
     .toolbarBackground(.hidden, for: .navigationBar)
@@ -298,17 +302,7 @@ struct StrainV2ActivityBackground: View {
   var body: some View {
     ZStack {
       LinearGradient(
-        colors: palette.light
-          ? [
-            Color(red: 0.98, green: 0.95, blue: 0.89),
-            Color(red: 0.94, green: 0.96, blue: 0.92),
-            palette.background,
-          ]
-          : [
-            Color(red: 0.14, green: 0.12, blue: 0.10),
-            Color(red: 0.10, green: 0.13, blue: 0.11),
-            palette.background,
-          ],
+        colors: [InkTheme.wash, InkTheme.film, InkTheme.film],
         startPoint: .top,
         endPoint: .bottom
       )
@@ -325,7 +319,7 @@ struct StrainV2ActivityBackground: View {
         Rectangle()
           .fill(
             LinearGradient(
-              colors: [.clear, palette.background.opacity(0.76), palette.background],
+              colors: [.clear, InkTheme.film.opacity(0.76), InkTheme.film],
               startPoint: .top,
               endPoint: .bottom
             )
@@ -336,12 +330,8 @@ struct StrainV2ActivityBackground: View {
   }
 
   private func drawZoneGrid(context: inout GraphicsContext, size: CGSize) {
-    let lineColor = palette.light
-      ? Color.black.opacity(0.055)
-      : Color.white.opacity(0.055)
-    let labelColor = palette.light
-      ? Color(red: 0.70, green: 0.42, blue: 0.20).opacity(0.18)
-      : Color(red: 1.0, green: 0.62, blue: 0.30).opacity(0.16)
+    let lineColor = InkTheme.hairline
+    let labelColor = InkTheme.graphite.opacity(0.18)
 
     for index in 0..<5 {
       let y = size.height * 0.12 + CGFloat(index) * 38
@@ -363,17 +353,11 @@ struct StrainV2ActivityBackground: View {
   }
 
   private func drawEffortBars(context: inout GraphicsContext, size: CGSize) {
-    let colors: [Color] = palette.light
-      ? [
-        Color(red: 0.32, green: 0.61, blue: 0.40).opacity(0.12),
-        Color(red: 0.91, green: 0.58, blue: 0.20).opacity(0.14),
-        Color(red: 0.88, green: 0.32, blue: 0.14).opacity(0.13),
-      ]
-      : [
-        Color(red: 0.34, green: 0.72, blue: 0.44).opacity(0.13),
-        Color(red: 1.0, green: 0.68, blue: 0.28).opacity(0.15),
-        Color(red: 1.0, green: 0.40, blue: 0.20).opacity(0.14),
-      ]
+    let colors: [Color] = [
+      InkTheme.graphite.opacity(0.06),
+      InkTheme.graphite.opacity(0.09),
+      InkTheme.graphite.opacity(0.07),
+    ]
 
     for index in 0..<3 {
       let width = size.width * (0.16 + CGFloat(index) * 0.05)
@@ -392,145 +376,97 @@ struct StrainV2ActivityBackground: View {
   }
 }
 
+/// Strain detail — Radiograph restyle. Same ledger shape as Sleep/Recovery:
+/// a serif reading up top (status carried by text, not gauge color per the
+/// Radiograph rule that the reading itself always stays ink), then load
+/// vitals, an activities line, and trends. Presented sheets (date picker,
+/// data-gaps insights, per-metric trend chart) are unchanged.
+///
+/// The old StrainV2DailyLoadCard is intentionally not reproduced here: its
+/// Score/Target/Duration/Energy tiles duplicated the ledger rows above
+/// verbatim (same store calls), and its "heart rate zones" meter was 100%
+/// static placeholder — always "0 min" with five permanently-empty bars,
+/// with no data source behind it at all. Recreating a fake-progress widget
+/// in the new design would itself be a fresh honest-omission violation, so
+/// it was dropped rather than restyled; every real value it showed remains
+/// visible once, in the ledger.
 struct StrainV2OverviewPage: View {
   @EnvironmentObject private var router: AppRouter
   @EnvironmentObject private var model: GooseAppModel
   @ObservedObject var store: HealthDataStore
   @Binding var selectedDate: Date
   @Environment(\.colorScheme) private var colorScheme
+  // Observed (not just referenced) so the Trends section re-renders the
+  // instant ServerMetricsFeed's longer-window fetch resolves, instead of
+  // waiting on unrelated state to redraw this view.
+  @ObservedObject private var metricsFeed = ServerMetricsFeed.shared
   @State private var showingDatePicker = false
   @State private var showingInsightsSheet = false
   @State private var selectedTrend: HealthMetricSnapshot?
 
-  private let heroHeight: CGFloat = 320
-
   var body: some View {
+    // Constructed only to satisfy the still-old-styled presented sheet
+    // (data-gaps insights) and SleepV2CoachingCard's signature below; this
+    // page's own markup no longer reads palette colors.
     let palette = SleepV2Palette(colorScheme: colorScheme, theme: SleepV2PaletteTheme.strain)
 
-    ZStack(alignment: .top) {
-      palette.background
-        .ignoresSafeArea()
+    ScrollView {
+      VStack(alignment: .leading, spacing: 0) {
+        dateRow
 
-      StrainV2ActivityBackground(palette: palette, showsDecorations: false)
-        .ignoresSafeArea(edges: .top)
-        .allowsHitTesting(false)
-
-      ScrollView {
-        LazyVStack(alignment: .leading, spacing: 0) {
-          ZStack(alignment: .top) {
-            StrainV2ActivityBackground(palette: palette)
-              .frame(height: heroHeight)
-              .allowsHitTesting(false)
-
-            StrainV2Hero(
-              palette: palette,
-              score: store.strainScore0To100(for: selectedDate),
-              status: store.strainStatusText(for: selectedDate),
-              dateLabel: dateLabel,
-              onDateTap: { showingDatePicker = true }
-            )
-          }
-          .frame(height: heroHeight)
-          .clipped()
-
-          VStack(alignment: .leading, spacing: 14) {
-            HStack(spacing: 12) {
-              SleepV2StatCard(
-                palette: palette,
-                systemImage: "target",
-                label: "Target Strain",
-                value: store.strainTargetDisplayText()
-              )
-              SleepV2StatCard(
-                palette: palette,
-                systemImage: "timer",
-                label: "Duration",
-                value: store.strainDurationDisplayText()
-              )
-            }
-            .frame(height: 96)
-
-            HStack(spacing: 12) {
-              SleepV2StatCard(
-                palette: palette,
-                systemImage: "flame.fill",
-                label: "Total Energy",
-                value: store.strainEnergyDisplayText(for: selectedDate)
-              )
-              SleepV2StatCard(
-                palette: palette,
-                systemImage: "shoeprints.fill",
-                label: "Steps",
-                value: store.strainActivityCountText(for: selectedDate)
-              )
-            }
-            .frame(height: 96)
-
-            SleepV2CoachingCard(palette: palette, tip: coachTip) {
-              openCoachTip()
-            }
-
-            SleepV2ActionRow(
-              palette: palette,
-              systemImage: "exclamationmark.triangle",
-              title: "View data gaps",
-              action: { showingInsightsSheet = true }
-            )
-
-            StrainV2DailyLoadCard(
-              palette: palette,
-              scoreText: store.strainScoreDisplayText(for: selectedDate),
-              targetText: store.strainTargetDisplayText(),
-              durationText: store.strainDurationDisplayText(),
-              energyText: store.strainEnergyDisplayText(for: selectedDate)
-            )
-
-            SleepV2SectionHeader(title: "Activities", palette: palette)
-            StrainV2EmptyStateCard(
-              palette: palette,
-              systemImage: "figure.run.circle",
-              title: "No activities",
-              message: store.strainEmptyStateSummary()
-            )
-
-            SleepV2SectionHeader(title: "Trends", palette: palette)
-            if trendRows.isEmpty {
-              StrainV2EmptyStateCard(
-                palette: palette,
-                systemImage: "chart.line.uptrend.xyaxis",
-                title: "No strain trends",
-                message: "Strain trends will appear after local activity and heart-rate history is available."
-              )
-            } else {
-              VStack(spacing: 14) {
-                ForEach(trendRows) { snapshot in
-                  SleepV2TrendRow(palette: palette, snapshot: snapshot) {
-                    selectedTrend = snapshot
-                  }
-                }
-              }
-            }
-          }
-          .padding(.horizontal, 18)
-          .padding(.bottom, 34)
+        VStack(alignment: .leading, spacing: 6) {
+          VitalReading(eyebrow: "Strain", value: strainScoreText, numeralSize: 60)
+          Text(store.strainStatusText(for: selectedDate))
+            .font(InkTheme.mono(12, weight: .semibold))
+            .foregroundStyle(InkTheme.graphite)
         }
+        .padding(.top, 14)
+
+        InkRule()
+          .padding(.top, InkTheme.sectionSpacing)
+
+        InkLedgerRow(label: "Target strain", value: store.strainTargetDisplayText())
+        InkRule()
+        InkLedgerRow(label: "Duration", value: store.strainDurationDisplayText())
+        InkRule()
+        InkLedgerRow(label: "Total energy", value: store.strainEnergyDisplayText(for: selectedDate))
+        InkRule()
+        InkLedgerRow(label: "Steps", value: store.strainActivityCountText(for: selectedDate))
+        InkRule()
+
+        SleepV2CoachingCard(palette: palette, tip: coachTip) {
+          openCoachTip()
+        }
+
+        InkDisclosureRow(label: "View data gaps") { showingInsightsSheet = true }
+        InkRule()
+
+        InkSectionHeader(title: "Activities")
+          .padding(.top, InkTheme.sectionSpacing)
+        Text(store.strainEmptyStateSummary())
+          .font(InkTheme.footnote)
+          .foregroundStyle(InkTheme.graphite)
+          .padding(.vertical, 12)
+        InkRule()
+
+        InkSectionHeader(title: "Trends")
+          .padding(.top, InkTheme.sectionSpacing)
+        trendsSection
       }
+      .padding(.horizontal, InkTheme.screenMargin)
+      .padding(.bottom, 34)
     }
+    .inkScreen()
     .navigationTitle("Strain")
     .navigationBarTitleDisplayMode(.inline)
-    .toolbarBackground(.hidden, for: .navigationBar)
     .toolbar {
-      ToolbarItem(placement: .principal) {
-        Text("Strain")
-          .font(.headline.weight(.semibold))
-          .foregroundStyle(palette.text)
-      }
       ToolbarItem(placement: .topBarTrailing) {
         Button {
           showingDatePicker = true
         } label: {
           Image(systemName: "calendar")
         }
+        .foregroundStyle(InkTheme.ink)
         .accessibilityLabel("Choose Strain date")
       }
     }
@@ -548,6 +484,47 @@ struct StrainV2OverviewPage: View {
     .sheet(item: $selectedTrend) { snapshot in
       SleepV2BevelTrendSheet(snapshot: snapshot)
     }
+  }
+
+  private var dateRow: some View {
+    Button {
+      showingDatePicker = true
+    } label: {
+      HStack(spacing: 6) {
+        Text(dateLabel).inkEyebrow()
+        Image(systemName: "chevron.down")
+          .font(.system(size: 9, weight: .bold))
+          .foregroundStyle(InkTheme.graphite)
+      }
+    }
+    .buttonStyle(.plain)
+    .padding(.top, 12)
+  }
+
+  @ViewBuilder
+  private var trendsSection: some View {
+    if trendRows.isEmpty {
+      Text("Strain trends will appear after local activity and heart-rate history is available.")
+        .font(InkTheme.footnote)
+        .foregroundStyle(InkTheme.graphite)
+        .padding(.vertical, 12)
+    } else {
+      VStack(alignment: .leading, spacing: 0) {
+        ForEach(trendRows) { snapshot in
+          InkMetricTrendRow(snapshot: snapshot) {
+            selectedTrend = snapshot
+          }
+          InkRule()
+        }
+      }
+    }
+  }
+
+  /// Same formatting as the old circular gauge's center label, preserved
+  /// exactly: one decimal-free integer string, "0" below zero.
+  private var strainScoreText: String {
+    let score = store.strainScore0To100(for: selectedDate)
+    return score > 0 ? String(format: "%.0f", score) : "0"
   }
 
   private var dateLabel: String {
@@ -591,7 +568,7 @@ struct StrainV2Hero: View {
             .font(.caption.weight(.semibold))
         }
         .font(.subheadline.weight(.semibold))
-        .foregroundStyle(palette.secondaryText)
+        .foregroundStyle(InkTheme.graphite)
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
         .background(.thinMaterial, in: Capsule())
@@ -622,27 +599,22 @@ struct StrainV2ScoreGauge: View {
       let lineWidth = max(13, side * 0.078)
       let radius = side / 2 - 18
       let end = progressPoint(side: side, radius: radius)
-      let tint = Color(red: 1.0, green: 0.52, blue: 0.18)
+      let tint = InkTheme.ink
 
       ZStack {
         Circle()
-          .fill(palette.surface.opacity(palette.light ? 0.94 : 0.84))
-          .shadow(color: palette.shadow.opacity(0.48), radius: 18, x: 0, y: 8)
+          .fill(InkTheme.film)
         Circle()
-          .stroke(.white.opacity(palette.light ? 0.88 : 0.12), lineWidth: 10)
+          .stroke(InkTheme.hairline, lineWidth: 1)
           .padding(6)
         Circle()
           .inset(by: 18)
-          .stroke(palette.separator.opacity(palette.light ? 0.72 : 0.62), lineWidth: lineWidth)
+          .stroke(InkTheme.hairline, lineWidth: lineWidth)
         Circle()
           .inset(by: 18)
           .trim(from: 0, to: progress)
           .stroke(
-            LinearGradient(
-              colors: [Color(red: 1.0, green: 0.72, blue: 0.36), tint],
-              startPoint: .topLeading,
-              endPoint: .bottomTrailing
-            ),
+            tint,
             style: StrokeStyle(lineWidth: lineWidth, lineCap: .round)
           )
           .rotationEffect(.degrees(-90))
@@ -650,16 +622,15 @@ struct StrainV2ScoreGauge: View {
         Circle()
           .fill(tint)
           .frame(width: lineWidth * 0.95, height: lineWidth * 0.95)
-          .shadow(color: tint.opacity(0.32), radius: 6, x: 0, y: 2)
           .position(end)
 
         VStack(spacing: 4) {
           Text(scoreText)
             .font(.system(size: 52, weight: .semibold, design: .rounded))
-            .foregroundStyle(palette.text)
+            .foregroundStyle(InkTheme.ink)
           Text(status)
             .font(.footnote.weight(.semibold))
-            .foregroundStyle(palette.secondaryText)
+            .foregroundStyle(InkTheme.graphite)
             .lineLimit(1)
             .minimumScaleFactor(0.7)
         }
@@ -692,17 +663,17 @@ struct StrainV2DailyLoadCard: View {
         VStack(alignment: .leading, spacing: 4) {
           Text("Daily load")
             .font(.title3.weight(.semibold))
-            .foregroundStyle(palette.text)
+            .foregroundStyle(InkTheme.ink)
           Text("Today")
             .font(.subheadline.weight(.medium))
-            .foregroundStyle(palette.secondaryText)
+            .foregroundStyle(InkTheme.graphite)
         }
         Spacer()
         Image(systemName: "figure.run")
           .font(.headline.weight(.semibold))
-          .foregroundStyle(Color(red: 1.0, green: 0.52, blue: 0.18))
+          .foregroundStyle(InkTheme.ink)
           .frame(width: 34, height: 34)
-          .background(Color(red: 1.0, green: 0.52, blue: 0.18).opacity(0.12), in: Circle())
+          .background(InkTheme.wash, in: Circle())
       }
 
       HStack(spacing: 10) {
@@ -720,12 +691,11 @@ struct StrainV2DailyLoadCard: View {
     .padding(20)
     .background(
       RoundedRectangle(cornerRadius: 28, style: .continuous)
-        .fill(palette.surface)
-        .shadow(color: palette.shadow.opacity(0.42), radius: 12, x: 0, y: 5)
+        .fill(InkTheme.wash)
     )
     .overlay(
       RoundedRectangle(cornerRadius: 28, style: .continuous)
-        .stroke(palette.separator.opacity(0.70), lineWidth: 1)
+        .stroke(InkTheme.hairline, lineWidth: 1)
     )
     .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
   }
@@ -741,17 +711,17 @@ struct StrainV2LoadTile: View {
     HStack(alignment: .top, spacing: 10) {
       Image(systemName: systemImage)
         .font(.caption.weight(.semibold))
-        .foregroundStyle(Color(red: 1.0, green: 0.52, blue: 0.18))
+        .foregroundStyle(InkTheme.ink)
         .frame(width: 28, height: 28)
-        .background(Color(red: 1.0, green: 0.52, blue: 0.18).opacity(0.12), in: Circle())
+        .background(InkTheme.wash, in: Circle())
       VStack(alignment: .leading, spacing: 4) {
         Text(title)
           .font(.caption.weight(.semibold))
-          .foregroundStyle(palette.secondaryText)
+          .foregroundStyle(InkTheme.graphite)
         Text(value)
           .font(.title3.weight(.semibold))
           .fontDesign(.rounded)
-          .foregroundStyle(palette.text)
+          .foregroundStyle(InkTheme.ink)
           .lineLimit(1)
           .minimumScaleFactor(0.7)
       }
@@ -759,7 +729,7 @@ struct StrainV2LoadTile: View {
     }
     .padding(12)
     .frame(maxWidth: .infinity, alignment: .leading)
-    .background(palette.surfaceElevated.opacity(0.48), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+    .background(InkTheme.wash.opacity(0.48), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
   }
 }
 
@@ -771,18 +741,18 @@ struct StrainV2ZoneMeter: View {
       HStack {
         Text("Heart rate zones")
           .font(.subheadline.weight(.semibold))
-          .foregroundStyle(palette.text)
+          .foregroundStyle(InkTheme.ink)
         Spacer()
         Text("0 min")
           .font(.subheadline.weight(.semibold))
           .fontDesign(.rounded)
-          .foregroundStyle(palette.secondaryText)
+          .foregroundStyle(InkTheme.graphite)
       }
 
       HStack(spacing: 5) {
         ForEach(0..<5, id: \.self) { _ in
           Capsule()
-            .fill(palette.separator.opacity(0.75))
+            .fill(InkTheme.hairline.opacity(0.75))
             .frame(height: 9)
         }
       }
@@ -791,13 +761,13 @@ struct StrainV2ZoneMeter: View {
         ForEach(["Z1", "Z2", "Z3", "Z4", "Z5"], id: \.self) { zone in
           Text(zone)
             .font(.caption2.weight(.semibold))
-            .foregroundStyle(palette.mutedText)
+            .foregroundStyle(InkTheme.graphite)
             .frame(maxWidth: .infinity)
         }
       }
     }
     .padding(14)
-    .background(palette.surfaceElevated.opacity(0.48), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+    .background(InkTheme.wash.opacity(0.48), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
   }
 }
 
@@ -812,17 +782,17 @@ struct StrainV2EmptyStateCard: View {
       HStack(alignment: .top, spacing: 12) {
         Image(systemName: systemImage)
           .font(.title3.weight(.semibold))
-          .foregroundStyle(palette.mutedText)
+          .foregroundStyle(InkTheme.graphite)
           .frame(width: 40, height: 40)
-          .background(palette.surfaceElevated.opacity(0.64), in: Circle())
+          .background(InkTheme.wash.opacity(0.64), in: Circle())
 
         VStack(alignment: .leading, spacing: 5) {
           Text(title)
             .font(.headline.weight(.semibold))
-            .foregroundStyle(palette.text)
+            .foregroundStyle(InkTheme.ink)
           Text(message)
             .font(.subheadline)
-            .foregroundStyle(palette.secondaryText)
+            .foregroundStyle(InkTheme.graphite)
             .fixedSize(horizontal: false, vertical: true)
         }
       }
@@ -850,18 +820,18 @@ struct StrainV2InsightsSheet: View {
           SleepV2Panel(palette: palette, padding: 16, radius: 18) {
             VStack(spacing: 0) {
               StrainV2FactRow(label: "Score", value: store.strainScoreDisplayText(), palette: palette)
-              Divider().overlay(palette.separator)
+              Divider().overlay(InkTheme.hairline)
               StrainV2FactRow(label: "Target", value: store.strainTargetDisplayText(), palette: palette)
-              Divider().overlay(palette.separator)
+              Divider().overlay(InkTheme.hairline)
               StrainV2FactRow(label: "Duration", value: store.strainDurationDisplayText(), palette: palette)
-              Divider().overlay(palette.separator)
+              Divider().overlay(InkTheme.hairline)
               StrainV2FactRow(label: "Total Energy", value: store.strainEnergyDisplayText(), palette: palette)
             }
           }
         }
         .padding(18)
       }
-      .background(palette.background.ignoresSafeArea())
+      .background(InkTheme.film.ignoresSafeArea())
       .navigationTitle("Strain Data")
       .navigationBarTitleDisplayMode(.inline)
       .toolbar {
@@ -885,12 +855,12 @@ struct StrainV2FactRow: View {
     HStack {
       Text(label)
         .font(.subheadline.weight(.semibold))
-        .foregroundStyle(palette.secondaryText)
+        .foregroundStyle(InkTheme.graphite)
       Spacer(minLength: 12)
       Text(value)
         .font(.subheadline.weight(.semibold))
         .fontDesign(.rounded)
-        .foregroundStyle(palette.text)
+        .foregroundStyle(InkTheme.ink)
         .lineLimit(1)
         .minimumScaleFactor(0.7)
     }
@@ -909,18 +879,18 @@ struct RecoveryV2EmptyStateCard: View {
       HStack(spacing: 12) {
         Image(systemName: systemImage)
           .font(.headline.weight(.semibold))
-          .foregroundStyle(palette.accent)
+          .foregroundStyle(InkTheme.ink)
           .frame(width: 34, height: 34)
-          .background(palette.accent.opacity(0.10), in: Circle())
+          .background(InkTheme.ink.opacity(0.10), in: Circle())
 
         VStack(alignment: .leading, spacing: 4) {
           Text(title)
             .font(.headline.weight(.semibold))
-            .foregroundStyle(palette.text)
+            .foregroundStyle(InkTheme.ink)
           Text(value)
             .font(.subheadline.weight(.medium))
             .fontDesign(.rounded)
-            .foregroundStyle(palette.secondaryText)
+            .foregroundStyle(InkTheme.graphite)
         }
 
         Spacer(minLength: 8)

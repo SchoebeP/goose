@@ -346,6 +346,14 @@ extension HealthDataStore {
   func strainTrendRowsForV2() -> [HealthMetricSnapshot] {
     Self.strainTrendRows.compactMap { snapshot in
       switch snapshot.id {
+      case "strain-score-trend":
+        return serverDailyTrendRow(
+          base: snapshot,
+          unit: "",
+          fractionDigits: 0,
+          value: { $0.strain.map(Self.strainPercent) },
+          status: { _, v in Self.strainStatusLabel(score: v) }
+        )
       case "active-energy-trend":
         return energyRollupSnapshot(base: snapshot, valueKey: "active_kcal")
       case "total-energy-trend":
