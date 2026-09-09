@@ -124,6 +124,12 @@ extension GooseBLEClient {
       record(level: .warn, source: "ble", title: "scan.start.blocked", body: bluetoothState)
       return
     }
+    // Anti re-déclenchement: un scan déjà actif ne redémarre pas
+    // (observé live: scan.started+scan.stopped en rafale dans la même seconde)
+    guard !isScanning else {
+      record(level: .debug, source: "ble", title: "scan.start.skipped", body: "already scanning")
+      return
+    }
     if clearDiscovered {
       discoveredDevices = []
       peripherals = [:]
@@ -131,11 +137,12 @@ extension GooseBLEClient {
       selectedDeviceID = nil
     }
     isScanning = true
-    central.scanForPeripherals(
-      withServices: whoopServices,
-      options: [CBCentralManagerScanOptionAllowDuplicatesKey: false]
-    )
-    record(source: "ble", title: "scan.started", body: "reason=\(reason) services=\(uuidList(whoopServices))")
+    scanNeighborCount = 0
+    // Sans filtre de services: un WHOOP débondé peut ne pas inclure ses services GATT
+    // dans ses paquets publicitaires (vérifié live 2026-09-09) et reste alors invisible.
+    // didDiscover rejette déjà les non-WHOOP (nom/services exigés comme preuve).
+    central.scanForPeripherals(withServices: nil, options: [CBCentralManagerScanOptionAllowDuplicatesKey: false])
+    record(source: "ble", title: "scan.started", body: "reason=\(reason) services=all (unfiltered)")
   }
 
   func stopScan(reason: String) {

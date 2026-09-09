@@ -418,6 +418,7 @@ extension GooseBLEClient {
     disconnect: Bool = false
   ) {
     let name = peripheral.name ?? fallbackName ?? "unknown"
+    if isScanning { scanNeighborCount += 1 }
     record(
       level: .warn,
       source: "ble",

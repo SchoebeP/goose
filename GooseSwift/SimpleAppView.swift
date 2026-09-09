@@ -522,6 +522,44 @@ private struct SimpleDeviceSheet: View {
           Button("Reconnecter") { model.ble.reconnectRemembered() }
           Button("Oublier ce bracelet", role: .destructive) { model.ble.forgetRememberedDevice() }
         }
+        // Réutilise les fonctions existantes de ConnectionView (aucune logique BLE nouvelle):
+        // startScan / select / connectSelected. Auto-stop après 12 s.
+        Section("Associer un bracelet") {
+          Button {
+            model.ble.startScan()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 12) {
+              if model.ble.isScanning { model.ble.stopScan() }
+            }
+          } label: {
+            HStack {
+              Text("Scanner")
+              if model.ble.isScanning {
+                Spacer()
+                ProgressView()
+              }
+            }
+          }
+          .disabled(model.ble.isScanning)
+          if model.ble.isScanning {
+            Text("Recherche… \(model.ble.scanNeighborCount) appareils à portée (pas encore de WHOOP)")
+              .font(.footnote).foregroundStyle(.secondary)
+          } else if model.ble.discoveredDevices.isEmpty && model.ble.scanNeighborCount > 0 {
+            Text("Scan terminé: \(model.ble.scanNeighborCount) appareils vus, aucun WHOOP. Cycle chargeur puis re-scanne.")
+              .font(.footnote).foregroundStyle(.orange)
+          }
+          ForEach(model.ble.discoveredDevices, id: \.id) { device in
+            Button {
+              model.ble.select(device)
+              model.ble.connectSelected()
+            } label: {
+              HStack {
+                Text(device.name.isEmpty ? "WHOOP" : device.name)
+                Spacer()
+                Text("\(device.rssi) dBm").font(.caption).foregroundStyle(.secondary)
+              }
+            }
+          }
+        }
         SyncSection()
         Section("À propos") {
           Text("Goose lit ton bracelet WHOOP en local et stocke tout sur ton serveur. Les métriques sont les nôtres — jamais celles de WHOOP.")

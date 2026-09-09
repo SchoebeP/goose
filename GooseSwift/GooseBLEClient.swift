@@ -8,6 +8,9 @@ final class GooseBLEClient: NSObject, ObservableObject {
   @Published var connectionState = "disconnected"
   @Published var isScanning = false
   @Published var discoveredDevices: [GooseDiscoveredDevice] = []
+  /// Appareils à portée vus pendant le scan courant (tous, pas seulement WHOOP) —
+  /// purement indicatif pour l'UI: prouve que le scan tourne.
+  @Published var scanNeighborCount = 0
   @Published var liveHeartRateBPM: Int?
   @Published var liveHeartRateSource = "waiting"
   @Published var liveHeartRateUpdatedAt: Date?
@@ -297,6 +300,7 @@ final class GooseBLEClient: NSObject, ObservableObject {
     gen4JournalOther = 0
   }
   var lastDeadLinkRecovery = Date.distantPast // throttle for zombie-connection recovery
+  var deadLinkFallbackWorkItem: DispatchWorkItem?
   var lastDataFrameAt = Date.distantPast      // last raw notification — stall watchdog
   var gen4ReEnableTimer: Timer?
   let gen4ProbeLock = NSLock()
@@ -314,6 +318,8 @@ final class GooseBLEClient: NSObject, ObservableObject {
   var autoReconnectTargetID: UUID?
   var autoReconnectInFlight = false
   var startupReconnectAttempted = false
+  var connectFailureCount = 0
+  var connectRetryWorkItem: DispatchWorkItem?
   var pendingConnectionReason: String?
   var pendingAutomaticHistoricalSyncReason: String?
   var clientHelloSentForCurrentConnection = false
