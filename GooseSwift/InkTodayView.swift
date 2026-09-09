@@ -150,9 +150,6 @@ private struct InkLiveHero: View {
   private var bandStatusText: String {
     if isLive {
       var text = "\(ble.activeDeviceName) — live"
-      if let onWrist = ble.isOnWrist {
-        text += onWrist ? " · on wrist" : " · off wrist"
-      }
       if let lastSync = ble.lastSyncAt {
         text += " · synced \(lastSync.formatted(.relative(presentation: .named)))"
       }

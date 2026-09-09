@@ -731,6 +731,24 @@ extension GooseBLEClient {
   /// Tear down a dead link and let the normal disconnect path reconnect cleanly,
   /// re-running the GEN4 enable on a fresh connection. Throttled so a burst of
   /// failed writes triggers exactly one recovery.
+
+  /// One-shot watchdog: if the link yields no data within the grace window after
+  /// connect, force a dead-link recovery instead of hanging as a ghost connection.
+  func armFirstDataWatchdog(graceSeconds: TimeInterval = 35) {
+    firstDataWatchdogTimer?.invalidate()
+    firstDataWatchdogTimer = Timer.scheduledTimer(withTimeInterval: graceSeconds, repeats: false) { [weak self] _ in
+      guard let self,
+            self.connectionState != "disconnected",
+            let connectedAt = self.connectedAt,
+            self.lastDataFrameAt < connectedAt else {
+        return
+      }
+      self.record(level: .warn, source: "ble", title: "connection.firstdata.timeout",
+                  body: "state=\(self.connectionState), no data \(Int(graceSeconds))s after connect — forcing reconnect")
+      self.recoverFromDeadLink(reason: "no first data within \(Int(graceSeconds))s")
+    }
+  }
+
   func recoverFromDeadLink(reason: String) {
     guard Date().timeIntervalSince(lastDeadLinkRecovery) > 10 else { return }
     lastDeadLinkRecovery = Date()

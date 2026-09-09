@@ -53,6 +53,14 @@ extension HealthDataStore {
     }
   }
 
+  /// Run the packet scores once, only if no run has landed yet.
+  func runPacketScoresIfNeeded() {
+    guard packetScoreReports.isEmpty, packetScoreStatus == "No run", !packetScoreIsRunning else {
+      return
+    }
+    runPacketScores()
+  }
+
   nonisolated static func packetScoreBridgeReports(
     databasePath: String,
     includeAllScores: Bool

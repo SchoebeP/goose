@@ -96,7 +96,7 @@ final class WhoopDataSignalPipeline {
       // raw scale is device-verified against history_sample.skin_temp_raw.
       if temperature.semanticStatus == "plausible_unverified_units",
          let rawADC = temperature.rawU16LE {
-        WhoopCloudForwarder.shared.forwardSkinTemperature(rawADC: rawADC, at: sample.capturedAt)
+        WhoopCloudForwarder.shared.forwardSkinTemp(rawValue: rawADC, at: sample.capturedAt)
       }
       if shouldLog(sample, reason: "temperature.history_candidate") {
         ble.record(source: "whoop.data", title: "temperature.history_candidate", body: sample.logSummary)

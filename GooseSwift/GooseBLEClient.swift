@@ -316,7 +316,13 @@ final class GooseBLEClient: NSObject, ObservableObject {
 
   var lastDeadLinkRecovery = Date.distantPast // throttle for zombie-connection recovery
   var deadLinkFallbackWorkItem: DispatchWorkItem?
-  var lastDataFrameAt = Date.distantPast      // last raw notification — stall watchdog  var gen4ReEnableTimer: Timer?
+  var lastDataFrameAt = Date.distantPast      // last raw notification — stall watchdog
+  var gen4ReEnableTimer: Timer?
+  var firstDataWatchdogTimer: Timer?          // one-shot: connect must yield data or we recover
+  // GEN4 wrist events (9 = WRIST_ON, 10 = WRIST_OFF) — authoritative on/off
+  // wrist state straight from the band; nil until the first event arrives.
+  @Published var isOnWrist: Bool?
+  @Published var wristStateUpdatedAt: Date?
   let gen4ProbeLock = NSLock()
   var gen4OpticalFrameCount = 0
   var gen4HeartRateFrameCount = 0

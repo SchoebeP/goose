@@ -35,7 +35,6 @@
 		A1000000000000000000001B /* CodexEmbeddedAuth.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000021 /* CodexEmbeddedAuth.swift */; };
 		A10000000000000000000023 /* GooseTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000023 /* GooseTheme.swift */; };
 		A1000000000000000000004A /* ServerMetricsFeed.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000004A /* ServerMetricsFeed.swift */; };
-		A10000000000000000000049 /* IngestCredentials.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000049 /* IngestCredentials.swift */; };
 		A10000000000000000000048 /* ServerSleepFeed.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000048 /* ServerSleepFeed.swift */; };
 		A10000000000000000000047 /* InkMoreView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000047 /* InkMoreView.swift */; };
 		A10000000000000000000046 /* InkTrendsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000046 /* InkTrendsView.swift */; };
@@ -219,14 +218,13 @@
 		A20000000000000000000020 /* MoreView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MoreView.swift; sourceTree = "<group>"; };
 		A20000000000000000000021 /* CodexEmbeddedAuth.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexEmbeddedAuth.swift; sourceTree = "<group>"; };
 		A20000000000000000000023 /* GooseTheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GooseTheme.swift; sourceTree = "<group>"; };
-		A2000000000000000000004A /* ServerMetricsFeed.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ServerMetricsFeed.swift; sourceTree = "<group>"; };
-		A20000000000000000000049 /* IngestCredentials.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IngestCredentials.swift; sourceTree = "<group>"; };
-		A20000000000000000000048 /* ServerSleepFeed.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ServerSleepFeed.swift; sourceTree = "<group>"; };
-		A20000000000000000000047 /* InkMoreView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InkMoreView.swift; sourceTree = "<group>"; };
-		A20000000000000000000046 /* InkTrendsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InkTrendsView.swift; sourceTree = "<group>"; };
-		A20000000000000000000045 /* InkTodayView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InkTodayView.swift; sourceTree = "<group>"; };
-		A20000000000000000000044 /* InkComponents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InkComponents.swift; sourceTree = "<group>"; };
-		A20000000000000000000043 /* InkTheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InkTheme.swift; sourceTree = "<group>"; };
+		A2000000000000000000004A /* ServerMetricsFeed.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GooseSwift/ServerMetricsFeed.swift; sourceTree = "<group>"; };
+		A20000000000000000000048 /* ServerSleepFeed.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GooseSwift/ServerSleepFeed.swift; sourceTree = "<group>"; };
+		A20000000000000000000047 /* InkMoreView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GooseSwift/InkMoreView.swift; sourceTree = "<group>"; };
+		A20000000000000000000046 /* InkTrendsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GooseSwift/InkTrendsView.swift; sourceTree = "<group>"; };
+		A20000000000000000000045 /* InkTodayView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GooseSwift/InkTodayView.swift; sourceTree = "<group>"; };
+		A20000000000000000000044 /* InkComponents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GooseSwift/InkComponents.swift; sourceTree = "<group>"; };
+		A20000000000000000000043 /* InkTheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GooseSwift/InkTheme.swift; sourceTree = "<group>"; };
 		A20000000000000000000025 /* CodexCoachSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexCoachSupport.swift; sourceTree = "<group>"; };
 		A20000000000000000000026 /* OpenAICoachChat.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenAICoachChat.swift; sourceTree = "<group>"; };
 		A20000000000000000000027 /* CoachTips.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoachTips.swift; sourceTree = "<group>"; };
@@ -820,7 +818,6 @@
 				A10000000000000000000027 /* CoachTips.swift in Sources */,
 				A10000000000000000000023 /* GooseTheme.swift in Sources */,
 				A1000000000000000000004A /* ServerMetricsFeed.swift in Sources */,
-				A10000000000000000000049 /* IngestCredentials.swift in Sources */,
 				A10000000000000000000048 /* ServerSleepFeed.swift in Sources */,
 				A10000000000000000000047 /* InkMoreView.swift in Sources */,
 				A10000000000000000000046 /* InkTrendsView.swift in Sources */,

@@ -1382,7 +1382,7 @@ final class WhoopCloudForwarder {
       // Uplink slower than the band (typical mid history-sync): never stack
       // unbounded in-flight bodies — spill to disk, replayed in order by
       // drainOutbox. Biometric frames are preserved, memory stays O(1 body).
-      persistFailedBody(body)
+      persistFailedBody(body, kind: "frames")
       inFlightSpillCount += 1
       if inFlightSpillCount == 1 || inFlightSpillCount.isMultiple(of: 100) {
         self.ingestLog(
@@ -1394,10 +1394,11 @@ final class WhoopCloudForwarder {
       return
     }
     framesPostInFlight = true
-    postFrames(body) { [weak self] ok in
+    post(body, to: Self.framesEndpoint) { [weak self] ok in
       self?.queue.async {
         self?.framesPostInFlight = false
-        if ok { self?.drainOutbox() } else { self?.persistFailedBody(body) }      }
+        if ok { self?.drainOutbox() } else { self?.persistFailedBody(body, kind: "frames") }
+      }
     }
   }
 
@@ -1422,10 +1423,10 @@ final class WhoopCloudForwarder {
       .sorted(by: { $0.lastPathComponent < $1.lastPathComponent }).first else { return }
     guard let body = try? Data(contentsOf: url) else { try? fm.removeItem(at: url); return }
     framesPostInFlight = true
-    postFrames(body) { [weak self] ok in
+    post(body, to: Self.framesEndpoint) { [weak self] ok in
       self?.queue.async {
         self?.framesPostInFlight = false
-         guard ok else { return }
+        guard ok else { return }
         try? fm.removeItem(at: url)
         self?.drainOutbox()
       }

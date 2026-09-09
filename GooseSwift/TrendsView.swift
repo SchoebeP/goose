@@ -1,10 +1,24 @@
 import SwiftUI
 
-/// Trends (PTrends) — Direction A "Quiet Companion".
-/// W/M/6M segmented control over our own overnight vitals: Overnight HRV +
-/// Resting HR full band-trend cards, a provisional Wrist-temp half tile,
-/// Sleep bars, and an honest Steps-per-day gap chart (steps never backfill).
+enum TrendPeriod: String, CaseIterable, Identifiable {
+  case week = "W"
+  case month = "M"
+  case sixMonth = "6M"
+
+  var id: String { rawValue }
+
+  /// How many trailing points to show for this period.
+  var pointCount: Int {
+    switch self {
+    case .week: 7
+    case .month: 30
+    case .sixMonth: 180
+    }
+  }
+}
+
 struct TrendsView: View {
+  @EnvironmentObject private var model: GooseAppModel
   @ObservedObject var healthStore: HealthDataStore
   @State private var period: TrendPeriod = .week
   @StateObject private var sleepFeed = SleepNightsFeed()
@@ -13,8 +27,14 @@ struct TrendsView: View {
 
   var body: some View {
     ScrollView {
-      VStack(alignment: .leading, spacing: 14) {
-        header
+      LazyVStack(alignment: .leading, spacing: 18) {
+        Picker("Period", selection: $period) {
+          ForEach(TrendPeriod.allCases) { p in
+            Text(p.rawValue).tag(p)
+          }
+        }
+        .pickerStyle(.segmented)
+        .padding(.bottom, 2)
 
         // Morning report header — our own read of last night, never WHOOP's.
         LastNightReportCard(report: serverFeed.lastNight)
@@ -23,7 +43,7 @@ struct TrendsView: View {
         sleepSection
         activitySection
       }
-      .padding(.horizontal, 20)
+      .padding(.horizontal, 16)
       .padding(.vertical, 18)
     }
     .gooseScreenBackground()
@@ -674,100 +694,80 @@ struct SpO2ReservedCard: View {
   }
 }
 
-  private var periodPicker: some View {
-    Picker("Period", selection: $period) {
-      Text("W").tag("W")
-      Text("M").tag("M")
-      Text("6M").tag("6M")
-    }
-    .pickerStyle(.segmented)
-    .onChange(of: period) { _, newValue in
-      store.refreshTrends(period: newValue)
-    }
-    .padding(.bottom, 2)
+struct TrendCard: View {
+  let snapshot: HealthMetricSnapshot
+  let period: TrendPeriod
+  var ours: Bool = false
+
+  private var points: [Double] {
+    let all = snapshot.trend.points.map(\.value)
+    return Array(all.suffix(period.pointCount))
   }
 
-  // MARK: - Overnight HRV (full card)
-
-  private var hrvCard: some View {
-    let series = store.vitalSeries["hrv"] ?? []
-    let band = store.vitalBands["hrv"] ?? hrvBandDefault
-    let latest = series.last?.value
-    return VStack(alignment: .leading, spacing: 12) {
-      GDACardTitle("Overnight HRV", color: GDA.hrv) {
-        GDADelta(value: -0.7, unit: "ms", good: true)
-      }
-      heroNumber(latest, unit: "ms", decimals: 1)
-      BandTrendChart(series: series, band: band, color: GDA.hrv, fractionDigits: 1)
-    }
-    .gdaCard()
+  private var average: Double? {
+    guard !points.isEmpty else { return nil }
+    return points.reduce(0, +) / Double(points.count)
   }
 
-  // MARK: - Resting HR (full card)
-
-  private var rhrCard: some View {
-    let series = store.vitalSeries["rhr"] ?? []
-    let band = store.vitalBands["rhr"] ?? rhrBandDefault
-    let latest = series.last?.value
-    return VStack(alignment: .leading, spacing: 12) {
-      GDACardTitle("Resting HR", color: GDA.heart) {
-        GDADelta(value: 3, unit: "bpm", good: false)
-      }
-      heroNumber(latest, unit: "bpm", decimals: 0)
-      BandTrendChart(series: series, band: band, color: GDA.heart, fractionDigits: 0)
-    }
-    .gdaCard()
+  /// Delta of recent-half mean vs older-half mean (nil if not enough points).
+  private var delta: Double? {
+    guard points.count >= 4 else { return nil }
+    let mid = points.count / 2
+    let older = points.prefix(mid)
+    let recent = points.suffix(points.count - mid)
+    guard !older.isEmpty, !recent.isEmpty else { return nil }
+    let o = older.reduce(0, +) / Double(older.count)
+    let r = recent.reduce(0, +) / Double(recent.count)
+    return r - o
   }
 
-  // MARK: - Wrist temp* half tile (Respiratory dropped entirely)
-
-  private var tempRow: some View {
-    let series = store.vitalSeries["temp"] ?? []
-    let band = store.vitalBands["temp"] ?? tempBandDefault
-    let latest = series.last?.value
-    return HStack(spacing: 12) {
-      VStack(alignment: .leading, spacing: 7) {
-        GDACardTitle("Wrist temp *", color: GDA.temp)
-        heroNumber(latest, unit: "°C", decimals: 1, size: 24)
-        BandTrendChart(series: series, band: band, color: GDA.temp, height: 64, fractionDigits: 1)
-      }
-      .gdaCard()
-      .frame(maxWidth: .infinity)
-
-      // Single half tile per spec (Respiratory dropped) — empty trailing column
-      // keeps the temp tile at half width, matching the prototype grid.
-      Color.clear
-        .frame(maxWidth: .infinity)
-        .accessibilityHidden(true)
-    }
-    .fixedSize(horizontal: false, vertical: true)
-  }
-
-  // MARK: - Sleep (our estimate)
-
-  private var sleepCard: some View {
+  var body: some View {
     VStack(alignment: .leading, spacing: 12) {
-      GDACardTitle("Sleep", color: GDA.sleep)
-      SleepBarsChart(nights: store.sleepNights)
+      HStack {
+        GooseMetricLabel(systemImage: snapshot.systemImage, title: snapshot.title, accent: snapshot.tint)
+        Spacer()
+        if let delta {
+          let up = delta >= 0
+          HStack(spacing: 3) {
+            Image(systemName: up ? "arrow.up.right" : "arrow.down.right")
+            Text(String(format: "%+.0f", delta))
+              .monospacedDigit()
+          }
+          .font(.caption.weight(.bold))
+          .foregroundStyle(snapshot.tint)
+        }
+      }
+
+      HStack(alignment: .firstTextBaseline, spacing: 4) {
+        Text(average.map { String(format: "%.0f", $0) } ?? snapshot.value)
+          .font(.system(size: 34, weight: .semibold, design: .rounded))
+          .monospacedDigit()
+        if !snapshot.unit.isEmpty {
+          Text(snapshot.unit).font(.subheadline).foregroundStyle(.secondary)
+        }
+        Spacer()
+      }
+
+      HealthSparkline(points: points, tint: snapshot.tint)
+        .frame(height: 64)
+
+      Text(captionText)
+        .font(.caption2)
+        .foregroundStyle(.secondary)
     }
-    .gdaCard()
+    .gooseCard()
   }
 
-  // MARK: - Steps per day (honest gap — never backfills)
-
-  private var stepsCard: some View {
-    VStack(alignment: .leading, spacing: 12) {
-      GDACardTitle("Steps per day", color: GDA.activity)
-      DailyBarsChart(points: stepsPlaceholderPoints)
-      GDAGapNote(text: "Only days the band streamed — step history can't backfill")
-    }
-    .gdaCard()
+  private var captionText: String {
+    let base = "Avg over last \(points.count) · \(snapshot.freshness)"
+    return ours ? base + " · our own estimate" : base
   }
+}
 
 // MARK: - Sleep nights (computed on the VPS from overnight vitals; ours, not WHOOP's)
 
 /// One detected sleep night, as served by GET /whoop/ingest/sleep/nights.
-struct SleepNight: Decodable, Identifiable {
+struct VpsSleepNight: Decodable, Identifiable {
   let date: String        // e.g. "2026-06-07" (the morning the night ends on)
   let start_utc: String   // ISO-8601, e.g. "2026-06-06T22:41:00Z"
   let end_utc: String
@@ -779,7 +779,7 @@ struct SleepNight: Decodable, Identifiable {
 }
 
 private struct SleepNightsResponse: Decodable {
-  let nights: [SleepNight]
+  let nights: [VpsSleepNight]
   let count: Int
 }
 
@@ -788,7 +788,7 @@ private struct SleepNightsResponse: Decodable {
 /// just leaves `nights` empty so the UI falls back to its designed empty state.
 @MainActor
 final class SleepNightsFeed: ObservableObject {
-  @Published var nights: [SleepNight] = []
+  @Published var nights: [VpsSleepNight] = []
   private let url = URL(string: "https://latenightgames.fr/whoop/ingest/sleep/nights")!
   private let token = "c0067852565b4d0d46606172de35c6ba120112c447e1f25b"
 
@@ -822,11 +822,11 @@ private func sleepNightLabel(_ date: String) -> String {
 /// Real sleep card: average nightly duration + one bar per detected night
 /// for the selected period. All numbers are our own estimate, never WHOOP's.
 struct SleepNightsTrendCard: View {
-  let nights: [SleepNight]
+  let nights: [VpsSleepNight]
   let period: TrendPeriod
   @State private var selectedIndex: Int?
 
-  private var shown: [SleepNight] {
+  private var shown: [VpsSleepNight] {
     Array(nights.suffix(period.pointCount))
   }
 
@@ -835,7 +835,7 @@ struct SleepNightsTrendCard: View {
     return shown.map(\.duration_min).reduce(0, +) / Double(shown.count)
   }
 
-  private var selected: SleepNight? {
+  private var selected: VpsSleepNight? {
     guard let i = selectedIndex, shown.indices.contains(i) else { return nil }
     return shown[i]
   }
@@ -883,7 +883,7 @@ struct SleepNightsTrendCard: View {
 /// One rounded bar per night (sleep accent), like the steps chart.
 /// Tap a bar to highlight that night; tap again (or elsewhere) to clear.
 private struct SleepNightsBarChart: View {
-  let nights: [SleepNight]
+  let nights: [VpsSleepNight]
   @Binding var selectedIndex: Int?
 
   var body: some View {
@@ -950,23 +950,6 @@ struct TrendEmptyCard: View {
           .fixedSize(horizontal: false, vertical: true)
       }
     }
-    // value < 0 renders as a hatched gap (honest "no step history" placeholder).
-    return labels.map { VitalPoint(label: $0, value: -1) }
-  }
-
-  // MARK: - Shared hero numeral
-
-  @ViewBuilder
-  private func heroNumber(_ value: Double?, unit: String, decimals: Int, size: CGFloat = 28) -> some View {
-    HStack(alignment: .firstTextBaseline, spacing: 3) {
-      Text(value.map { $0.formatted(.number.precision(.fractionLength(decimals))) } ?? "—")
-        .font(GDA.num(size))
-        .foregroundStyle(value == nil ? GDA.text3 : GDA.text)
-      Text(unit)
-        .font(.system(size: 12.5, weight: .semibold))
-        .foregroundStyle(GDA.text2)
-    }
-    .lineLimit(1)
-    .minimumScaleFactor(0.7)
+    .gooseCard()
   }
 }
