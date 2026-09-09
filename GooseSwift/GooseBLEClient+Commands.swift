@@ -648,8 +648,17 @@ extension GooseBLEClient {
     }
     if activePeripheral?.identifier == peripheral.identifier,
        connectionState == "connecting" || connectionState == "discovering" || connectionState == "ready" {
-      record(level: .debug, source: "ble", title: "connect.skipped", body: "already \(connectionState)")
-      return
+      // "ready" only means the GATT layer is set up — the link underneath can
+      // still be a ghost (overnight 03:22 relaunch: 'already connected' on a
+      // dead restore, no write ever attempted). A silent link must not block
+      // a retry; only a link with fresh data counts as connected.
+      let linkLooksAlive = Date().timeIntervalSince(lastDataFrameAt) < 120
+      if connectionState != "ready" || linkLooksAlive {
+        record(level: .debug, source: "ble", title: "connect.skipped", body: "already \(connectionState)")
+        return
+      }
+      record(level: .warn, source: "ble", title: "connect.zombie_override",
+             body: "ready but silent — allowing reconnect attempt")
     }
     whoopCandidateIDs.insert(peripheral.identifier)
     resetLiveDeviceFieldsIfNeeded(for: peripheral)
@@ -702,10 +711,27 @@ extension GooseBLEClient {
     gen4ReEnableTimer?.invalidate()
     gen4ReEnableTimer = nil
     // Cancel the zombie connection. didDisconnectPeripheral fires the normal
-    // auto-reconnect, which rediscovers services with valid handles.
-    if let peripheral = activePeripheral, let central {
-      central.cancelPeripheralConnection(peripheral)
+    // auto-reconnect, which rediscovers services with valid handles. On iOS 17+
+    // cancelPeripheralConnection may NOT fire didDisconnect if the link is
+    // already gone — set a bounded fallback so the machine can't strand here.
+    guard let peripheral = activePeripheral, let central else { return }
+    central.cancelPeripheralConnection(peripheral)
+    deadLinkFallbackWorkItem?.cancel()
+    let fallback = DispatchWorkItem { [weak self, weak peripheral] in
+      guard let self, let peripheral else { return }
+      guard self.activePeripheral?.identifier == peripheral.identifier,
+            self.connectionState != "ready" || Date().timeIntervalSince(self.lastDataFrameAt) > 60 else {
+        return
+      }
+      self.record(level: .warn, source: "ble", title: "connection.recover_fallback",
+                  body: "cancel did not produce a disconnect — attempting direct reconnect")
+      self.activePeripheral = nil
+      self.commandCharacteristic = nil
+      self.updateConnectionState("disconnected")
+      self.connect(peripheral, reason: "auto.dead_link_fallback")
     }
+    deadLinkFallbackWorkItem = fallback
+    DispatchQueue.main.asyncAfter(deadline: .now() + 20, execute: fallback)
   }
 
   func attemptAutomaticReconnect(reason: String) {
@@ -714,7 +740,19 @@ extension GooseBLEClient {
       return
     }
     guard activePeripheral == nil else {
-      updateReconnectState("already connected")
+      // "Connected" only counts if data is actually flowing. A restored or
+      // cached peripheral can sit in activePeripheral with a dead link (the
+      // overnight 01:53/03:22 relaunches both bailed out here) — that ghost
+      // must not block a recovery attempt.
+      let linkLooksAlive = Date().timeIntervalSince(lastDataFrameAt) < 120
+        || connectionState == "connecting" || connectionState == "discovering"
+      if linkLooksAlive {
+        updateReconnectState("already connected")
+      } else {
+        record(level: .warn, source: "ble", title: "reconnect.ghost_link",
+               body: "state=\(connectionState) but no data — treating as disconnected")
+        recoverFromDeadLink(reason: "auto-reconnect saw a silent link")
+      }
       return
     }
     guard !autoReconnectInFlight else {
@@ -1196,27 +1234,27 @@ extension GooseBLEClient {
       // LOT 1 BIS: official-app-only mode (Zulusierra MITM). The real app asks
       // history with 0x16 (=22) AFTER the full handshake — no 34 probing.
       DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
-        self?.writeGen4Command(22, payload: [], label: "REQUEST_HISTORICAL_DATA(0x16 official)")
+        self?.writeGen4Command(22, payload: [0x00], label: "REQUEST_HISTORICAL_DATA(0x16 official)")
         self?.gen4Journal("📜 J'ai demandé l'historique (0x16, comme la vraie app)")
         self?.gen4Journal("⏳ J'attends sa réponse… (rien en ~90 s = rien en mémoire, ou pas le bon dialogue)")
       }
     } else {
     DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
-      self?.writeGen4Command(34, payload: [], label: "GET_DATA_RANGE")
+      self?.writeGen4Command(34, payload: [0x00], label: "GET_DATA_RANGE")
       self?.gen4Journal("📤 J'ai demandé : « donne-moi ce que tu as en mémoire »")
     }
     // Zulusierra MITM (2026-09): the official app requests history with
     // REQUEST_HISTORICAL_DATA 0x16 (=22), NOT GET_DATA_RANGE. Try the official
     // form too — whichever command this firmware answers, we win.
     DispatchQueue.main.asyncAfter(deadline: .now() + 1.6) { [weak self] in
-      self?.writeGen4Command(22, payload: [], label: "REQUEST_HISTORICAL_DATA(official-app form)")
+      self?.writeGen4Command(22, payload: [0x00], label: "REQUEST_HISTORICAL_DATA(official-app form)")
     }
     // The proven 23/07 form was cmd22 with empty payload right after cmd34.
     DispatchQueue.main.asyncAfter(deadline: .now() + 2.2) { [weak self] in
-      self?.writeGen4Command(34, payload: [], label: "GET_DATA_RANGE(2nd)")
+      self?.writeGen4Command(34, payload: [0x00], label: "GET_DATA_RANGE(2nd)")
     }
     DispatchQueue.main.asyncAfter(deadline: .now() + 2.8) { [weak self] in
-      self?.writeGen4Command(22, payload: [], label: "SEND_HISTORICAL_DATA(2nd)")
+      self?.writeGen4Command(22, payload: [0x00], label: "SEND_HISTORICAL_DATA(2nd)")
       self?.gen4Journal("📤 J'ai demandé : « envoie-le moi »")
       self?.gen4Journal("⏳ J'attends sa réponse… (si rien n'arrive dans ~90 s, il n'a rien en mémoire)")
     }
@@ -1266,7 +1304,7 @@ extension GooseBLEClient {
     requestGen4HistoricalBackfillIfNeeded(force: true)
   }
 
-  private func writeGen4Command(_ command: UInt8, payload: [UInt8], label: String) {
+  func writeGen4Command(_ command: UInt8, payload: [UInt8], label: String) {
     guard let peripheral = activePeripheral,
           let characteristic = commandCharacteristic,
           let writeType = writeType(for: characteristic) else {

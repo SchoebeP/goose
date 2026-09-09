@@ -49,6 +49,22 @@ extension GooseBLEClient: CBCentralManagerDelegate {
       updateConnectionState("discovering")
       peripheral.discoverServices(serviceDiscoveryIDs)
       processCachedServicesIfAvailable(peripheral, reason: "restore.connected")
+      // CLAUDE.md rule: never trust restored connection state without a live
+      // write. If the restored link is a ghost, no data frame will arrive and
+      // the 60 s re-enable tick (gen4ReEnableTimer) stalls out — so schedule a
+      // bounded verification: if nothing arrives within 25 s, tear the link
+      // down and do a real reconnect.
+      DispatchQueue.main.asyncAfter(deadline: .now() + 25) { [weak self] in
+        guard let self,
+              self.connectionState == "ready" || self.connectionState == "discovering",
+              self.activePeripheral?.identifier == peripheral.identifier,
+              Date().timeIntervalSince(self.lastDataFrameAt) > 25 else {
+          return
+        }
+        self.record(level: .warn, source: "ble", title: "restore.ghost_link",
+                    body: "restored 'connected' but no data for 25s — forcing real reconnect")
+        self.recoverFromDeadLink(reason: "ghost link after state restoration")
+      }
     case .connecting:
       updateConnectionState("connecting")
     case .disconnected, .disconnecting:
@@ -173,6 +189,11 @@ extension GooseBLEClient: CBCentralManagerDelegate {
     clientHelloSentForCurrentConnection = false
     autoReconnectInFlight = false
     autoReconnectTargetID = nil
+    connectFailureCount = 0
+    connectRetryWorkItem?.cancel()
+    connectRetryWorkItem = nil
+    deadLinkFallbackWorkItem?.cancel()
+    deadLinkFallbackWorkItem = nil
     let reason = pendingConnectionReason ?? "unknown"
     pendingConnectionReason = nil
     if !prioritizeLiveCaptureOnReady,
@@ -220,6 +241,30 @@ extension GooseBLEClient: CBCentralManagerDelegate {
     updateConnectionState("connect failed")
     updateReconnectState("connect failed")
     record(level: .error, source: "ble", title: "connect.failed", body: error?.localizedDescription ?? "unknown")
+    scheduleConnectRetry(peripheral)
+  }
+
+  /// A failed attempt used to end the reconnect machine entirely: overnight the
+  /// 23:45:25 "connect failed" was followed by 7.8 h of silence because nothing
+  /// ever retried. Every termination now schedules the next attempt with
+  /// exponential backoff (5 s doubling, 60 s cap), cleared on a real connect.
+  func scheduleConnectRetry(_ peripheral: CBPeripheral) {
+    guard rememberedDeviceID == peripheral.identifier || selectedDeviceID == peripheral.identifier else {
+      return
+    }
+    connectRetryWorkItem?.cancel()
+    connectFailureCount = min(connectFailureCount + 1, 6)
+    let delay = min(5.0 * pow(2.0, Double(connectFailureCount - 1)), 60.0)
+    updateReconnectState("retry in \(Int(delay.rounded()))s")
+    record(level: .warn, source: "ble", title: "connect.retry_scheduled",
+           body: "attempt=\(connectFailureCount) delay=\(Int(delay.rounded()))s")
+    let workItem = DispatchWorkItem { [weak self] in
+      guard let self, self.activePeripheral == nil else { return }
+      self.record(source: "ble", title: "connect.retry", body: "attempt=\(self.connectFailureCount)")
+      self.connect(peripheral, reason: "auto.retry")
+    }
+    connectRetryWorkItem = workItem
+    DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: workItem)
   }
 
   func centralManager(
@@ -237,6 +282,10 @@ extension GooseBLEClient: CBCentralManagerDelegate {
     autoReconnectInFlight = false
     autoConnectForPhysiologyCapture = false
     autoStartedPhysiologyCapture = false
+    connectRetryWorkItem?.cancel()
+    connectRetryWorkItem = nil
+    deadLinkFallbackWorkItem?.cancel()
+    deadLinkFallbackWorkItem = nil
     gen4StartedPulseStream = false           // re-arm the once-per-connection 4.0 enable
     gen4StartedHistoricalBackfill = false    // re-arm the once-per-connection history pull
     isGen4Backfilling = false                // close any in-flight backfill window
