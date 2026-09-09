@@ -47,12 +47,15 @@ extension GooseBLEClient {
     ]
   }
 
-  /// CLOCK_SYNC payload — 8 bytes: unix epoch u32 LE + u32 0 (HCI-verified,
-  /// OpenStrap). A wrong-length SET_CLOCK is ack'd but NOT latched → RTC stays
-  /// lost and the band refuses to serve history (noop finding, 2026-09).
+  /// CLOCK_SYNC payload — 5 bytes: unix epoch u32 LE + commit byte 0x01.
+  /// Vérifié sur le bracelet (2026-09-09): la forme 8B (OpenStrap) n'est PAS
+  /// latched sur ce firmware; seule la 5B [epoch][0x01] répare la RTC.
+  /// Sans RTC valide le firmware refuse d'écrire toute donnée en flash
+  /// ("RTC timestamp invalid; not saving data to flash") et le buffer
+  /// historique reste vide — d'où des mois de données perdues.
   static func clockSyncPayload() -> [UInt8] {
     let now = UInt32(Date().timeIntervalSince1970)
-    return withUnsafeBytes(of: now.littleEndian) { Array($0) } + [0, 0, 0, 0]
+    return withUnsafeBytes(of: now.littleEndian) { Array($0) } + [0x01]
   }
 
   /// HELLO payload: 9 bytes — unix timestamp LE + zero padding (MITM frame:
