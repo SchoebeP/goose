@@ -15,14 +15,10 @@
 		A10000000000000000000007 /* GooseHello.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000007 /* GooseHello.swift */; };
 		A10000000000000000000008 /* GooseBLEClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000008 /* GooseBLEClient.swift */; };
 		A10000000000000000000009 /* CoreBluetooth.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A20000000000000000000009 /* CoreBluetooth.framework */; };
-		A1000000000000000000000A /* DeviceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000000E /* DeviceView.swift */; };
 		A1000000000000000000000B /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000000F /* Assets.xcassets */; };
-		A1000000000000000000000C /* AppShellView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000010 /* AppShellView.swift */; };
 		A1000000000000000000000D /* LiveActivityView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000011 /* LiveActivityView.swift */; };
 		A1000000000000000000000E /* CoreLocation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A20000000000000000000012 /* CoreLocation.framework */; };
 		A1000000000000000000000F /* MapKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A20000000000000000000013 /* MapKit.framework */; };
-		A10000000000000000000010 /* HealthView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000014 /* HealthView.swift */; };
-		A10000000000000000000041 /* TrendsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000041 /* TrendsView.swift */; };
 		B10000000000000000000052 /* BodyHistoryMetrics.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20000000000000000000052 /* BodyHistoryMetrics.swift */; };
 		E10000000000000000000051 /* HistorySyncProgress.swift in Sources */ = {isa = PBXBuildFile; fileRef = E20000000000000000000051 /* HistorySyncProgress.swift */; };
 		A10000000000000000000042 /* ChartDetailViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000042 /* ChartDetailViews.swift */; };
@@ -31,14 +27,10 @@
 		A10000000000000000000013 /* CoachView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000018 /* CoachView.swift */; };
 		A10000000000000000000015 /* HealthKitSleepImporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000001B /* HealthKitSleepImporter.swift */; };
 		A10000000000000000000019 /* OnboardingPersistence.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000001F /* OnboardingPersistence.swift */; };
-		A1000000000000000000001A /* MoreView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000020 /* MoreView.swift */; };
 		A1000000000000000000001B /* CodexEmbeddedAuth.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000021 /* CodexEmbeddedAuth.swift */; };
 		A10000000000000000000023 /* GooseTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000023 /* GooseTheme.swift */; };
 		A1000000000000000000004A /* ServerMetricsFeed.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000004A /* ServerMetricsFeed.swift */; };
 		A10000000000000000000048 /* ServerSleepFeed.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000048 /* ServerSleepFeed.swift */; };
-		A10000000000000000000047 /* InkMoreView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000047 /* InkMoreView.swift */; };
-		A10000000000000000000046 /* InkTrendsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000046 /* InkTrendsView.swift */; };
-		A10000000000000000000045 /* InkTodayView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000045 /* InkTodayView.swift */; };
 		A10000000000000000000044 /* InkComponents.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000044 /* InkComponents.swift */; };
 		A10000000000000000000043 /* InkTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000043 /* InkTheme.swift */; };
 		A10000000000000000000025 /* CodexCoachSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000025 /* CodexCoachSupport.swift */; };
@@ -60,15 +52,8 @@
 		C10000000000000000000002 /* HealthScoreDateViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = C20000000000000000000002 /* HealthScoreDateViews.swift */; };
 		C10000000000000000000003 /* HealthDataTypes.swift in Sources */ = {isa = PBXBuildFile; fileRef = C20000000000000000000003 /* HealthDataTypes.swift */; };
 		C10000000000000000000004 /* HealthDataStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = C20000000000000000000004 /* HealthDataStore.swift */; };
-		C10000000000000000000005 /* HealthDashboardViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = C20000000000000000000005 /* HealthDashboardViews.swift */; };
-		C10000000000000000000006 /* HealthRecoveryStressViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = C20000000000000000000006 /* HealthRecoveryStressViews.swift */; };
-		C10000000000000000000007 /* HealthMetricFamilyStrainViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = C20000000000000000000007 /* HealthMetricFamilyStrainViews.swift */; };
-		C10000000000000000000008 /* HealthRecoveryWidgets.swift in Sources */ = {isa = PBXBuildFile; fileRef = C20000000000000000000008 /* HealthRecoveryWidgets.swift */; };
-		C10000000000000000000009 /* HealthSleepOverviewViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = C20000000000000000000009 /* HealthSleepOverviewViews.swift */; };
 		C1000000000000000000000A /* HealthSleepTrendViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2000000000000000000000A /* HealthSleepTrendViews.swift */; };
-		C1000000000000000000000B /* HealthSleepSheetsViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2000000000000000000000B /* HealthSleepSheetsViews.swift */; };
 		C1000000000000000000000C /* HealthCardioViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2000000000000000000000C /* HealthCardioViews.swift */; };
-		C1000000000000000000000D /* HealthSupplementalViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2000000000000000000000D /* HealthSupplementalViews.swift */; };
 		C10000000000000000000101 /* HealthDataStore+PacketInputs.swift in Sources */ = {isa = PBXBuildFile; fileRef = C20000000000000000000101 /* HealthDataStore+PacketInputs.swift */; };
 		C10000000000000000000102 /* HealthDataStore+Snapshots.swift in Sources */ = {isa = PBXBuildFile; fileRef = C20000000000000000000102 /* HealthDataStore+Snapshots.swift */; };
 		C10000000000000000000103 /* HealthDataStore+StressEnergy.swift in Sources */ = {isa = PBXBuildFile; fileRef = C20000000000000000000103 /* HealthDataStore+StressEnergy.swift */; };
@@ -106,7 +91,6 @@
 		D1000000000000000000001F /* HistoryCandidateSamples.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2000000000000000000001F /* HistoryCandidateSamples.swift */; };
 		D10000000000000000000020 /* MovementPacketSamples.swift in Sources */ = {isa = PBXBuildFile; fileRef = D20000000000000000000020 /* MovementPacketSamples.swift */; };
 		D10000000000000000000021 /* PassiveActivityDetector.swift in Sources */ = {isa = PBXBuildFile; fileRef = D20000000000000000000021 /* PassiveActivityDetector.swift */; };
-		D10000000000000000000022 /* HomeDashboardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D20000000000000000000022 /* HomeDashboardView.swift */; };
 		D10000000000000000000023 /* HomeScoreViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = D20000000000000000000023 /* HomeScoreViews.swift */; };
 		D10000000000000000000061 /* SyncSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = D20000000000000000000061 /* SyncSection.swift */; };
 		D100000000000000000000A0 /* HomeFormatting.swift in Sources */ = {isa = PBXBuildFile; fileRef = D200000000000000000000A0 /* HomeFormatting.swift */; };
@@ -123,10 +107,8 @@
 		D10000000000000000000029 /* SleepV2ScheduleViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = D20000000000000000000029 /* SleepV2ScheduleViews.swift */; };
 		D1000000000000000000002A /* SleepV2TimelineViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2000000000000000000002A /* SleepV2TimelineViews.swift */; };
 		D1000000000000000000002B /* SleepV2TrendPresentationViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2000000000000000000002B /* SleepV2TrendPresentationViews.swift */; };
-		D1000000000000000000002C /* SleepBridgeViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2000000000000000000002C /* SleepBridgeViews.swift */; };
 		D1000000000000000000002D /* SleepDetailViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2000000000000000000002D /* SleepDetailViews.swift */; };
 		D1000000000000000000002E /* HealthChartPrimitives.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2000000000000000000002E /* HealthChartPrimitives.swift */; };
-		D1000000000000000000002F /* HealthStressCharts.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2000000000000000000002F /* HealthStressCharts.swift */; };
 		D10000000000000000000030 /* SleepV2BevelTrendViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = D20000000000000000000030 /* SleepV2BevelTrendViews.swift */; };
 		D10000000000000000000031 /* SleepV2BevelAnalysisViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = D20000000000000000000031 /* SleepV2BevelAnalysisViews.swift */; };
 		D10000000000000000000032 /* GooseBLETypes.swift in Sources */ = {isa = PBXBuildFile; fileRef = D20000000000000000000032 /* GooseBLETypes.swift */; };
@@ -198,14 +180,10 @@
 		A2000000000000000000000B /* GooseSwift-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "GooseSwift-Bridging-Header.h"; sourceTree = "<group>"; };
 		A2000000000000000000000C /* build_ios_rust.sh */ = {isa = PBXFileReference; lastKnownFileType = text.script.sh; path = build_ios_rust.sh; sourceTree = "<group>"; };
 		A2000000000000000000000D /* GooseSwift.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = GooseSwift.app; sourceTree = BUILT_PRODUCTS_DIR; };
-		A2000000000000000000000E /* DeviceView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceView.swift; sourceTree = "<group>"; };
 		A2000000000000000000000F /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
-		A20000000000000000000010 /* AppShellView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppShellView.swift; sourceTree = "<group>"; };
 		A20000000000000000000011 /* LiveActivityView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveActivityView.swift; sourceTree = "<group>"; };
 		A20000000000000000000012 /* CoreLocation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CoreLocation.framework; path = System/Library/Frameworks/CoreLocation.framework; sourceTree = SDKROOT; };
 		A20000000000000000000013 /* MapKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = MapKit.framework; path = System/Library/Frameworks/MapKit.framework; sourceTree = SDKROOT; };
-		A20000000000000000000014 /* HealthView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HealthView.swift; sourceTree = "<group>"; };
-		A20000000000000000000041 /* TrendsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrendsView.swift; sourceTree = "<group>"; };
 		B20000000000000000000052 /* BodyHistoryMetrics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BodyHistoryMetrics.swift; sourceTree = "<group>"; };
 		E20000000000000000000051 /* HistorySyncProgress.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HistorySyncProgress.swift; sourceTree = "<group>"; };
 		A20000000000000000000042 /* ChartDetailViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChartDetailViews.swift; sourceTree = "<group>"; };
@@ -215,14 +193,10 @@
 		A20000000000000000000018 /* CoachView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoachView.swift; sourceTree = "<group>"; };
 		A2000000000000000000001B /* HealthKitSleepImporter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HealthKitSleepImporter.swift; sourceTree = "<group>"; };
 		A2000000000000000000001F /* OnboardingPersistence.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingPersistence.swift; sourceTree = "<group>"; };
-		A20000000000000000000020 /* MoreView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MoreView.swift; sourceTree = "<group>"; };
 		A20000000000000000000021 /* CodexEmbeddedAuth.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexEmbeddedAuth.swift; sourceTree = "<group>"; };
 		A20000000000000000000023 /* GooseTheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GooseTheme.swift; sourceTree = "<group>"; };
 		A2000000000000000000004A /* ServerMetricsFeed.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GooseSwift/ServerMetricsFeed.swift; sourceTree = "<group>"; };
 		A20000000000000000000048 /* ServerSleepFeed.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GooseSwift/ServerSleepFeed.swift; sourceTree = "<group>"; };
-		A20000000000000000000047 /* InkMoreView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GooseSwift/InkMoreView.swift; sourceTree = "<group>"; };
-		A20000000000000000000046 /* InkTrendsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GooseSwift/InkTrendsView.swift; sourceTree = "<group>"; };
-		A20000000000000000000045 /* InkTodayView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GooseSwift/InkTodayView.swift; sourceTree = "<group>"; };
 		A20000000000000000000044 /* InkComponents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GooseSwift/InkComponents.swift; sourceTree = "<group>"; };
 		A20000000000000000000043 /* InkTheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GooseSwift/InkTheme.swift; sourceTree = "<group>"; };
 		A20000000000000000000025 /* CodexCoachSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexCoachSupport.swift; sourceTree = "<group>"; };
@@ -244,15 +218,8 @@
 		C20000000000000000000002 /* HealthScoreDateViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HealthScoreDateViews.swift; sourceTree = "<group>"; };
 		C20000000000000000000003 /* HealthDataTypes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HealthDataTypes.swift; sourceTree = "<group>"; };
 		C20000000000000000000004 /* HealthDataStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HealthDataStore.swift; sourceTree = "<group>"; };
-		C20000000000000000000005 /* HealthDashboardViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HealthDashboardViews.swift; sourceTree = "<group>"; };
-		C20000000000000000000006 /* HealthRecoveryStressViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HealthRecoveryStressViews.swift; sourceTree = "<group>"; };
-		C20000000000000000000007 /* HealthMetricFamilyStrainViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HealthMetricFamilyStrainViews.swift; sourceTree = "<group>"; };
-		C20000000000000000000008 /* HealthRecoveryWidgets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HealthRecoveryWidgets.swift; sourceTree = "<group>"; };
-		C20000000000000000000009 /* HealthSleepOverviewViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HealthSleepOverviewViews.swift; sourceTree = "<group>"; };
 		C2000000000000000000000A /* HealthSleepTrendViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HealthSleepTrendViews.swift; sourceTree = "<group>"; };
-		C2000000000000000000000B /* HealthSleepSheetsViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HealthSleepSheetsViews.swift; sourceTree = "<group>"; };
 		C2000000000000000000000C /* HealthCardioViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HealthCardioViews.swift; sourceTree = "<group>"; };
-		C2000000000000000000000D /* HealthSupplementalViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HealthSupplementalViews.swift; sourceTree = "<group>"; };
 		C20000000000000000000101 /* HealthDataStore+PacketInputs.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "HealthDataStore+PacketInputs.swift"; sourceTree = "<group>"; };
 		C20000000000000000000102 /* HealthDataStore+Snapshots.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "HealthDataStore+Snapshots.swift"; sourceTree = "<group>"; };
 		C20000000000000000000103 /* HealthDataStore+StressEnergy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "HealthDataStore+StressEnergy.swift"; sourceTree = "<group>"; };
@@ -290,7 +257,6 @@
 		D2000000000000000000001F /* HistoryCandidateSamples.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HistoryCandidateSamples.swift; sourceTree = "<group>"; };
 		D20000000000000000000020 /* MovementPacketSamples.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MovementPacketSamples.swift; sourceTree = "<group>"; };
 		D20000000000000000000021 /* PassiveActivityDetector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PassiveActivityDetector.swift; sourceTree = "<group>"; };
-		D20000000000000000000022 /* HomeDashboardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeDashboardView.swift; sourceTree = "<group>"; };
 		D20000000000000000000023 /* HomeScoreViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeScoreViews.swift; sourceTree = "<group>"; };
 		D20000000000000000000061 /* SyncSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncSection.swift; sourceTree = "<group>"; };
 		D200000000000000000000A0 /* HomeFormatting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeFormatting.swift; sourceTree = "<group>"; };
@@ -308,10 +274,8 @@
 		D20000000000000000000029 /* SleepV2ScheduleViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleepV2ScheduleViews.swift; sourceTree = "<group>"; };
 		D2000000000000000000002A /* SleepV2TimelineViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleepV2TimelineViews.swift; sourceTree = "<group>"; };
 		D2000000000000000000002B /* SleepV2TrendPresentationViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleepV2TrendPresentationViews.swift; sourceTree = "<group>"; };
-		D2000000000000000000002C /* SleepBridgeViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleepBridgeViews.swift; sourceTree = "<group>"; };
 		D2000000000000000000002D /* SleepDetailViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleepDetailViews.swift; sourceTree = "<group>"; };
 		D2000000000000000000002E /* HealthChartPrimitives.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HealthChartPrimitives.swift; sourceTree = "<group>"; };
-		D2000000000000000000002F /* HealthStressCharts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HealthStressCharts.swift; sourceTree = "<group>"; };
 		D20000000000000000000030 /* SleepV2BevelTrendViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleepV2BevelTrendViews.swift; sourceTree = "<group>"; };
 		D20000000000000000000031 /* SleepV2BevelAnalysisViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleepV2BevelAnalysisViews.swift; sourceTree = "<group>"; };
 		D20000000000000000000032 /* GooseBLETypes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GooseBLETypes.swift; sourceTree = "<group>"; };
@@ -415,9 +379,6 @@
 
 				A2000000000000000000001F /* OnboardingPersistence.swift */,
 				A20000000000000000000005 /* ConnectionView.swift */,
-				A2000000000000000000000E /* DeviceView.swift */,
-				A20000000000000000000010 /* AppShellView.swift */,
-				D20000000000000000000022 /* HomeDashboardView.swift */,
 				D20000000000000000000023 /* HomeScoreViews.swift */,
 				D20000000000000000000061 /* SyncSection.swift */,
 				D200000000000000000000A0 /* HomeFormatting.swift */,
@@ -430,7 +391,6 @@
 				D20000000000000000000098 /* GooseSecrets.xcconfig */,
 				D20000000000000000000024 /* HomeHealthMonitorViews.swift */,
 				D20000000000000000000025 /* HomeTimelineViews.swift */,
-				A20000000000000000000020 /* MoreView.swift */,
 				D20000000000000000000001 /* MoreRouteModels.swift */,
 				D20000000000000000000002 /* MoreProfileViews.swift */,
 				D20000000000000000000003 /* MoreDataStore.swift */,
@@ -459,8 +419,6 @@
 				D20000000000000000000012 /* FitnessControlViews.swift */,
 				D20000000000000000000013 /* FitnessSummaryViews.swift */,
 				D20000000000000000000014 /* FitnessFormatting.swift */,
-				A20000000000000000000014 /* HealthView.swift */,
-				A20000000000000000000041 /* TrendsView.swift */,
 				B20000000000000000000052 /* BodyHistoryMetrics.swift */,
 				E20000000000000000000051 /* HistorySyncProgress.swift */,
 				A20000000000000000000042 /* ChartDetailViews.swift */,
@@ -478,11 +436,6 @@
 				C20000000000000000000108 /* HealthDataStore+Sleep.swift */,
 				C20000000000000000000109 /* HealthDataStore+Utilities.swift */,
 				C2000000000000000000010A /* HealthDataStore+StaticSnapshots.swift */,
-				C20000000000000000000005 /* HealthDashboardViews.swift */,
-				C20000000000000000000006 /* HealthRecoveryStressViews.swift */,
-				C20000000000000000000007 /* HealthMetricFamilyStrainViews.swift */,
-				C20000000000000000000008 /* HealthRecoveryWidgets.swift */,
-				C20000000000000000000009 /* HealthSleepOverviewViews.swift */,
 				D20000000000000000000027 /* SleepV2PaletteViews.swift */,
 				D20000000000000000000028 /* SleepV2InsightViews.swift */,
 				D20000000000000000000029 /* SleepV2ScheduleViews.swift */,
@@ -491,13 +444,9 @@
 				C2000000000000000000000A /* HealthSleepTrendViews.swift */,
 				D20000000000000000000030 /* SleepV2BevelTrendViews.swift */,
 				D20000000000000000000031 /* SleepV2BevelAnalysisViews.swift */,
-				C2000000000000000000000B /* HealthSleepSheetsViews.swift */,
 				C2000000000000000000000C /* HealthCardioViews.swift */,
-				C2000000000000000000000D /* HealthSupplementalViews.swift */,
-				D2000000000000000000002C /* SleepBridgeViews.swift */,
 				D2000000000000000000002D /* SleepDetailViews.swift */,
 				D2000000000000000000002E /* HealthChartPrimitives.swift */,
-				D2000000000000000000002F /* HealthStressCharts.swift */,
 				A2000000000000000000001B /* HealthKitSleepImporter.swift */,
 				A20000000000000000000025 /* CodexCoachSupport.swift */,
 				A20000000000000000000021 /* CodexEmbeddedAuth.swift */,
@@ -725,9 +674,6 @@
 				D10000000000000000000021 /* PassiveActivityDetector.swift in Sources */,
 				A10000000000000000000003 /* RootView.swift in Sources */,
 				A10000000000000000000005 /* ConnectionView.swift in Sources */,
-				A1000000000000000000000A /* DeviceView.swift in Sources */,
-				A1000000000000000000000C /* AppShellView.swift in Sources */,
-				D10000000000000000000022 /* HomeDashboardView.swift in Sources */,
 				D10000000000000000000023 /* HomeScoreViews.swift in Sources */,
 				D10000000000000000000096 /* SimpleAppView.swift in Sources */,
 				D10000000000000000000061 /* SyncSection.swift in Sources */,
@@ -748,8 +694,6 @@
 				D10000000000000000000012 /* FitnessControlViews.swift in Sources */,
 				D10000000000000000000013 /* FitnessSummaryViews.swift in Sources */,
 				D10000000000000000000014 /* FitnessFormatting.swift in Sources */,
-				A10000000000000000000010 /* HealthView.swift in Sources */,
-				A10000000000000000000041 /* TrendsView.swift in Sources */,
 				B10000000000000000000052 /* BodyHistoryMetrics.swift in Sources */,
 				E10000000000000000000051 /* HistorySyncProgress.swift in Sources */,
 				A10000000000000000000042 /* ChartDetailViews.swift in Sources */,
@@ -767,26 +711,17 @@
 				C10000000000000000000108 /* HealthDataStore+Sleep.swift in Sources */,
 				C10000000000000000000109 /* HealthDataStore+Utilities.swift in Sources */,
 				C1000000000000000000010A /* HealthDataStore+StaticSnapshots.swift in Sources */,
-				C10000000000000000000005 /* HealthDashboardViews.swift in Sources */,
-				C10000000000000000000006 /* HealthRecoveryStressViews.swift in Sources */,
-				C10000000000000000000007 /* HealthMetricFamilyStrainViews.swift in Sources */,
-				C10000000000000000000008 /* HealthRecoveryWidgets.swift in Sources */,
-				C10000000000000000000009 /* HealthSleepOverviewViews.swift in Sources */,
 				D10000000000000000000027 /* SleepV2PaletteViews.swift in Sources */,
 				D10000000000000000000028 /* SleepV2InsightViews.swift in Sources */,
 				D10000000000000000000029 /* SleepV2ScheduleViews.swift in Sources */,
 				D1000000000000000000002A /* SleepV2TimelineViews.swift in Sources */,
 				D1000000000000000000002B /* SleepV2TrendPresentationViews.swift in Sources */,
-				D1000000000000000000002C /* SleepBridgeViews.swift in Sources */,
 				D1000000000000000000002D /* SleepDetailViews.swift in Sources */,
 				D1000000000000000000002E /* HealthChartPrimitives.swift in Sources */,
-				D1000000000000000000002F /* HealthStressCharts.swift in Sources */,
 				D10000000000000000000030 /* SleepV2BevelTrendViews.swift in Sources */,
 				D10000000000000000000031 /* SleepV2BevelAnalysisViews.swift in Sources */,
 				C1000000000000000000000A /* HealthSleepTrendViews.swift in Sources */,
-				C1000000000000000000000B /* HealthSleepSheetsViews.swift in Sources */,
 				C1000000000000000000000C /* HealthCardioViews.swift in Sources */,
-				C1000000000000000000000D /* HealthSupplementalViews.swift in Sources */,
 				A10000000000000000000011 /* AppRouter.swift in Sources */,
 				A10000000000000000000013 /* CoachView.swift in Sources */,
 				A10000000000000000000028 /* CoachSignInScreen.swift in Sources */,
@@ -795,7 +730,6 @@
 				A1000000000000000000002B /* CoachComposer.swift in Sources */,
 				A10000000000000000000015 /* HealthKitSleepImporter.swift in Sources */,
 				A10000000000000000000019 /* OnboardingPersistence.swift in Sources */,
-				A1000000000000000000001A /* MoreView.swift in Sources */,
 				D10000000000000000000001 /* MoreRouteModels.swift in Sources */,
 				D10000000000000000000002 /* MoreProfileViews.swift in Sources */,
 				D10000000000000000000003 /* MoreDataStore.swift in Sources */,
@@ -819,9 +753,6 @@
 				A10000000000000000000023 /* GooseTheme.swift in Sources */,
 				A1000000000000000000004A /* ServerMetricsFeed.swift in Sources */,
 				A10000000000000000000048 /* ServerSleepFeed.swift in Sources */,
-				A10000000000000000000047 /* InkMoreView.swift in Sources */,
-				A10000000000000000000046 /* InkTrendsView.swift in Sources */,
-				A10000000000000000000045 /* InkTodayView.swift in Sources */,
 				A10000000000000000000044 /* InkComponents.swift in Sources */,
 				A10000000000000000000043 /* InkTheme.swift in Sources */,
 				B10000000000000000000001 /* WorkoutLiveActivityAttributes.swift in Sources */,

@@ -1,3 +1,26 @@
+
+/// Hour key extracted from a minute string like "2026-06-05T14:32" -> "14"
+/// (defensive: works for "14:32" too). Returns "" if unparseable.
+func hourKey(from minute: String) -> String {
+  let afterT = minute.split(separator: "T").last.map(String.init) ?? minute
+  let hour = afterT.split(separator: ":").first.map(String.init) ?? ""
+  return hour
+}
+
+struct HRMinute: Decodable, Identifiable {
+  let minute: String
+  let bpm: Int
+  let lo: Int
+  let hi: Int
+  let n: Int
+  var id: String { minute }
+}
+
+struct StepMinute: Decodable, Identifiable {
+  let minute: String
+  let steps: Int
+  var id: String { minute }
+}
 import SwiftUI
 
 // MARK: - Shared helpers
