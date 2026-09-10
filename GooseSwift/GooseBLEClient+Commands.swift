@@ -686,12 +686,25 @@ extension GooseBLEClient {
       // dead restore, no write ever attempted). A silent link must not block
       // a retry; only a link with fresh data counts as connected.
       let linkLooksAlive = Date().timeIntervalSince(lastDataFrameAt) < 120
+      // A "connecting" that never completes must not swallow taps forever
+      // (2026-09-10 live: a stale restored link sat in "connecting" and every
+      // tap on the band bounced off "already connecting"). A connection
+      // attempt older than the timeout is dead — fall through and retry.
+      let attemptIsStale = (connectionState == "connecting" || connectionState == "discovering")
+        && connectionAttemptStartedAt.map { Date().timeIntervalSince($0) > 20 } ?? false
       if connectionState != "ready" || linkLooksAlive {
-        record(level: .debug, source: "ble", title: "connect.skipped", body: "already \(connectionState)")
-        return
+        if attemptIsStale {
+          record(level: .warn, source: "ble", title: "connect.stale_override",
+                 body: "\(connectionState) for >20s with no progress — forcing a fresh attempt")
+          central.cancelPeripheralConnection(peripheral)
+        } else {
+          record(level: .debug, source: "ble", title: "connect.skipped", body: "already \(connectionState)")
+          return
+        }
+      } else {
+        record(level: .warn, source: "ble", title: "connect.zombie_override",
+               body: "ready but silent — allowing reconnect attempt")
       }
-      record(level: .warn, source: "ble", title: "connect.zombie_override",
-             body: "ready but silent — allowing reconnect attempt")
     }
     whoopCandidateIDs.insert(peripheral.identifier)
     resetLiveDeviceFieldsIfNeeded(for: peripheral)
@@ -700,6 +713,7 @@ extension GooseBLEClient {
     activePeripheral = peripheral
     peripheral.delegate = self
     updateConnectionState("connecting")
+    connectionAttemptStartedAt = Date()
     updateReconnectState(reason.hasPrefix("auto") || reason == "restore" ? "connecting" : reconnectState)
     record(source: "ble", title: "connect.started", body: "reason=\(reason) evidence=\(evidence) \(peripheral.name ?? fallbackName ?? rememberedDeviceName ?? "WHOOP") \(peripheral.identifier.uuidString)")
     pendingConnectionReason = reason

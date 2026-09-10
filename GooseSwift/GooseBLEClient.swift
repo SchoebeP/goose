@@ -319,6 +319,10 @@ final class GooseBLEClient: NSObject, ObservableObject {
   var lastDataFrameAt = Date.distantPast      // last raw notification — stall watchdog
   var gen4ReEnableTimer: Timer?
   var firstDataWatchdogTimer: Timer?          // one-shot: connect must yield data or we recover
+  // When the current connect() attempt began. A "connecting"/"discovering"
+  // state older than ~20 s with no didConnect is a dead attempt — the UI must
+  // be allowed to retry instead of bouncing taps off "already connecting".
+  var connectionAttemptStartedAt: Date?
   // GEN4 wrist events (9 = WRIST_ON, 10 = WRIST_OFF) — authoritative on/off
   // wrist state straight from the band; nil until the first event arrives.
   @Published var isOnWrist: Bool?

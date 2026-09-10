@@ -519,7 +519,11 @@ private struct SimpleDeviceSheet: View {
               Text("\(pct)%").foregroundStyle(.secondary)
             }
           }
-          Button("Reconnecter") { model.ble.reconnectRemembered() }
+          // Only meaningful when a band is actually remembered — after
+          // "Oublier" it would just spin on nothing.
+          if model.ble.rememberedDeviceDescription != "none" {
+            Button("Reconnecter") { model.ble.reconnectRemembered() }
+          }
           Button("Oublier ce bracelet", role: .destructive) { model.ble.forgetRememberedDevice() }
         }
         // Réutilise les fonctions existantes de ConnectionView (aucune logique BLE nouvelle):
@@ -532,16 +536,23 @@ private struct SimpleDeviceSheet: View {
             }
           } label: {
             HStack {
-              Text("Scanner")
               if model.ble.isScanning {
-                Spacer()
                 ProgressView()
+                  .controlSize(.small)
+                Text("Scan en cours…")
+              } else {
+                Text("Scanner")
+              }
+              Spacer()
+              if model.ble.isScanning {
+                Text("\(model.ble.scanNeighborCount) vu(s)")
+                  .font(.caption).foregroundStyle(.secondary)
               }
             }
           }
           .disabled(model.ble.isScanning)
           if model.ble.isScanning {
-            Text("Recherche… \(model.ble.scanNeighborCount) appareils à portée (pas encore de WHOOP)")
+            Text("Recherche active (12 s max)… \(model.ble.scanNeighborCount) appareils à portée (pas encore de WHOOP)")
               .font(.footnote).foregroundStyle(.secondary)
           } else if model.ble.discoveredDevices.isEmpty && model.ble.scanNeighborCount > 0 {
             Text("Scan terminé: \(model.ble.scanNeighborCount) appareils vus, aucun WHOOP. Cycle chargeur puis re-scanne.")
@@ -555,6 +566,9 @@ private struct SimpleDeviceSheet: View {
               HStack {
                 Text(device.name.isEmpty ? "WHOOP" : device.name)
                 Spacer()
+                if model.ble.connectionState == "connecting" || model.ble.connectionState == "discovering" {
+                  ProgressView().controlSize(.small)
+                }
                 Text("\(device.rssi) dBm").font(.caption).foregroundStyle(.secondary)
               }
             }

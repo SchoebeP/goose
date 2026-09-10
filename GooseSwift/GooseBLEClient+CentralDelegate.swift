@@ -220,6 +220,7 @@ extension GooseBLEClient: CBCentralManagerDelegate {
     activePeripheral = peripheral
     peripheral.delegate = self
     clientHelloSentForCurrentConnection = false
+    connectionAttemptStartedAt = nil   // the attempt landed — stale timer only applies to in-flight connect()
     autoReconnectInFlight = false
     autoReconnectTargetID = nil
     connectFailureCount = 0
