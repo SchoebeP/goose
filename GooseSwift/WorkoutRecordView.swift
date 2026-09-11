@@ -18,7 +18,7 @@ struct WorkoutRecordView: View {
   /// LOT 1: heart pulse phase driver.
   @State private var heartBeat = false
   /// LOT 2: GPS tracker (only started for runs).
-  @StateObject private var gps = WorkoutGPSTracker()
+  @ObservedObject private var gps = WorkoutGPSTracker.shared
 
   /// HRmax default 190 — configurable via UserDefaults "hrMax".
   private var hrMax: Int {
@@ -47,9 +47,10 @@ struct WorkoutRecordView: View {
     NavigationStack {
       ScrollView {
         VStack(spacing: 14) {
-          heroCard          // LOT UI v3: timer + FC fusionnés en une seule carte
-          if isRun { gpsCards }
-          statsRow
+          heroCard          // timer + big HR + zone bar
+          if isRun { mapCard }
+          statsGrid
+          if isRun { splitsCard }
           controls
         }
         .padding(16)
@@ -68,7 +69,6 @@ struct WorkoutRecordView: View {
       }
       .onAppear {
         withAnimation(.spring(response: 0.35, dampingFraction: 0.7)) { expanded = true }
-        if isRun { gps.start() }
       }
       .onReceive(ticker) { _ in
         // LOT 1: drive the heart pulse once per live beat interval.
@@ -234,18 +234,82 @@ struct WorkoutRecordView: View {
     }
   }
 
-  /// LOT 2: GPS distance + pace cards (runs only; hidden if permission denied).
-  @ViewBuilder private var gpsCards: some View {
+  /// Dark GPS map card: route polyline + distance/pace row (runs only).
+  @ViewBuilder private var mapCard: some View {
     if gps.authorized && gps.started {
-      HStack(spacing: 10) {
-        statBox("Distance", gps.distanceKm.map { String(format: "%.2f km", $0) } ?? "—")
+      VStack(alignment: .leading, spacing: 8) {
+        Text("CARTE · GPS")
+          .font(.system(size: 11, weight: .semibold))
+          .tracking(1)
+          .foregroundStyle(.secondary)
+        WorkoutMapView(track: gps.track)
+          .frame(height: 210)
+          .clipShape(RoundedRectangle(cornerRadius: 12))
+        HStack(spacing: 24) {
+          Text(gps.distanceKm.map { String(format: "%.1f km", $0) } ?? "—")
+            .font(.system(size: 22, weight: .bold, design: .rounded))
+            .monospacedDigit()
+          Text(gps.paceText ?? "—")
+            .font(.subheadline)
+            .foregroundStyle(.secondary)
+          Spacer()
+          if gps.elevationGainM > 0 {
+            Label(String(format: "+%.0f m", gps.elevationGainM), systemImage: "arrow.up.right")
+              .font(.subheadline)
+              .foregroundStyle(.secondary)
+          }
+        }
+      }
+      .padding(14)
+      .background(RoundedRectangle(cornerRadius: 18).fill(Color(.secondarySystemBackground)))
+    }
+  }
+
+  /// Stats grid — run: kcal / km / allure / FC moy. Indoor: kcal / FC moy /
+  /// FC max / durée. Only numbers we truly have.
+  private var statsGrid: some View {
+    HStack(spacing: 10) {
+      if isRun {
+        statBox("kcal (est.)", "\(kcalEstimate)")
+        statBox("Distance", gps.distanceKm.map { String(format: "%.1f km", $0) } ?? "—")
         statBox("Allure", gps.paceText ?? "—")
+        statBox("FC moy", session.avgBPM.map(String.init) ?? "—")
+      } else {
         statBox("kcal (est.)", "\(kcalEstimate)")
+        statBox("FC moy", session.avgBPM.map(String.init) ?? "—")
+        statBox("FC max", session.maxBPM.map(String.init) ?? "—")
+        statBox("Durée", timeString(session.durationSeconds))
       }
-    } else {
-      HStack(spacing: 10) {
-        statBox("kcal (est.)", "\(kcalEstimate)")
+    }
+  }
+
+  /// Per-kilometre splits with climb, from the GPS trace (runs only).
+  @ViewBuilder private var splitsCard: some View {
+    if !gps.splits.isEmpty {
+      VStack(alignment: .leading, spacing: 6) {
+        Text("SPLITS")
+          .font(.system(size: 11, weight: .semibold))
+          .tracking(1)
+          .foregroundStyle(.secondary)
+        ForEach(gps.splits) { split in
+          let isCurrent = split.km == gps.splits.last?.km
+          HStack {
+            Text("KM \(split.km)")
+              .font(.subheadline.weight(isCurrent ? .bold : .regular))
+              .foregroundStyle(isCurrent ? .blue : .primary)
+            Spacer()
+            Text(WorkoutGPSTracker.splitPaceString(seconds: split.seconds))
+              .font(.subheadline.monospacedDigit())
+              .foregroundStyle(isCurrent ? .blue : .primary)
+            Text(String(format: "%+.0f m", split.gainM))
+              .font(.caption)
+              .foregroundStyle(.secondary)
+              .frame(width: 52, alignment: .trailing)
+          }
+        }
       }
+      .padding(14)
+      .background(RoundedRectangle(cornerRadius: 18).fill(Color(.secondarySystemBackground)))
     }
   }
 
@@ -273,13 +337,6 @@ struct WorkoutRecordView: View {
 
   // MARK: stats + controls
 
-  private var statsRow: some View {
-    HStack(spacing: 10) {
-      statBox("Moy", session.avgBPM.map(String.init) ?? "—")
-      statBox("Max", session.maxBPM.map(String.init) ?? "—")
-      statBox("Min", session.minBPM.map(String.init) ?? "—")
-    }
-  }
   private var controls: some View {
     HStack(spacing: 14) {
       Button {

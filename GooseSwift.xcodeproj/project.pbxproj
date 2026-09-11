@@ -7,6 +7,8 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		A1000000000000FF /* SessionStats.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000FF /* SessionStats.swift */; };
+		A100000000000100 /* WorkoutMapView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A200000000000100 /* WorkoutMapView.swift */; };
 		A10000000000000000000001 /* GooseSwiftApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000001 /* GooseSwiftApp.swift */; };
 		A10000000000000000000002 /* GooseAppModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000002 /* GooseAppModel.swift */; };
 		A10000000000000000000003 /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000003 /* RootView.swift */; };
@@ -168,6 +170,8 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		A2000000000000FF /* SessionStats.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionStats.swift; sourceTree = "<group>"; };
+		A200000000000100 /* WorkoutMapView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkoutMapView.swift; sourceTree = "<group>"; };
 		A20000000000000000000001 /* GooseSwiftApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GooseSwiftApp.swift; sourceTree = "<group>"; };
 		A20000000000000000000002 /* GooseAppModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GooseAppModel.swift; sourceTree = "<group>"; };
 		A20000000000000000000003 /* RootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootView.swift; sourceTree = "<group>"; };
@@ -346,6 +350,8 @@
 		A40000000000000000000002 /* GooseSwift */ = {
 			isa = PBXGroup;
 			children = (
+				A2000000000000FF /* SessionStats.swift */,
+				A200000000000100 /* WorkoutMapView.swift */,
 				A20000000000000000000001 /* GooseSwiftApp.swift */,
 				A20000000000000000000002 /* GooseAppModel.swift */,
 				D2000000000000000000003A /* GooseAppModel+Lifecycle.swift */,
@@ -644,6 +650,8 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A1000000000000FF /* SessionStats.swift in Sources */,
+				A100000000000100 /* WorkoutMapView.swift in Sources */,
 				A10000000000000000000001 /* GooseSwiftApp.swift in Sources */,
 				A10000000000000000000002 /* GooseAppModel.swift in Sources */,
 				D1000000000000000000003A /* GooseAppModel+Lifecycle.swift in Sources */,
