@@ -1,5 +1,11 @@
 # VPS patch — `date=` parameter for the per-minute feeds
 
+> **✅ DÉPLOYÉ le 2026-09-11.** Patché en live dans le conteneur `whoop-api`
+> (backup: `/root/patches/main.py.bak-20260911` sur le VPS) ET poussé en amont
+> dans `SchoebeP/whoop-band` (commit `a63c1ab`) — la prochaine image GHCR
+> l'inclura. Vérifié: `date=2026-09-09` → 39 minutes FC / 556 pas;
+> mauvaise date → 400; jour courant inchangé.
+
 **Contexte** : la nouvelle UI a une navigation ‹ Aujourd'hui › ‹ Hier › + calendrier.
 Pour afficher les courbes FC/pas d'un jour passé, les endpoints per-minute doivent
 accepter un paramètre `date`. Aujourd'hui ils ne servent que le jour courant
