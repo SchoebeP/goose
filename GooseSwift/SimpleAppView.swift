@@ -41,6 +41,8 @@ struct SimpleSleepAnalysisDay: Decodable, Identifiable {
   struct Stages: Decodable {
     let tst_min: Double?
     let tib_min: Double?
+    let runs: [Run]?
+    let t0_epoch: Double?
     let efficiency_pct: Double?
     let light_pct: Double?
     let deep_pct: Double?
@@ -50,6 +52,11 @@ struct SimpleSleepAnalysisDay: Decodable, Identifiable {
     let waso_min: Double?
     let disturbances: Int?
     let rem_measured: Bool?
+
+    struct Run: Decodable {
+      let stage: String
+      let sec: Double
+    }
   }
   var id: String { date }
 }
@@ -1031,6 +1038,17 @@ private struct SleepAnalysisSheet: View {
       .font(.caption2)
       .foregroundStyle(.secondary)
 
+      if let t0 = st.t0_epoch, let runs = st.runs, !runs.isEmpty {
+        SleepHypnogram(runs: runs, t0Epoch: t0)
+        HStack {
+          Text(clockLabel(t0))
+          Spacer()
+          Text(clockLabel(t0 + runs.reduce(0) { $0 + $1.sec }))
+        }
+        .font(.caption2)
+        .foregroundStyle(.tertiary)
+      }
+
       Divider()
 
       HStack(alignment: .top) {
@@ -1091,6 +1109,10 @@ private struct SleepAnalysisSheet: View {
 
   private func nightLabel(_ iso: String) -> String {
     return String(iso.prefix(10)).split(separator: "-").suffix(2).joined(separator: "/")
+  }
+
+  private func clockLabel(_ epoch: Double) -> String {
+    Date(timeIntervalSince1970: epoch).formatted(.dateTime.hour().minute())
   }
 }
 
@@ -1286,4 +1308,66 @@ private struct SyncToastIcon: View {
   }
 }
 
+/// Hypnogramme de nuit : 4 couloirs (Profond / REM / Léger / Éveil), chaque
+/// run du stager dessiné à sa hauteur sur l'axe du temps. WHOOP-style.
+struct SleepHypnogram: View {
+  let runs: [SimpleSleepAnalysisDay.Stages.Run]
+  let t0Epoch: Double
 
+  private struct Lane {
+    let stage: String
+    let color: Color
+    let label: String
+  }
+
+  private var lanes: [Lane] {
+    [
+      Lane(stage: "deep", color: .indigo, label: "P"),
+      Lane(stage: "rem", color: .blue, label: "R"),
+      Lane(stage: "light", color: Color(.systemGray2), label: "L"),
+      Lane(stage: "wake", color: .orange, label: "É"),
+    ]
+  }
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 4) {
+      GeometryReader { proxy in
+        let total = max(runs.reduce(0) { $0 + $1.sec }, 1)
+        let laneH = proxy.size.height / CGFloat(lanes.count)
+        Canvas { ctx, size in
+          // fond des couloirs
+          for (i, lane) in lanes.enumerated() {
+            let y = size.height - CGFloat(i + 1) * laneH
+            ctx.fill(Path(CGRect(x: 0, y: y + 1, width: size.width, height: laneH - 2)),
+                     with: .color(lane.color.opacity(0.08)))
+          }
+          var x: CGFloat = 0
+          for run in runs {
+            let w = size.width * CGFloat(run.sec / total)
+            if let i = lanes.firstIndex(where: { $0.stage == run.stage }) {
+              let y = size.height - CGFloat(i + 1) * laneH
+              ctx.fill(Path(CGRect(x: x, y: y + 1, width: max(w, 1), height: laneH - 2)),
+                       with: .color(lanes[i].color))
+            }
+            x += w
+          }
+        }
+      }
+      .frame(height: 68)
+      HStack(spacing: 10) {
+        ForEach(lanes, id: \.stage) { lane in
+          HStack(spacing: 3) {
+            Circle().fill(lane.color).frame(width: 5, height: 5)
+            Text(lane.label)
+          }
+          .font(.caption2)
+          .foregroundStyle(.secondary)
+        }
+      }
+    }
+  }
+
+  private func clockLabel(_ epoch: Double) -> String {
+    Date(timeIntervalSince1970: epoch).formatted(.dateTime.hour().minute())
+  }
+}
