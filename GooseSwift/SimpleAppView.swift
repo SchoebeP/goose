@@ -57,6 +57,12 @@ struct SimpleSleepAnalysisDay: Decodable, Identifiable {
       let stage: String
       let sec: Double
     }
+
+    static let placeholder = Stages(
+      tst_min: nil, tib_min: nil, runs: nil, t0_epoch: nil,
+      efficiency_pct: nil, light_pct: nil, deep_pct: nil, rem_pct: nil,
+      wake_pct: nil, sol_min: nil, waso_min: nil, disturbances: nil,
+      rem_measured: nil)
   }
   var id: String { date }
 }
@@ -145,6 +151,16 @@ struct SimpleAppView: View {
 
   private var isToday: Bool { Calendar.current.isDateInToday(selectedDate) }
 
+  private var selectedDayString: String {
+    Self.dayFormatter.string(from: selectedDate)
+  }
+
+  private static let dayFormatter: DateFormatter = {
+    let f = DateFormatter()
+    f.dateFormat = "yyyy-MM-dd"
+    return f
+  }()
+
   var body: some View {
     NavigationStack {
       ScrollView {
@@ -209,7 +225,7 @@ struct SimpleAppView: View {
       WorkoutRecordView(session: workout)
     }
     .sheet(isPresented: $showDevice) { SimpleDeviceSheet() }
-    .sheet(isPresented: $sleepSheet) { SleepAnalysisSheet(days: feed.sleepAnalysis) }
+    .sheet(isPresented: $sleepSheet) { SleepAnalysisSheet(days: feed.sleepAnalysis, selectedDate: selectedDate) }
     .sheet(isPresented: $showCalendar) { calendarSheet }
   }
 
@@ -406,6 +422,11 @@ struct SimpleAppView: View {
   }
 
   private var lastNightDuration: String {
+    // La nuit du jour sélectionné : analyse V24 (TST réel) d'abord, nights ensuite.
+    if let day = feed.sleepAnalysis.first(where: { $0.date == selectedDayString }),
+       let tst = day.sleep_stages?.tst_min {
+      return String(format: "%dh%02d", Int(tst) / 60, Int(tst) % 60)
+    }
     guard let n = feed.nights.last, let d = n.duration_min else { return "--" }
     return String(format: "%dh%02d", d / 60, d % 60)
   }
@@ -970,20 +991,58 @@ private struct SimpleDeviceSheet: View {
 
 private struct SleepAnalysisSheet: View {
   let days: [SimpleSleepAnalysisDay]
+  let selectedDate: Date
   @Environment(\.dismiss) private var dismiss
+
+  private static let dayFormatter: DateFormatter = {
+    let f = DateFormatter()
+    f.dateFormat = "yyyy-MM-dd"
+    return f
+  }()
+
+  /// La nuit du jour sélectionné (les nuits sont datées du matin qui les suit).
+  /// À défaut: la nuit la plus proche avant, avec une note honnête.
+  private var selectedNight: SimpleSleepAnalysisDay? {
+    let wanted = Self.dayFormatter.string(from: selectedDate)
+    return days.first { $0.date == wanted }
+      ?? days.last { $0.date < wanted }
+  }
 
   var body: some View {
     NavigationStack {
       ScrollView {
         VStack(alignment: .leading, spacing: 14) {
-          if days.isEmpty {
+          if let night = selectedNight {
+            if night.date != Self.dayFormatter.string(from: selectedDate) {
+              Text("Pas de mesure ce jour-là — voici la nuit la plus proche (\(nightLabel(night.date))).")
+                .font(.caption)
+                .foregroundStyle(.orange)
+            }
+            nightCard(date: night.date, st: night.sleep_stages ?? .placeholder)
+          } else {
             Text("Pas encore assez de données — la première nuit mesurée apparaîtra ici.")
               .foregroundStyle(.secondary)
               .padding(.top, 30)
           }
-          ForEach(days.reversed()) { day in
-            if let st = day.sleep_stages {
-              nightCard(date: day.date, st: st)
+
+          if days.count > 1 {
+            Text("Autres nuits").font(.subheadline.weight(.semibold)).padding(.top, 6)
+            VStack(spacing: 0) {
+              ForEach(days.reversed()) { day in
+                if day.date != selectedNight?.date, let st = day.sleep_stages {
+                  HStack {
+                    Text(nightLabel(day.date)).font(.subheadline)
+                    Spacer()
+                    Text(tstText(st.tst_min)).font(.subheadline.monospacedDigit())
+                    if let eff = st.efficiency_pct {
+                      Text(String(format: " · %.0f %%", eff))
+                        .font(.caption).foregroundStyle(.secondary)
+                    }
+                  }
+                  .padding(.vertical, 8)
+                  Divider()
+                }
+              }
             }
           }
         }
