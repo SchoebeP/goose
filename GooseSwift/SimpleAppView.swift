@@ -35,6 +35,25 @@ struct SimpleSleepNight: Decodable, Identifiable {
   var id: String { date }
 }
 
+struct SimpleSleepAnalysisDay: Decodable, Identifiable {
+  let date: String
+  let sleep_stages: Stages?
+  struct Stages: Decodable {
+    let tst_min: Double?
+    let tib_min: Double?
+    let efficiency_pct: Double?
+    let light_pct: Double?
+    let deep_pct: Double?
+    let rem_pct: Double?
+    let wake_pct: Double?
+    let sol_min: Double?
+    let waso_min: Double?
+    let disturbances: Int?
+    let rem_measured: Bool?
+  }
+  var id: String { date }
+}
+
 @MainActor
 final class SimpleVPSFeed: ObservableObject {
   @Published var hrMinutes: [SimpleHRMinute] = []
@@ -42,6 +61,7 @@ final class SimpleVPSFeed: ObservableObject {
   @Published var steps: [SimpleStepMinute] = []
   @Published var stepsTotal: Int?
   @Published var nights: [SimpleSleepNight] = []
+  @Published var sleepAnalysis: [SimpleSleepAnalysisDay] = []
   @Published var workouts: [SimpleWorkout] = []
   @Published var lastSync: Date?
 
@@ -67,6 +87,11 @@ final class SimpleVPSFeed: ObservableObject {
     get("/sleep/nights?days=10&tz=\(tz)") { [weak self] (r: NightsPayload?) in
       self?.nights = r?.nights ?? []
     }
+    get("/metrics/daily?days=10&tz=\(tz)") { [weak self] (r: DailyPayload?) in
+      self?.sleepAnalysis = (r?.days ?? []).compactMap { day in
+        day.sleep_stages != nil ? SimpleSleepAnalysisDay(date: day.date, sleep_stages: day.sleep_stages) : nil
+      }
+    }
     get("/workouts?days=30") { [weak self] (r: WorkoutsPayload?) in
       self?.workouts = r?.workouts ?? []
     }
@@ -76,6 +101,13 @@ final class SimpleVPSFeed: ObservableObject {
   private struct HRPayload: Decodable { let minutes: [SimpleHRMinute] }
   private struct StepsPayload: Decodable { let minutes: [SimpleStepMinute]; let total: Int }
   private struct NightsPayload: Decodable { let nights: [SimpleSleepNight] }
+  private struct DailyPayload: Decodable {
+    let days: [Day]
+    struct Day: Decodable {
+      let date: String
+      let sleep_stages: SimpleSleepAnalysisDay.Stages?
+    }
+  }
   private struct WorkoutsPayload: Decodable { let workouts: [SimpleWorkout] }
 
   private func get<T: Decodable>(_ path: String, then: @escaping (T?) -> Void) {
@@ -170,7 +202,7 @@ struct SimpleAppView: View {
       WorkoutRecordView(session: workout)
     }
     .sheet(isPresented: $showDevice) { SimpleDeviceSheet() }
-    .sheet(isPresented: $sleepSheet) { SimpleNightsSheet(nights: feed.nights) }
+    .sheet(isPresented: $sleepSheet) { SleepAnalysisSheet(days: feed.sleepAnalysis) }
     .sheet(isPresented: $showCalendar) { calendarSheet }
   }
 
@@ -929,51 +961,138 @@ private struct SimpleDeviceSheet: View {
 
 // MARK: - Sleep sheet (7 nights)
 
-private struct SimpleNightsSheet: View {
-  let nights: [SimpleSleepNight]
+private struct SleepAnalysisSheet: View {
+  let days: [SimpleSleepAnalysisDay]
   @Environment(\.dismiss) private var dismiss
 
   var body: some View {
     NavigationStack {
-      List {
-        if nights.isEmpty {
-          Text("Pas encore de nuit enregistrée.")
-            .foregroundStyle(.secondary)
-        }
-        ForEach(nights.reversed()) { n in
-          HStack {
-            VStack(alignment: .leading, spacing: 2) {
-              Text(nightLabel(n.date)).font(.headline)
-              if let hr = n.avg_hr {
-                Text("FC moyenne \(Int(hr)) bpm").font(.caption).foregroundStyle(.secondary)
-              }
-            }
-            Spacer()
-            if let d = n.duration_min {
-              Text(String(format: "%dh%02d", d / 60, d % 60))
-                .font(.title3.bold().monospacedDigit())
-            } else {
-              Text("--").foregroundStyle(.secondary)
+      ScrollView {
+        VStack(alignment: .leading, spacing: 14) {
+          if days.isEmpty {
+            Text("Pas encore assez de données — la première nuit mesurée apparaîtra ici.")
+              .foregroundStyle(.secondary)
+              .padding(.top, 30)
+          }
+          ForEach(days.reversed()) { day in
+            if let st = day.sleep_stages {
+              nightCard(date: day.date, st: st)
             }
           }
         }
+        .padding(16)
       }
-      .navigationTitle("Sommeil — 7 nuits")
+      .background(Color.black.ignoresSafeArea())
+      .navigationTitle("Analyse du sommeil")
       .navigationBarTitleDisplayMode(.inline)
       .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("OK") { dismiss() } } }
     }
     .preferredColorScheme(.dark)
   }
 
+  private func nightCard(date: String, st: SimpleSleepAnalysisDay.Stages) -> some View {
+    VStack(alignment: .leading, spacing: 10) {
+      HStack {
+        Text("Nuit de \(nightLabel(date))")
+          .font(.subheadline.weight(.semibold))
+        Spacer()
+        if let eff = st.efficiency_pct {
+          Text(String(format: "%.0f %%", eff))
+            .font(.caption.weight(.bold))
+            .padding(.horizontal, 8)
+            .padding(.vertical, 3)
+            .background(RoundedRectangle(cornerRadius: 5).fill(efficiencyColor(eff).opacity(0.25)))
+            .foregroundStyle(efficiencyColor(eff))
+        }
+      }
+
+      HStack(alignment: .firstTextBaseline, spacing: 6) {
+        Text(tstText(st.tst_min))
+          .font(.system(size: 34, weight: .bold, design: .rounded))
+          .monospacedDigit()
+        Text("de sommeil").font(.subheadline).foregroundStyle(.secondary)
+      }
+
+      HStack(spacing: 2) {
+        stageSeg(color: .indigo, pct: st.deep_pct)
+        stageSeg(color: .blue, pct: st.rem_pct)
+        stageSeg(color: Color(.systemGray3), pct: st.light_pct)
+        stageSeg(color: .orange, pct: st.wake_pct)
+      }
+      .frame(height: 10)
+      .clipShape(Capsule())
+
+      HStack(spacing: 12) {
+        legendDot(.indigo, "Profond \(pctText(st.deep_pct))")
+        legendDot(.blue, "REM \(pctText(st.rem_pct))")
+        legendDot(Color(.systemGray3), "Léger \(pctText(st.light_pct))")
+        legendDot(.orange, "Éveil \(pctText(st.wake_pct))")
+      }
+      .font(.caption2)
+      .foregroundStyle(.secondary)
+
+      Divider()
+
+      HStack(alignment: .top) {
+        detail("Endormissement", st.sol_min.map { String(format: "%.0f min", $0) } ?? "—")
+        detail("Réveils", "\(st.disturbances ?? 0)")
+        detail("Éveil nocturne", st.waso_min.map { String(format: "%.0f min", $0) } ?? "—")
+        detail("Au lit", st.tib_min.map { tstText($0) } ?? "—")
+      }
+
+      if st.rem_measured == false {
+        Text("REM estimé sans RMSSD — moins fiable cette nuit.")
+          .font(.caption2).foregroundStyle(.orange)
+      }
+    }
+    .padding(14)
+    .frame(maxWidth: .infinity, alignment: .leading)
+    .background(RoundedRectangle(cornerRadius: 18).fill(Color(.secondarySystemBackground)))
+  }
+
+  private func stageSeg(color: Color, pct: Double?) -> some View {
+    Rectangle().fill(color.opacity((pct ?? 0) > 0 ? 1 : 0.15))
+      .frame(maxWidth: .infinity)
+  }
+
+  private func legendDot(_ color: Color, _ label: String) -> some View {
+    HStack(spacing: 4) {
+      Circle().fill(color).frame(width: 6, height: 6)
+      Text(label)
+    }
+  }
+
+  private func detail(_ label: String, _ value: String) -> some View {
+    VStack(alignment: .leading, spacing: 2) {
+      Text(label.uppercased())
+        .font(.system(size: 10, weight: .semibold))
+        .tracking(1)
+        .foregroundStyle(.secondary)
+      Text(value)
+        .font(.system(size: 17, weight: .semibold, design: .rounded))
+        .monospacedDigit()
+    }
+    .frame(maxWidth: .infinity, alignment: .leading)
+  }
+
+  private func tstText(_ minutes: Double?) -> String {
+    guard let m = minutes else { return "--" }
+    return String(format: "%dh%02d", Int(m) / 60, Int(m) % 60)
+  }
+
+  private func pctText(_ p: Double?) -> String {
+    guard let p else { return "—" }
+    return String(format: "%.0f %%", p)
+  }
+
+  private func efficiencyColor(_ eff: Double) -> Color {
+    eff >= 85 ? .green : eff >= 70 ? .orange : .red
+  }
+
   private func nightLabel(_ iso: String) -> String {
-    String(iso.prefix(10)).split(separator: "-").suffix(2).joined(separator: "/")
+    return String(iso.prefix(10)).split(separator: "-").suffix(2).joined(separator: "/")
   }
 }
-
-
-
-/// La bannière de rattrapage, dans le flux de l'accueil (une seule source :
-/// l'état de la machine à états). Montée dans SimpleAppView sous le statut.
 
 struct SyncBannerHost: View {
   @ObservedObject var ble: GooseBLEClient
