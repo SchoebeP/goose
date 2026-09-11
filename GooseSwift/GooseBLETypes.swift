@@ -184,9 +184,13 @@ enum IngestCredentials {
       return override
     }
     if let fileToken { return fileToken }
-    // No compiled-in token: the previous value shipped in a public repo and was
-    // rotated dead on 2026-07-23. Without an override the feeds simply stay
-    // silent rather than shipping a secret in source.
+    // Last resort: the value injected into Info.plist at build time from the
+    // (git-ignored) GooseSecrets.xcconfig — never committed to source. Without
+    // any of the three sources the feeds stay silent rather than 401-ing.
+    if let plistToken = Bundle.main.object(forInfoDictionaryKey: "WHOOP_INGEST_TOKEN") as? String,
+       !plistToken.isEmpty {
+      return plistToken
+    }
     return ""
   }
 }

@@ -6,12 +6,11 @@ struct RootView: View {
   @AppStorage(OnboardingStorage.onboardingRedoRequested) private var onboardingRedoRequested = false
 
   var body: some View {
-    ZStack(alignment: .top) {
-      Group {
-        // Branch `simple`: one screen, no onboarding, no tabs.
-        SimpleAppView()
-      }
+    VStack(spacing: 0) {
+      // Toast monté au-dessus du contenu (plus de chevauchement du statut LIVE).
       SyncToastHost(ble: model.ble)
+      // Branch `simple`: one screen, no onboarding, no tabs.
+      SimpleAppView()
     }
     .gooseScreenBackground()
     .onAppear {

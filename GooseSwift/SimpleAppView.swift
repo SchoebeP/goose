@@ -100,9 +100,6 @@ struct SimpleAppView: View {
   @State private var sleepSheet = false
   @State private var showCalendar = false
   @State private var selectedDate = Date()
-  /// Success-banner window: set when a backfill transitions running → done.
-  @State private var backfillDoneUntil: Date? = nil
-  @State private var backfillWasRunning = false
   /// Ticker so the relative-time labels stay fresh while the screen is open.
   @State private var relativeTimeTick = 0
   private let refresh = Timer.publish(every: 5, on: .main, in: .common).autoconnect()
@@ -114,7 +111,6 @@ struct SimpleAppView: View {
       ScrollView {
         VStack(alignment: .leading, spacing: 14) {
           statusBar
-          rattrapageBanner
           if workout.isActive {
             sessionHero
             HStack(spacing: 12) { stepsCard; sleepCard }
@@ -168,15 +164,6 @@ struct SimpleAppView: View {
     }
     .onChange(of: selectedDate) { _, newDate in
       feed.refreshAll(selectedDate: newDate)
-    }
-    // Backfill banner: running → success flash for 4 s → gone.
-    .onChange(of: backfillRunning) { _, running in
-      if running {
-        backfillWasRunning = true
-      } else if backfillWasRunning {
-        backfillDoneUntil = Date().addingTimeInterval(4)
-        backfillWasRunning = false
-      }
     }
     .sheet(isPresented: $showWorkout) {
       WorkoutRecordView(session: workout)
@@ -294,49 +281,6 @@ struct SimpleAppView: View {
     .padding(.horizontal, 4)
   }
 
-  // MARK: rattrapage banner (backfill running → success flash → gone)
-
-  private var backfillRunning: Bool {
-    model.ble.isGen4Backfilling || model.ble.isHistoricalSyncing
-  }
-
-  @ViewBuilder private var rattrapageBanner: some View {
-    if backfillRunning {
-      HStack(spacing: 10) {
-        ProgressView()
-          .tint(.blue)
-        VStack(alignment: .leading, spacing: 2) {
-          Text("Rattrapage de l'historique…")
-            .font(.footnote.weight(.semibold))
-          Text("le bracelet renvoie ce qu'il a gardé — \(backfillPacketCount) paquets reçus")
-            .font(.caption2)
-            .foregroundStyle(.secondary)
-        }
-        Spacer()
-      }
-      .padding(12)
-      .background(RoundedRectangle(cornerRadius: 12).fill(Color(.secondarySystemBackground)))
-    } else if let until = backfillDoneUntil, Date() < until {
-      HStack(spacing: 10) {
-        Image(systemName: "checkmark.circle.fill")
-          .foregroundStyle(.green)
-        VStack(alignment: .leading, spacing: 2) {
-          Text("Historique à jour")
-            .font(.footnote.weight(.semibold))
-          Text("les courbes du jour sont complètes")
-            .font(.caption2)
-            .foregroundStyle(.secondary)
-        }
-        Spacer()
-      }
-      .padding(12)
-      .background(RoundedRectangle(cornerRadius: 12).fill(Color.green.opacity(0.12)))
-    }
-  }
-
-  private var backfillPacketCount: Int {
-    model.ble.isGen4Backfilling ? model.ble.gen4BackfillPacketCount : model.ble.historicalPacketCount
-  }
 
   // MARK: HR hero (idle) — live value when today, day average otherwise
 

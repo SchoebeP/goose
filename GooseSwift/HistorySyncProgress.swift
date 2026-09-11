@@ -54,7 +54,7 @@ struct GooseHistorySyncProgressSnapshot: Equatable {
     }
     parts.append(etaText)
     if let positionText {
-      parts.append("at \(positionText)")
+      parts.append("atteint le \(positionText)")
     }
     return parts.joined(separator: " · ")
   }
@@ -214,7 +214,7 @@ struct HistorySyncProgressToastView: View {
             .font(.system(size: 13, weight: .black))
             .foregroundStyle(Self.accent)
         }
-        Text("Syncing band history")
+        Text("Rattrapage de l'historique…")
           .font(.system(size: 14, weight: .bold))
           .foregroundStyle(.primary)
           .lineLimit(1)
@@ -234,7 +234,7 @@ struct HistorySyncProgressToastView: View {
           .lineLimit(1)
           .monospacedDigit()
       } else {
-        Text("starting…")
+        Text("démarrage…")
           .font(.system(size: 12, weight: .semibold))
           .foregroundStyle(.secondary)
       }
@@ -262,8 +262,8 @@ struct HistorySyncProgressToastView: View {
 
   private var accessibilityText: String {
     snapshot.fractionComplete == nil
-      ? "Syncing band history, starting"
-      : "Syncing band history, \(snapshot.summaryLine)"
+      ? "Rattrapage de l'historique, démarrage"
+      : "Rattrapage de l'historique, \(snapshot.summaryLine)"
   }
 }
 
@@ -328,7 +328,7 @@ struct HistorySyncProgressDetailSheet: View {
           .progressViewStyle(.linear)
           .tint(Self.accent)
         if let positionText = snapshot.positionText {
-          Text("Currently at \(positionText)")
+          Text("Actuellement au \(positionText)")
             .font(.footnote.weight(.semibold))
             .foregroundStyle(.secondary)
         }
