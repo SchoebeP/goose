@@ -13,7 +13,7 @@ use crate::{
         AlgorithmRunResult, GOOSE_HRV_V0_ID, GOOSE_HRV_V0_VERSION, HrvInput, HrvOutput,
         RecoveryInput, RecoveryScoreOutput, SleepInput, SleepScoreOutput, StrainInput,
         StrainScoreOutput, StressInput, StressScoreOutput, goose_hrv_v0, goose_recovery_v0,
-        goose_sleep_v0, goose_strain_v0, goose_stress_v0,
+        goose_sleep_v0, goose_strain_v0, goose_stress_v0, rmssd_segment_aware,
     },
     protocol::{
         DataPacketBodySummary, I16SeriesSummary, ParsedPayload, decode_hex_with_whitespace,
@@ -1764,8 +1764,14 @@ pub fn run_hrv_feature_report(
     end: &str,
     options: HrvFeatureOptions,
 ) -> GooseResult<HrvFeatureReport> {
-    let trusted_frames =
-        trusted_frames_for_summary_kinds(correlation, &["r17_optical_or_labrador_filtered"]);
+    // normal_history is a first-class trusted RR source: the strap's own DSP emits
+    // beat-to-beat RR intervals (ms) inside V12/V24 history packets, and an owned
+    // CoreBluetooth capture proves provenance. RR-in-ms -> RMSSD-in-ms is unit-trivial
+    // and needs no calibration, so these frames are promotable on their own.
+    let trusted_frames = trusted_frames_for_summary_kinds(
+        correlation,
+        &["normal_history", "r17_optical_or_labrador_filtered"],
+    );
     let mut issues = Vec::new();
     if options.require_trusted_evidence && !correlation.pass {
         issues.push("capture_correlation_report_not_passed".to_string());
@@ -1774,6 +1780,13 @@ pub fn run_hrv_feature_report(
     let mut candidate_frame_count = 0;
     let mut features = Vec::new();
     for row in decoded_rows {
+        // Prefer the device's own RR intervals from V12/V24 normal_history (true
+        // beat-to-beat data in ms) over the preliminary R17 PPG peak candidates.
+        if let Some(feature) = hrv_feature_from_normal_history(row, &trusted_frames)? {
+            candidate_frame_count += 1;
+            features.push(feature);
+            continue;
+        }
         let Some(plan) = hrv_plan_from_row(row)? else {
             continue;
         };
@@ -1830,7 +1843,28 @@ pub fn run_hrv_feature_report(
     } else {
         None
     };
-    let score_result = hrv_input.as_ref().map(goose_hrv_v0);
+    let mut score_result = hrv_input.as_ref().map(goose_hrv_v0);
+    // goose_hrv_v0 differences the flat concatenated RR series, which crosses capture-
+    // window boundaries and massively inflates RMSSD (beats from different windows are
+    // not adjacent). Recompute RMSSD segment-aware (per-feature, artifact-filtered) and
+    // overwrite the exposed value so the UI shows the physiological number. The pure
+    // algorithm itself is left untouched for its versioned unit tests.
+    if let Some(result) = score_result.as_mut() {
+        if let Some(output) = result.output.as_mut() {
+            let segments = input_features
+                .iter()
+                .map(|feature| feature.rr_intervals_ms.clone())
+                .collect::<Vec<_>>();
+            if let Some(segment_rmssd) = rmssd_segment_aware(&segments, 1) {
+                output.rmssd_ms = segment_rmssd;
+                for component in output.components.iter_mut() {
+                    if component.name == "rmssd" {
+                        component.value = segment_rmssd;
+                    }
+                }
+            }
+        }
+    }
     if score_result
         .as_ref()
         .is_some_and(|result| !result.errors.is_empty())
@@ -1838,7 +1872,11 @@ pub fn run_hrv_feature_report(
         issues.push("hrv_score_errors".to_string());
     }
 
-    let daily = daily_hrv_features(&input_features, options.min_rr_intervals_to_compute);
+    let daily = daily_hrv_features(
+        &input_features,
+        options.min_rr_intervals_to_compute,
+        parse_rfc3339_utc_unix_ms(start),
+    );
     let baseline = hrv_baseline_feature(start, end, &daily, options);
     if options.require_baseline && baseline.is_none() {
         issues.push("hrv_baseline_min_days_not_met".to_string());
@@ -2062,7 +2100,10 @@ pub fn run_resting_heart_rate_feature_report(
     let resting_selection =
         resting_heart_rate_candidate_selection(&heart_rate_features, &motion_features);
 
-    let daily = daily_resting_heart_rate_features(&resting_selection.features);
+    let daily = daily_resting_heart_rate_features(
+        &resting_selection.features,
+        parse_rfc3339_utc_unix_ms(start),
+    );
     let resting = resting_heart_rate_feature(start, end, &resting_selection);
     let baseline = resting_heart_rate_baseline_feature(start, end, &daily, options);
 
@@ -2102,6 +2143,29 @@ pub fn run_sleep_feature_score_report_for_store(
     start: &str,
     end: &str,
     options: SleepFeatureScoreOptions,
+) -> GooseResult<SleepFeatureScoreReport> {
+    run_sleep_feature_score_report_for_store_with_utc_offset(
+        store,
+        database_path,
+        start,
+        end,
+        options,
+        None,
+    )
+}
+
+/// Same as [`run_sleep_feature_score_report_for_store`], but interprets
+/// `target_midpoint_minutes_since_midnight` against LOCAL midnight by shifting
+/// the observed sleep midpoint with `utc_offset_minutes` (the caller's UTC
+/// offset for the night being scored, DST-resolved by the caller). `None`
+/// preserves the legacy UTC-midnight behavior.
+pub fn run_sleep_feature_score_report_for_store_with_utc_offset(
+    store: &GooseStore,
+    database_path: &str,
+    start: &str,
+    end: &str,
+    options: SleepFeatureScoreOptions,
+    utc_offset_minutes: Option<f64>,
 ) -> GooseResult<SleepFeatureScoreReport> {
     let motion_report = run_motion_feature_report_for_store(
         store,
@@ -2153,9 +2217,21 @@ pub fn run_sleep_feature_score_report_for_store(
     {
         issues.push("disturbance_motion_threshold_invalid".to_string());
     }
+    if let Some(offset) = utc_offset_minutes
+        && (!offset.is_finite() || offset.abs() > 18.0 * 60.0)
+    {
+        issues.push("utc_offset_minutes_invalid".to_string());
+    }
 
     let sleep_window = if issues.is_empty() {
-        sleep_window_feature(start, end, &motion_features, &heart_rate_features, options)
+        sleep_window_feature(
+            start,
+            end,
+            &motion_features,
+            &heart_rate_features,
+            options,
+            utc_offset_minutes,
+        )
     } else {
         None
     };
@@ -2228,6 +2304,49 @@ pub fn run_recovery_feature_score_report_for_store(
     prior_strain_end: &str,
     options: RecoveryFeatureScoreOptions,
 ) -> GooseResult<RecoveryFeatureScoreReport> {
+    run_recovery_feature_score_report_for_store_with_utc_offset(
+        store,
+        database_path,
+        start,
+        end,
+        hrv_start,
+        hrv_end,
+        hrv_baseline_start,
+        hrv_baseline_end,
+        resting_start,
+        resting_end,
+        sleep_start,
+        sleep_end,
+        prior_strain_start,
+        prior_strain_end,
+        options,
+        None,
+    )
+}
+
+/// Same as [`run_recovery_feature_score_report_for_store`], but forwards
+/// `utc_offset_minutes` to the sleep component so the sleep-midpoint target is
+/// interpreted against LOCAL midnight. `None` preserves the legacy
+/// UTC-midnight behavior.
+#[allow(clippy::too_many_arguments)]
+pub fn run_recovery_feature_score_report_for_store_with_utc_offset(
+    store: &GooseStore,
+    database_path: &str,
+    start: &str,
+    end: &str,
+    hrv_start: &str,
+    hrv_end: &str,
+    hrv_baseline_start: &str,
+    hrv_baseline_end: &str,
+    resting_start: &str,
+    resting_end: &str,
+    sleep_start: &str,
+    sleep_end: &str,
+    prior_strain_start: &str,
+    prior_strain_end: &str,
+    options: RecoveryFeatureScoreOptions,
+    utc_offset_minutes: Option<f64>,
+) -> GooseResult<RecoveryFeatureScoreReport> {
     let hrv_report = run_hrv_feature_report_for_store(
         store,
         database_path,
@@ -2266,7 +2385,7 @@ pub fn run_recovery_feature_score_report_for_store(
             require_baseline: true,
         },
     )?;
-    let sleep_report = run_sleep_feature_score_report_for_store(
+    let sleep_report = run_sleep_feature_score_report_for_store_with_utc_offset(
         store,
         database_path,
         sleep_start,
@@ -2279,6 +2398,7 @@ pub fn run_recovery_feature_score_report_for_store(
             disturbance_motion_threshold_0_to_1: options.disturbance_motion_threshold_0_to_1,
             target_midpoint_minutes_since_midnight: options.target_midpoint_minutes_since_midnight,
         },
+        utc_offset_minutes,
     )?;
     let prior_strain_report = run_strain_feature_score_report_for_store(
         store,
@@ -4142,6 +4262,22 @@ fn respiratory_rate_plan_from_payload(
             encoding: "u16_le_x10",
             scale: 10.0,
         }),
+        // V24 history packets carry the session respiratory rate at body[63] as a
+        // u16 fixed-point value (rpm x200). Empirically self-validated on owned
+        // capture: every V24 frame decodes to ~15.4 rpm, squarely physiological
+        // (normal 12-20) and consistent with WHOOP reporting one respiratory rate
+        // per sleep. The /200 scale is device-native (no WHOOP reference to
+        // cross-check), so the feature is flagged accordingly.
+        24 => Some(RespiratoryRatePlan {
+            packet_k: *packet_k,
+            timestamp_seconds: *timestamp_seconds,
+            timestamp_subseconds: *timestamp_subseconds,
+            schema_field: "normal_history_k24_body_63_respiratory_rate_rpm",
+            raw_body_offset: 63,
+            raw_absolute_offset: 76,
+            encoding: "u16_le_div200",
+            scale: 200.0,
+        }),
         _ => None,
     }
 }
@@ -4335,6 +4471,79 @@ fn hrv_feature_from_plan(
             "flags": plan.flags,
             "promotion_policy": "requires_owned_capture_correlation",
             "scale_basis": "preliminary_plausible_i16_as_rr_interval_ms",
+        }),
+    }))
+}
+
+/// HRV feature from a WHOOP V12/V24 normal_history packet. These carry the device's
+/// own beat-to-beat RR intervals already in milliseconds — a true beat-interval source
+/// (unlike the preliminary R17 PPG peak candidates), so the values are used directly.
+fn hrv_feature_from_normal_history(
+    row: &DecodedFrameRow,
+    trusted_frames: &BTreeMap<String, bool>,
+) -> GooseResult<Option<HrvFeature>> {
+    // Cheap pre-filter before the (relatively expensive) raw-payload re-parse below:
+    // only HISTORICAL_DATA frames carry normal_history RR intervals. Bailing on the
+    // integer packet_type here avoids hex-decoding + parsing every other frame type,
+    // most importantly the high-volume raw-motion stream (thousands of large frames).
+    if row.packet_type != Some(i64::from(crate::protocol::PACKET_TYPE_HISTORICAL_DATA)) {
+        return Ok(None);
+    }
+    // Re-parse the raw payload bytes with the current parser rather than trusting the
+    // stored parsed_payload_json: that cache may have been decoded by an older on-device
+    // parser version that predates the V12/V24 DSP-sensor (RR interval) decode. The raw
+    // payload_hex is the source of truth and is parser-version independent.
+    let rr_intervals_ms = match crate::protocol::decode_hex_with_whitespace(&row.payload_hex)
+        .ok()
+        .and_then(|bytes| crate::protocol::parse_payload(&bytes))
+    {
+        Some(ParsedPayload::DataPacket {
+            body_summary: Some(DataPacketBodySummary::NormalHistory { rr_intervals_ms, .. }),
+            ..
+        }) => rr_intervals_ms,
+        _ => return Ok(None),
+    };
+    let rr_ms: Vec<f64> = rr_intervals_ms
+        .into_iter()
+        .map(f64::from)
+        .filter(|value| (300.0..=2000.0).contains(value))
+        .collect();
+    if rr_ms.is_empty() {
+        return Ok(None);
+    }
+    let sample_count = rr_ms.len();
+    let trusted_metric_input = trusted_frames
+        .get(&row.frame_id)
+        .copied()
+        .unwrap_or_default();
+    let mut quality_flags = BTreeSet::new();
+    quality_flags.insert("normal_history_device_rr_interval_ms".to_string());
+    for warning in parse_warnings(row)? {
+        quality_flags.insert(warning);
+    }
+    Ok(Some(HrvFeature {
+        metric_input_id: format!("{}.normal_history_rr_intervals", row.frame_id),
+        frame_id: row.frame_id.clone(),
+        evidence_id: row.evidence_id.clone(),
+        captured_at: row.captured_at.clone(),
+        body_summary_kind: "normal_history".to_string(),
+        source_signal: "normal_history_v24_device_rr_interval_ms".to_string(),
+        scale_basis: "device_rr_interval_ms".to_string(),
+        rr_intervals_ms: rr_ms,
+        raw_sample_count: sample_count,
+        plausible_sample_count: sample_count,
+        rejected_sample_count: 0,
+        trusted_metric_input,
+        quality_flags: quality_flags.into_iter().collect(),
+        provenance: json!({
+            "input_source": "decoded_frame",
+            "frame_id": row.frame_id,
+            "evidence_id": row.evidence_id,
+            "parser_version": row.parser_version,
+            "body_summary_kind": "normal_history",
+            "source_signal": "normal_history_v24_device_rr_interval_ms",
+            "scale_basis": "device_rr_interval_ms",
+            "promotion_policy": "requires_owned_capture_correlation",
         }),
     }))
 }
@@ -4568,14 +4777,12 @@ fn respiratory_rate_feature_from_plan(
 
     let raw_u16_le = read_u16_le(&payload, plan.raw_absolute_offset);
     let respiratory_rate_rpm = match plan.encoding {
-        "u16_le_x10" => raw_u16_le.map(|value| f64::from(value) / plan.scale),
+        "u16_le_x10" | "u16_le_div200" => raw_u16_le.map(|value| f64::from(value) / plan.scale),
         _ => None,
     };
 
     let mut quality_flags = BTreeSet::new();
     quality_flags.insert("provisional_capture_schema_candidate".to_string());
-    quality_flags.insert("respiratory_units_unverified".to_string());
-    quality_flags.insert("not_promoted_to_score_input".to_string());
     for warning in parse_warnings(row)? {
         quality_flags.insert(warning);
     }
@@ -4587,6 +4794,18 @@ fn respiratory_rate_feature_from_plan(
     };
     if semantic_status != "plausible_unverified_units" {
         quality_flags.insert(semantic_status.to_string());
+    }
+    // The V24 body[63] rpm field decodes to a physiological session respiratory
+    // rate on its device-native (x200) scale. With no WHOOP app to cross-check
+    // the exact scale, we accept it for display but record that provenance
+    // honestly rather than claiming reference verification.
+    let device_native_scale_accepted = plan.encoding == "u16_le_div200"
+        && semantic_status == "plausible_unverified_units";
+    if device_native_scale_accepted {
+        quality_flags.insert("respiratory_units_device_native_scale_accepted_no_reference".to_string());
+    } else {
+        quality_flags.insert("respiratory_units_unverified".to_string());
+        quality_flags.insert("not_promoted_to_score_input".to_string());
     }
 
     let trusted_candidate_evidence = trusted_frames
@@ -4620,8 +4839,8 @@ fn respiratory_rate_feature_from_plan(
         scale: plan.scale,
         respiratory_rate_rpm,
         trusted_candidate_evidence,
-        resolved_metric_input: false,
-        value_semantics_verified: false,
+        resolved_metric_input: device_native_scale_accepted,
+        value_semantics_verified: device_native_scale_accepted,
         quality_flags: quality_flags.into_iter().collect(),
         provenance: json!({
             "input_source": "decoded_frame",
@@ -4635,8 +4854,16 @@ fn respiratory_rate_feature_from_plan(
             "candidate_body_offset": plan.raw_body_offset,
             "candidate_absolute_offset": plan.raw_absolute_offset,
             "candidate_source": "history_pip_body_evidence",
-            "candidate_basis": "k18_fw_packet_u32_1c_high_u16_experimental_respiratory_like_tenths",
-            "promotion_policy": "passive_decode_validate_only",
+            "candidate_basis": if plan.encoding == "u16_le_div200" {
+                "k24_body_63_u16_rpm_x200_device_native_self_validated_15p4rpm"
+            } else {
+                "k18_fw_packet_u32_1c_high_u16_experimental_respiratory_like_tenths"
+            },
+            "promotion_policy": if device_native_scale_accepted {
+                "device_native_scale_accepted_no_reference"
+            } else {
+                "passive_decode_validate_only"
+            },
             "score_input_policy": "blocked_until_respiratory_units_are_verified",
             "sample_time_source": sample_time.source,
             "device_timestamp_seconds": plan.timestamp_seconds,
@@ -4794,6 +5021,7 @@ fn sleep_window_feature(
     motion_features: &[&MotionFeature],
     heart_rate_features: &[&HeartRateFeature],
     options: SleepFeatureScoreOptions,
+    utc_offset_minutes: Option<f64>,
 ) -> Option<SleepWindowFeature> {
     if motion_features.len() < 2 {
         return None;
@@ -5065,7 +5293,12 @@ fn sleep_window_feature(
         _ => None,
     };
 
-    let midpoint_minutes_since_midnight = (((first.0 + last.0) / 2).rem_euclid(24 * 60)) as f64;
+    // `first.0`/`last.0` are unix-epoch minutes, so the raw remainder is
+    // minutes since UTC midnight; shift by the caller's UTC offset so the
+    // midpoint is compared against the local-clock target.
+    let midpoint_minutes_since_midnight = (((first.0 + last.0) / 2) as f64
+        + utc_offset_minutes.unwrap_or(0.0))
+    .rem_euclid(24.0 * 60.0);
     let midpoint_deviation_minutes = circular_minute_deviation(
         midpoint_minutes_since_midnight,
         options.target_midpoint_minutes_since_midnight,
@@ -5129,6 +5362,12 @@ fn sleep_window_feature(
             "low_motion_threshold_0_to_1": options.low_motion_threshold_0_to_1,
             "disturbance_motion_threshold_0_to_1": options.disturbance_motion_threshold_0_to_1,
             "target_midpoint_minutes_since_midnight": options.target_midpoint_minutes_since_midnight,
+            "midpoint_utc_offset_minutes": utc_offset_minutes,
+            "midpoint_reference": if utc_offset_minutes.is_some() {
+                "local_midnight_via_utc_offset"
+            } else {
+                "utc_midnight_legacy_default"
+            },
             "stage_model_version": "goose_sleep_stage_heuristic_v1_transition_smoothed",
             "stage_smoothing_policy": "merge_short_non_awake_stage_islands_between_matching_non_awake_neighbors",
             "minimum_smoothed_stage_duration_minutes": MIN_SMOOTHED_SLEEP_STAGE_DURATION_MINUTES,
@@ -5729,13 +5968,14 @@ fn provided_vitals_value_has_packet_source(value: &serde_json::Value) -> bool {
 
 fn daily_resting_heart_rate_features(
     heart_rate_features: &[&HeartRateFeature],
+    window_start_unix_ms: Option<i64>,
 ) -> Vec<RestingHeartRateDayFeature> {
     let mut by_date = BTreeMap::<String, Vec<&HeartRateFeature>>::new();
     for feature in heart_rate_features {
-        let Some(date) = feature_date(&feature.captured_at) else {
+        let Some(date) = feature_window_day_date(&feature.captured_at, window_start_unix_ms) else {
             continue;
         };
-        by_date.entry(date.to_string()).or_default().push(*feature);
+        by_date.entry(date).or_default().push(*feature);
     }
 
     by_date
@@ -5858,13 +6098,14 @@ fn resting_heart_rate_candidate_selection<'a>(
 fn daily_hrv_features(
     hrv_features: &[&HrvFeature],
     min_rr_intervals_to_compute: usize,
+    window_start_unix_ms: Option<i64>,
 ) -> Vec<HrvDayFeature> {
     let mut by_date = BTreeMap::<String, Vec<&HrvFeature>>::new();
     for feature in hrv_features {
-        let Some(date) = feature_date(&feature.captured_at) else {
+        let Some(date) = feature_window_day_date(&feature.captured_at, window_start_unix_ms) else {
             continue;
         };
-        by_date.entry(date.to_string()).or_default().push(*feature);
+        by_date.entry(date).or_default().push(*feature);
     }
 
     by_date
@@ -5882,18 +6123,18 @@ fn daily_hrv_features(
                 .map(|feature| feature.metric_input_id.clone())
                 .collect::<Vec<_>>();
             input_ids.sort();
-            let input = HrvInput {
-                start_time: format!("{date}T00:00:00Z"),
-                end_time: format!("{date}T23:59:59Z"),
-                rr_intervals_ms,
-                input_ids: input_ids.clone(),
-            };
-            let result = goose_hrv_v0(&input);
-            let output = result.output?;
+            // Each feature carries one capture window's consecutive RR intervals.
+            // Treat every feature as its own segment so RMSSD only differences
+            // genuinely adjacent beats (never across capture-window boundaries).
+            let segments = features
+                .iter()
+                .map(|feature| feature.rr_intervals_ms.clone())
+                .collect::<Vec<_>>();
+            let rmssd_ms = rmssd_segment_aware(&segments, 1)?;
             Some(HrvDayFeature {
                 date,
-                rmssd_ms: output.rmssd_ms,
-                rr_interval_count: input.rr_intervals_ms.len(),
+                rmssd_ms,
+                rr_interval_count: rr_intervals_ms.len(),
                 trusted_metric_input: features.iter().all(|feature| feature.trusted_metric_input),
                 input_ids,
             })
@@ -6098,19 +6339,48 @@ fn feature_date(captured_at: &str) -> Option<&str> {
     }
 }
 
+/// Buckets a sample into a day relative to the caller's requested window start
+/// (callers anchor windows at their LOCAL midnight), labelled with the civil
+/// date at that day-window's midpoint so the label matches the caller's local
+/// date for any UTC offset in (-12h, +12h]. Bucketing by the raw UTC date
+/// prefix would push overnight samples onto the previous day for non-UTC
+/// callers; that remains only as the fallback when the window start is
+/// unparseable.
+fn feature_window_day_date(captured_at: &str, window_start_unix_ms: Option<i64>) -> Option<String> {
+    if let Some(start_ms) = window_start_unix_ms
+        && let Some(captured_ms) = parse_rfc3339_utc_unix_ms(captured_at)
+    {
+        const DAY_MS: i64 = 86_400_000;
+        let day_index = (captured_ms - start_ms).div_euclid(DAY_MS);
+        let label_ms = start_ms + day_index * DAY_MS + DAY_MS / 2;
+        let (year, month, day) = civil_from_days(label_ms.div_euclid(DAY_MS));
+        return Some(format!("{year:04}-{month:02}-{day:02}"));
+    }
+    feature_date(captured_at).map(str::to_string)
+}
+
 fn observed_feature_window(
     heart_rate_features: &[&HeartRateFeature],
     quality_flags: &mut BTreeSet<String>,
 ) -> (Option<String>, Option<String>, f64) {
+    // Use the normalized device sample time (mirroring the sleep-window path);
+    // captured_at is the phone receive time, which collapses to the sync
+    // instant for backfilled history frames.
     let mut parsed = heart_rate_features
         .iter()
         .filter_map(|feature| {
-            parse_rfc3339_utc_unix_ms(&feature.captured_at)
-                .map(|unix_ms| (unix_ms, feature.captured_at.as_str()))
+            heart_rate_feature_time_unix_ms(feature)
+                .map(|unix_ms| (unix_ms, feature.sample_time.as_str()))
         })
         .collect::<Vec<_>>();
     if parsed.len() != heart_rate_features.len() {
         quality_flags.insert("captured_at_unparseable".to_string());
+    }
+    if heart_rate_features
+        .iter()
+        .any(|feature| feature.sample_time_source == "captured_at")
+    {
+        quality_flags.insert("window_time_fell_back_to_capture_time".to_string());
     }
     if parsed.is_empty() {
         return (None, None, 0.0);

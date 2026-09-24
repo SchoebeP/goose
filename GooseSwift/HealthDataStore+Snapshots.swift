@@ -4,50 +4,103 @@ import SwiftUI
 import UIKit
 
 extension HealthDataStore {
-  func runPacketScores() {
-    let baseArgs = bridgeBaseArgs(requireTrustedEvidence: false)
-    do {
-      packetScoreReports["sleep"] = try sleepScoreReport(baseArgs: baseArgs)
-      refreshPrimarySleepFromScoreReport()
-      packetScoreReports["strain"] = try bridge.request(
-        method: "metrics.strain_score_from_features",
-        args: baseArgs.merging([
-          "resting_start": "0000",
-          "resting_end": "9999",
-          "resting_baseline_min_days": 3,
-        ]) { _, new in new }
+  func runPacketScores(completion: (() -> Void)? = nil) {
+    runPacketScoreExtraction(includeAllScores: true, completion: completion)
+  }
+
+  func runSleepScore(completion: (() -> Void)? = nil) {
+    runPacketScoreExtraction(includeAllScores: false, completion: completion)
+  }
+
+  private func runPacketScoreExtraction(includeAllScores: Bool, completion: (() -> Void)?) {
+    guard !packetScoreIsRunning else {
+      packetScoreStatus = "Packet-derived score run already running..."
+      completion?()
+      return
+    }
+    let runID = UUID()
+    packetScoreRunID = runID
+    packetScoreIsRunning = true
+    let databasePath = databasePath
+    packetScoreStatus = "Computing packet-derived scores..."
+
+    packetInputQueue.async { [weak self] in
+      let outcome = HealthDataStore.packetScoreBridgeReports(
+        databasePath: databasePath,
+        includeAllScores: includeAllScores
       )
-      packetScoreReports["recovery"] = try bridge.request(
-        method: "metrics.recovery_score_from_features",
-        args: baseArgs.merging(recoveryScoreBridgeArgs()) { _, new in new }
-      )
-      packetScoreReports["stress"] = try bridge.request(
-        method: "metrics.stress_score_from_features",
-        args: baseArgs.merging([
-          "resting_start": "0000",
-          "resting_end": "9999",
-          "hrv_start": "0000",
-          "hrv_end": "9999",
-          "hrv_baseline_start": "0000",
-          "hrv_baseline_end": "9999",
-          "resting_baseline_min_days": 3,
-          "hrv_min_rr_intervals_to_compute": 2,
-          "hrv_baseline_min_days": 3,
-        ]) { _, new in new }
-      )
-      packetScoreStatus = "Bridge packet-derived scores recomputed"
-    } catch {
-      packetScoreStatus = "Bridge score run blocked: \(Self.shortError(error))"
+      DispatchQueue.main.async { [weak self] in
+        guard let self, self.packetScoreRunID == runID else {
+          return
+        }
+        self.packetScoreIsRunning = false
+        self.packetScoreReports.merge(outcome.reports) { _, new in new }
+        if outcome.reports["sleep"] != nil {
+          self.refreshPrimarySleepFromScoreReport()
+        }
+        if let error = outcome.error {
+          self.packetScoreStatus = includeAllScores
+            ? "Bridge score run blocked: \(HealthDataStore.shortError(error))"
+            : "Bridge sleep score blocked: \(HealthDataStore.shortError(error))"
+        } else {
+          self.packetScoreStatus = includeAllScores
+            ? "Bridge packet-derived scores recomputed"
+            : "Bridge sleep score recomputed"
+        }
+        self.invalidateStressEnergySummaryCaches()
+        completion?()
+      }
     }
   }
 
-  func runSleepScore() {
+  /// Run the packet scores once, only if no run has landed yet.
+  func runPacketScoresIfNeeded() {
+    guard packetScoreReports.isEmpty, packetScoreStatus == "No run", !packetScoreIsRunning else {
+      return
+    }
+    runPacketScores()
+  }
+
+  nonisolated static func packetScoreBridgeReports(
+    databasePath: String,
+    includeAllScores: Bool
+  ) -> (reports: [String: [String: Any]], error: Error?) {
+    let bridge = GooseRustBridge()
+    let baseArgs = bridgeBaseArgs(databasePath: databasePath, requireTrustedEvidence: false)
+    var reports: [String: [String: Any]] = [:]
     do {
-      packetScoreReports["sleep"] = try sleepScoreReport(baseArgs: bridgeBaseArgs(requireTrustedEvidence: false))
-      refreshPrimarySleepFromScoreReport()
-      packetScoreStatus = "Bridge sleep score recomputed"
+      reports["sleep"] = try sleepScoreReport(bridge: bridge, baseArgs: baseArgs)
+      if includeAllScores {
+        reports["strain"] = try bridge.request(
+          method: "metrics.strain_score_from_features",
+          args: baseArgs.merging([
+            "resting_start": "0000",
+            "resting_end": "9999",
+            "resting_baseline_min_days": 3,
+          ]) { _, new in new }
+        )
+        reports["recovery"] = try bridge.request(
+          method: "metrics.recovery_score_from_features",
+          args: baseArgs.merging(recoveryScoreBridgeArgs()) { _, new in new }
+        )
+        reports["stress"] = try bridge.request(
+          method: "metrics.stress_score_from_features",
+          args: baseArgs.merging([
+            "resting_start": "0000",
+            "resting_end": "9999",
+            "hrv_start": "0000",
+            "hrv_end": "9999",
+            "hrv_baseline_start": "0000",
+            "hrv_baseline_end": "9999",
+            "resting_baseline_min_days": 3,
+            "hrv_min_rr_intervals_to_compute": 2,
+            "hrv_baseline_min_days": 3,
+          ]) { _, new in new }
+        )
+      }
+      return (reports, nil)
     } catch {
-      packetScoreStatus = "Bridge sleep score blocked: \(Self.shortError(error))"
+      return (reports, error)
     }
   }
 
@@ -90,7 +143,7 @@ extension HealthDataStore {
       snapshots[index] = recoverySnapshot(base: snapshots[index])
     }
     if let index = snapshots.firstIndex(where: { $0.route == .strain }) {
-      snapshots[index] = strainSnapshot(base: snapshots[index])
+      snapshots[index] = strainSnapshotPreferringServer(base: snapshots[index])
     }
     if let index = snapshots.firstIndex(where: { $0.route == .stress }) {
       snapshots[index] = stressSnapshot(base: snapshots[index], allowLiveFallbacks: !stableDailyMetrics)
@@ -118,6 +171,9 @@ extension HealthDataStore {
         tint: .red,
         trend: snapshots[index].trend
       )
+    }
+    if !DeveloperSettings.shared.isEnabled {
+      snapshots.removeAll { Self.developerOnlyLandingRoutes.contains($0.route) }
     }
     return snapshots
   }
@@ -168,6 +224,25 @@ extension HealthDataStore {
     if let index = snapshots.firstIndex(where: { $0.id == "health-sleep" }) {
       snapshots[index] = sleepHealthMonitorSnapshot(base: snapshots[index])
     }
+    // Final pass: for the server-backed vitals, while the relevant feed is
+    // still awaiting its first response and no local fallback replaced the
+    // unavailable state, show a neutral "Loading…" state instead of empty.
+    for index in snapshots.indices {
+      switch snapshots[index].id {
+      case "respiratory-rate", "resting-hr", "resting-hrv", "wrist-temperature":
+        snapshots[index] = awaitingServerSnapshot(
+          snapshots[index],
+          feedLoaded: ServerMetricsFeed.shared.hasLoadedOnce
+        )
+      case "health-sleep":
+        snapshots[index] = awaitingServerSnapshot(
+          snapshots[index],
+          feedLoaded: ServerSleepFeed.shared.hasLoadedOnce
+        )
+      default:
+        break
+      }
+    }
     return snapshots
   }
 
@@ -181,7 +256,7 @@ extension HealthDataStore {
       return recoverySnapshot(base: snapshot)
     }
     if route == .strain && !previewMissingData {
-      return strainSnapshot(base: snapshot)
+      return strainSnapshotPreferringServer(base: snapshot)
     }
     if route == .stress && !previewMissingData {
       return stressSnapshot(base: snapshot)
@@ -212,9 +287,73 @@ extension HealthDataStore {
     )
   }
 
+  /// While a server feed is still awaiting its very first response
+  /// (`!feedLoaded`) AND the resolved snapshot has no local fallback value
+  /// (its source is `.unavailable`), swap the honest empty state for a neutral
+  /// "Loading…" one so the row can show a spinner. The value stays "--" — we
+  /// never invent one, and once the server has responded (even with no data)
+  /// this returns the snapshot unchanged so the honest empty state remains.
+  func awaitingServerSnapshot(
+    _ snapshot: HealthMetricSnapshot,
+    feedLoaded: Bool
+  ) -> HealthMetricSnapshot {
+    guard !previewMissingData, !usesPreviewPacketData,
+          !feedLoaded, snapshot.source.kind == .unavailable else {
+      return snapshot
+    }
+    return HealthMetricSnapshot(
+      id: snapshot.id,
+      route: snapshot.route,
+      group: snapshot.group,
+      title: snapshot.title,
+      value: "--",
+      unit: snapshot.unit,
+      status: HealthMetricSnapshot.loadingStatus,
+      freshness: "Awaiting server",
+      provenance: snapshot.provenance,
+      source: snapshot.source,
+      systemImage: snapshot.systemImage,
+      tint: snapshot.tint,
+      trend: snapshot.trend
+    )
+  }
+
+  /// Prefers the server-computed strain (0-21) for today; falls back to the
+  /// local packet-derived `strainSnapshot(base:)` when the server has no
+  /// strain field for today. Never fabricates a value.
+  func strainSnapshotPreferringServer(base snapshot: HealthMetricSnapshot) -> HealthMetricSnapshot {
+    if !usesPreviewPacketData && !previewMissingData {
+      ServerMetricsFeed.shared.refreshIfStale()
+      if let day = ServerMetricsFeed.shared.today,
+         let strain0To21 = day.strain {
+        let percent = Self.strainPercent(strain0To21)
+        let scoreText = Self.numberText(percent, fractionDigits: 0) ?? "0"
+        return HealthMetricSnapshot(
+          id: snapshot.id,
+          route: snapshot.route,
+          group: snapshot.group,
+          title: snapshot.title,
+          value: scoreText,
+          unit: "",
+          status: Self.strainStatusLabel(score: percent),
+          freshness: "Latest",
+          provenance: "server-computed strain (self-hosted VPS /metrics/daily)",
+          source: .local("server-computed strain (self-hosted VPS /metrics/daily)"),
+          systemImage: snapshot.systemImage,
+          tint: snapshot.tint,
+          trend: snapshot.trend
+        )
+      }
+    }
+    return awaitingServerSnapshot(
+      strainSnapshot(base: snapshot),
+      feedLoaded: ServerMetricsFeed.shared.hasLoadedOnce
+    )
+  }
+
   func strainSnapshot(for date: Date, calendar: Calendar = .current) -> HealthMetricSnapshot {
     let base = Self.baseLandingSnapshots.first { $0.route == .strain } ?? Self.baseLandingSnapshots[0]
-    let snapshot = strainSnapshot(base: base)
+    let snapshot = strainSnapshotPreferringServer(base: base)
     guard calendar.isDate(calendar.startOfDay(for: date), inSameDayAs: calendar.startOfDay(for: Date())) else {
       return zeroStrainSnapshot(
         base: snapshot,
@@ -227,6 +366,43 @@ extension HealthDataStore {
   }
 
   func sleepSnapshot(base snapshot: HealthMetricSnapshot) -> HealthMetricSnapshot {
+    if !previewMissingData {
+      ServerSleepFeed.shared.refreshIfStale()
+      ServerMetricsFeed.shared.refreshIfStale()
+      if let night = ServerSleepFeed.shared.lastNight {
+        var statusText = night.summaryText
+        if let day = ServerMetricsFeed.shared.today {
+          if night.end == nil, let wake = day.wakeLocalTimeText {
+            statusText += " | wake \(wake)"
+          }
+          if let hrDip = day.hrDipText {
+            statusText += " | \(hrDip)"
+          }
+          if let stages = day.sleepStages {
+            var parts: [String] = []
+            if let rem = stages.remPct { parts.append("REM \(Int(rem.rounded()))%") }
+            if let deep = stages.deepPct { parts.append("deep \(Int(deep.rounded()))%") }
+            if let eff = stages.efficiencyPct { parts.append("eff \(Int(eff.rounded()))%") }
+            if !parts.isEmpty { statusText += " | " + parts.joined(separator: " · ") }
+          }
+        }
+        return HealthMetricSnapshot(
+          id: snapshot.id,
+          route: snapshot.route,
+          group: snapshot.group,
+          title: snapshot.title,
+          value: night.durationHoursText,
+          unit: "h",
+          status: statusText,
+          freshness: "Last night",
+          provenance: "server-computed sleep night (\(night.quality ?? "unversioned"))",
+          source: .local("server-computed sleep night (self-hosted VPS /sleep/nights)"),
+          systemImage: snapshot.systemImage,
+          tint: snapshot.tint,
+          trend: snapshot.trend
+        )
+      }
+    }
     if let output = Self.map(packetScoreReports["sleep"], "score_result", "output") {
       let scoreText = Self.numberText(output["score_0_to_100"], fractionDigits: 0) ?? snapshot.value
       return HealthMetricSnapshot(
@@ -262,10 +438,33 @@ extension HealthDataStore {
         trend: snapshot.trend
       )
     }
-    return snapshot
+    return awaitingServerSnapshot(
+      snapshot,
+      feedLoaded: ServerSleepFeed.shared.hasLoadedOnce
+    )
   }
 
   func sleepHealthMonitorSnapshot(base snapshot: HealthMetricSnapshot) -> HealthMetricSnapshot {
+    if !usesPreviewPacketData && !previewMissingData {
+      ServerSleepFeed.shared.refreshIfStale()
+      if let night = ServerSleepFeed.shared.lastNight {
+        return HealthMetricSnapshot(
+          id: snapshot.id,
+          route: snapshot.route,
+          group: snapshot.group,
+          title: snapshot.title,
+          value: night.durationHoursText,
+          unit: "h",
+          status: night.summaryText,
+          freshness: "Last night",
+          provenance: "server-computed sleep night (\(night.quality ?? "unversioned"))",
+          source: .local("server-computed sleep night (self-hosted VPS /sleep/nights)"),
+          systemImage: snapshot.systemImage,
+          tint: snapshot.tint,
+          trend: snapshot.trend
+        )
+      }
+    }
     if let primarySleepDetail {
       return HealthMetricSnapshot(
         id: snapshot.id,
@@ -305,23 +504,63 @@ extension HealthDataStore {
   }
 
   func recoverySnapshot(base snapshot: HealthMetricSnapshot) -> HealthMetricSnapshot {
+    if !usesPreviewPacketData && !previewMissingData {
+      ServerMetricsFeed.shared.refreshIfStale()
+      if let day = ServerMetricsFeed.shared.today,
+         let recovery = day.recoveryPct {
+        let score = min(max(recovery, 0), 100)
+        var statusParts = [Self.recoveryQualityLabel(score: score)]
+        if let hrv = day.hrvRMSSDMs {
+          statusParts.append("HRV \(Int(hrv.rounded())) ms")
+        }
+        if let rhr = day.rhrBPM {
+          statusParts.append("RHR \(Int(rhr.rounded())) bpm")
+        }
+        return HealthMetricSnapshot(
+          id: snapshot.id,
+          route: snapshot.route,
+          group: snapshot.group,
+          title: snapshot.title,
+          value: "\(Int(score.rounded()))",
+          unit: "%",
+          status: statusParts.joined(separator: " | "),
+          freshness: "Latest",
+          provenance: "server-computed recovery (self-hosted VPS /metrics/daily)",
+          source: .local("server-computed recovery (self-hosted VPS /metrics/daily)"),
+          systemImage: snapshot.systemImage,
+          tint: snapshot.tint,
+          trend: HealthTrendModel(
+            id: snapshot.trend.id,
+            title: snapshot.trend.title,
+            rangeLabel: "\(Int(score.rounded()))%",
+            summary: "Latest server-computed recovery score",
+            analysis: "Recovery computed on the self-hosted VPS from overnight HRV and resting heart rate.",
+            resources: snapshot.trend.resources,
+            points: []
+          )
+        )
+      }
+    }
     guard !usesPreviewPacketData,
           let score = recoveryScoreValue(),
           let scoreText = Self.numberText(score, fractionDigits: 0) else {
-      return HealthMetricSnapshot(
-        id: snapshot.id,
-        route: snapshot.route,
-        group: snapshot.group,
-        title: snapshot.title,
-        value: "--",
-        unit: "%",
-        status: "No data",
-        freshness: "No recovery score",
-        provenance: "metrics.recovery_score_from_features",
-        source: .unavailable("recovery score not available"),
-        systemImage: snapshot.systemImage,
-        tint: snapshot.tint,
-        trend: Self.emptyTrend(from: snapshot.trend, packetCount: packetEvidenceFrameCount())
+      return awaitingServerSnapshot(
+        HealthMetricSnapshot(
+          id: snapshot.id,
+          route: snapshot.route,
+          group: snapshot.group,
+          title: snapshot.title,
+          value: "--",
+          unit: "%",
+          status: "No data",
+          freshness: "No recovery score",
+          provenance: "metrics.recovery_score_from_features",
+          source: .unavailable("recovery score not available"),
+          systemImage: snapshot.systemImage,
+          tint: snapshot.tint,
+          trend: Self.emptyTrend(from: snapshot.trend, packetCount: packetEvidenceFrameCount())
+        ),
+        feedLoaded: ServerMetricsFeed.shared.hasLoadedOnce
       )
     }
 

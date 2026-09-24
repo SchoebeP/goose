@@ -121,12 +121,18 @@ extension GooseAppModel {
         for session in sessions {
           guard
             let sessionID = session["session_id"] as? String,
-            sessionID.contains(".activity."),
             (session["status"] as? String) == "active",
-            Self.timelineInt64Value(session["frame_count"]) == 0,
             let startedMs = Self.timelineInt64Value(session["started_at_unix_ms"]),
             startedMs <= cutoffMs
           else {
+            continue
+          }
+          let frameCount = Self.timelineInt64Value(session["frame_count"]) ?? 0
+          // Two orphan shapes: zero-frame activity sessions, and health-packet
+          // captures whose finish_session call failed (any frame count).
+          let isZeroFrameActivityOrphan = sessionID.contains(".activity.") && frameCount == 0
+          let isStrandedHealthCapture = sessionID.hasPrefix("ios.health-packet-capture.")
+          guard isZeroFrameActivityOrphan || isStrandedHealthCapture else {
             continue
           }
 
@@ -136,7 +142,7 @@ extension GooseAppModel {
               "database_path": databasePath,
               "session_id": sessionID,
               "ended_at_unix_ms": max(nowMs, startedMs + 1),
-              "frame_count": 0,
+              "frame_count": frameCount,
             ]
           )
           repaired += 1

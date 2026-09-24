@@ -10,6 +10,7 @@ use goose_core::{
         run_motion_feature_report_for_store, run_recovery_feature_score_report_for_store,
         run_recovery_sensor_discovery_report_for_store,
         run_resting_heart_rate_feature_report_for_store, run_sleep_feature_score_report_for_store,
+        run_sleep_feature_score_report_for_store_with_utc_offset,
         run_strain_feature_score_report_for_store, run_stress_feature_score_report_for_store,
         run_vital_event_feature_report_for_store,
     },
@@ -650,6 +651,46 @@ fn hrv_feature_extraction_can_require_baseline_days() {
 }
 
 #[test]
+fn hrv_daily_features_bucket_by_local_day_window_not_utc_date() {
+    // A Europe/Paris (UTC+2) local day runs 22:00Z-22:00Z. Overnight RR
+    // samples captured before and after UTC midnight belong to the same local
+    // day bucket, labelled with the local date that rollup callers key on.
+    let store = GooseStore::open_in_memory().unwrap();
+    import_r17_frame_at(
+        &store,
+        "user-owned-live-notification",
+        &[800, 810, 790, 800],
+        "2026-06-09T22:30:00Z",
+    );
+    import_r17_frame_at(
+        &store,
+        "user-owned-live-notification",
+        &[900, 920, 880, 900],
+        "2026-06-10T00:30:00Z",
+    );
+
+    let report = run_hrv_feature_report_for_store(
+        &store,
+        "test-db",
+        "2026-06-09T22:00:00Z",
+        "2026-06-10T22:00:00Z",
+        HrvFeatureOptions {
+            min_owned_captures_per_summary: 1,
+            require_trusted_evidence: true,
+            min_rr_intervals_to_compute: 2,
+            baseline_min_days: 1,
+            require_baseline: false,
+        },
+    )
+    .unwrap();
+
+    assert!(report.pass, "{:?}", report.issues);
+    assert_eq!(report.daily_count, 1);
+    assert_eq!(report.daily[0].date, "2026-06-10");
+    assert_eq!(report.daily[0].rr_interval_count, 8);
+}
+
+#[test]
 fn recovery_sensor_discovery_keeps_unverified_health_widgets_unavailable() {
     let store = GooseStore::open_in_memory().unwrap();
     import_r17_frame_at(
@@ -842,6 +883,56 @@ fn metric_window_features_require_trusted_hr_when_requested() {
             .next_actions
             .iter()
             .any(|action| action.reason == "no_trusted_heart_rate_window_features")
+    );
+}
+
+#[test]
+fn metric_window_features_use_device_sample_time_for_backfilled_history_bursts() {
+    // A type-47 history backfill delivers frames in a burst, so every frame
+    // shares the same phone capture instant. The window duration must come
+    // from the normalized device sample times, not collapse to ~0 minutes.
+    let store = GooseStore::open_in_memory().unwrap();
+    import_history_frame_at_with_device_timestamp(
+        &store,
+        "user-owned-live-notification",
+        80,
+        "2026-01-02T08:00:00Z",
+        1_767_304_800,
+    );
+    import_history_frame_at_with_device_timestamp(
+        &store,
+        "user-owned-live-notification",
+        100,
+        "2026-01-02T08:00:00Z",
+        1_767_308_400,
+    );
+
+    let report = run_metric_window_feature_report_for_store(
+        &store,
+        "test-db",
+        "2026-01-02T07:00:00Z",
+        "2026-01-02T09:00:00Z",
+        MetricWindowFeatureOptions {
+            min_owned_captures_per_summary: 1,
+            require_trusted_evidence: true,
+            resting_hr_bpm: Some(60.0),
+            max_hr_bpm: Some(180.0),
+        },
+    )
+    .unwrap();
+
+    assert!(report.pass, "{:?}", report.issues);
+    let window = report.window.unwrap();
+    assert_close(window.duration_minutes, 60.0);
+    assert_eq!(window.start_time, "2026-01-01T22:00:00Z");
+    assert_eq!(window.end_time, "2026-01-01T23:00:00Z");
+    assert!(window.trusted_metric_input);
+    assert_close(window.hr_zone_minutes.iter().sum::<f64>(), 60.0);
+    assert!(
+        !window
+            .quality_flags
+            .iter()
+            .any(|flag| flag == "window_time_fell_back_to_capture_time")
     );
 }
 
@@ -1201,6 +1292,102 @@ fn sleep_feature_score_report_builds_local_sleep_from_trusted_motion_features() 
     assert_close(output.efficiency_fraction, 0.75);
     assert_close(output.sleep_debt_minutes, 60.0);
     assert_close(output.score_0_to_100, 80.75);
+}
+
+#[test]
+fn sleep_feature_score_report_midpoint_deviation_uses_local_midnight_via_utc_offset() {
+    // Europe/Paris in June is UTC+2 (CEST). A sleeper with a perfect 3:00 AM
+    // local midpoint (= 1:00 AM UTC) must score zero midpoint deviation when
+    // the caller passes the +120 minute UTC offset.
+    let store = GooseStore::open_in_memory().unwrap();
+    for captured_at in [
+        "2026-06-09T23:00:00Z",
+        "2026-06-10T00:00:00Z",
+        "2026-06-10T01:00:00Z",
+        "2026-06-10T02:00:00Z",
+        "2026-06-10T03:00:00Z",
+    ] {
+        import_motion_frame_at_value_without_heart_rate(
+            &store,
+            "user-owned-live-notification",
+            captured_at,
+            1000,
+        );
+    }
+    let options = SleepFeatureScoreOptions {
+        min_owned_captures_per_summary: 1,
+        require_trusted_evidence: true,
+        sleep_need_minutes: 240.0,
+        low_motion_threshold_0_to_1: 0.05,
+        disturbance_motion_threshold_0_to_1: 0.20,
+        target_midpoint_minutes_since_midnight: 180.0,
+    };
+
+    let local_report = run_sleep_feature_score_report_for_store_with_utc_offset(
+        &store,
+        "test-db",
+        "2026-06-09T22:00:00Z",
+        "2026-06-10T06:00:00Z",
+        options,
+        Some(120.0),
+    )
+    .unwrap();
+    assert!(local_report.pass, "{:?}", local_report.issues);
+    let local_window = local_report.sleep_window.unwrap();
+    assert_close(local_window.midpoint_deviation_minutes, 0.0);
+    assert_eq!(
+        local_window.provenance["midpoint_utc_offset_minutes"],
+        120.0
+    );
+    assert_eq!(
+        local_window.provenance["midpoint_reference"],
+        "local_midnight_via_utc_offset"
+    );
+
+    // Without the offset the same night is judged against UTC midnight and
+    // picks up a spurious two-hour deviation (legacy behavior).
+    let utc_report = run_sleep_feature_score_report_for_store(
+        &store,
+        "test-db",
+        "2026-06-09T22:00:00Z",
+        "2026-06-10T06:00:00Z",
+        options,
+    )
+    .unwrap();
+    let utc_window = utc_report.sleep_window.unwrap();
+    assert_close(utc_window.midpoint_deviation_minutes, 120.0);
+    assert_eq!(
+        utc_window.provenance["midpoint_reference"],
+        "utc_midnight_legacy_default"
+    );
+}
+
+#[test]
+fn sleep_feature_score_report_rejects_implausible_utc_offset() {
+    let store = GooseStore::open_in_memory().unwrap();
+    let report = run_sleep_feature_score_report_for_store_with_utc_offset(
+        &store,
+        "test-db",
+        "2026-06-09T22:00:00Z",
+        "2026-06-10T06:00:00Z",
+        SleepFeatureScoreOptions {
+            min_owned_captures_per_summary: 1,
+            require_trusted_evidence: true,
+            sleep_need_minutes: 240.0,
+            low_motion_threshold_0_to_1: 0.05,
+            disturbance_motion_threshold_0_to_1: 0.20,
+            target_midpoint_minutes_since_midnight: 180.0,
+        },
+        Some(36_000.0),
+    )
+    .unwrap();
+    assert!(!report.pass);
+    assert!(
+        report
+            .issues
+            .iter()
+            .any(|issue| issue == "utc_offset_minutes_invalid")
+    );
 }
 
 #[test]

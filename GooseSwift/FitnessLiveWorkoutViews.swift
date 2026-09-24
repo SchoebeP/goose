@@ -532,7 +532,7 @@ struct FitnessRingsPage: View {
   }
 
   private var standHours: Int {
-    min(12, max(1, Int(elapsed / 3600) + 9))
+    min(12, max(0, Int(elapsed / 3600)))
   }
 }
 

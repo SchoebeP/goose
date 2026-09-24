@@ -78,11 +78,13 @@ fn raw_motion_step_estimator_matches_counted_steps_without_writing_metrics() {
 #[test]
 fn raw_motion_step_estimator_writes_validated_local_estimate_metric_when_requested() {
     let store = GooseStore::open_in_memory().unwrap();
+    // Peaks 40 samples apart: a plausible 120 spm cadence at the default
+    // field-verified 100 Hz sample rate.
     import_raw_motion_step_frame(
         &store,
         "user-owned-capture",
         "2026-06-02T12:00:00Z",
-        &[10, 25, 40, 55, 70],
+        &[30, 70],
     );
 
     let report = run_raw_motion_step_estimate_for_store(
@@ -93,8 +95,8 @@ fn raw_motion_step_estimator_writes_validated_local_estimate_metric_when_request
         RawMotionStepEstimateOptions {
             min_owned_captures_per_summary: 1,
             require_trusted_evidence: true,
-            manual_step_delta: Some(5),
-            official_whoop_step_delta: Some(5),
+            manual_step_delta: Some(2),
+            official_whoop_step_delta: Some(2),
             tolerance_steps: 0,
             label_provenance: Some(json!({
                 "source": "manual_plus_official_app",
@@ -126,12 +128,12 @@ fn raw_motion_step_estimator_writes_validated_local_estimate_metric_when_request
         .unwrap()
         .unwrap();
     assert_eq!(metric.source_kind, "local_estimate");
-    assert_eq!(metric.steps, Some(5));
-    assert_eq!(metric.average_cadence_spm, Some(150.0));
+    assert_eq!(metric.steps, Some(2));
+    assert_eq!(metric.average_cadence_spm, Some(120.0));
     assert_eq!(metric.confidence, 0.65);
     let inputs: serde_json::Value = serde_json::from_str(&metric.inputs_json).unwrap();
-    assert_eq!(inputs["manual_step_delta_label"], 5);
-    assert_eq!(inputs["official_whoop_step_delta_label"], 5);
+    assert_eq!(inputs["manual_step_delta_label"], 2);
+    assert_eq!(inputs["official_whoop_step_delta_label"], 2);
     assert_eq!(
         inputs["label_provenance"]["official_labels_are_labels"],
         true
@@ -204,7 +206,7 @@ fn raw_motion_step_estimator_requires_validation_labels_before_writing_metric() 
         &store,
         "user-owned-capture",
         "2026-06-02T12:00:00Z",
-        &[10, 25, 40, 55, 70],
+        &[30, 70],
     );
 
     let report = run_raw_motion_step_estimate_for_store(
@@ -224,7 +226,7 @@ fn raw_motion_step_estimator_requires_validation_labels_before_writing_metric() 
     .unwrap();
 
     assert!(!report.pass);
-    assert_eq!(report.estimated_steps, Some(5));
+    assert_eq!(report.estimated_steps, Some(2));
     assert_eq!(report.promotion_status, "candidate_unvalidated");
     assert!(!report.user_visible_value_allowed);
     assert_eq!(report.daily_metric_id, None);
@@ -299,6 +301,16 @@ fn raw_motion_step_estimator_surfaces_truncated_single_axis_candidates_without_p
             .any(|flag| flag == "partial_axis_motion_estimator")
     );
     assert_eq!(store.table_count("daily_activity_metrics").unwrap(), 0);
+}
+
+#[test]
+fn raw_motion_step_estimator_defaults_match_field_verified_accelerometer_rate() {
+    // Field-verified on this band: type-43 sub==41 accelerometer streams at
+    // ~100 Hz. The spacing keeps the 0.2 s peak debounce the old 50 Hz/10
+    // pair implied.
+    let options = RawMotionStepEstimateOptions::default();
+    assert_eq!(options.sample_rate_hz, 100.0);
+    assert_eq!(options.min_peak_spacing_samples, 20);
 }
 
 fn import_raw_motion_step_frame(

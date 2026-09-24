@@ -217,12 +217,12 @@ fn bridge_validates_historical_sync_physical_evidence() {
             ],
             "command_events": [
                 {"command": "send_historical_data", "sequence": 4, "response_observed": true, "capture_session_id": "strap-capture-2026-01-01"},
-                {"command": "historical_data_result", "sequence": 8, "response_observed": true, "capture_session_id": "strap-capture-2026-01-01"}
+                {"command": "historical_data_result", "sequence": 7, "response_observed": true, "capture_session_id": "strap-capture-2026-01-01"}
             ],
             "metadata_events": [
                 {"name": "HistoryStart", "sequence": 5, "capture_session_id": "strap-capture-2026-01-01"},
                 {"name": "HistoryEnd", "sequence": 6, "capture_session_id": "strap-capture-2026-01-01"},
-                {"name": "HistoryComplete", "sequence": 7, "capture_session_id": "strap-capture-2026-01-01"}
+                {"name": "HistoryComplete", "sequence": 8, "capture_session_id": "strap-capture-2026-01-01"}
             ],
             "timestamp_evidence": [
                 {
@@ -254,8 +254,8 @@ fn bridge_validates_historical_sync_physical_evidence() {
                 {"evidence_id": "physical-raw-5", "sha256": "0000000000000000000000000000000000000000000000000000000000000005", "observation_kind": "command_event", "observation_name": "send_historical_data", "sequence": 4, "capture_session_id": "strap-capture-2026-01-01"},
                 {"evidence_id": "physical-raw-6", "sha256": "0000000000000000000000000000000000000000000000000000000000000006", "observation_kind": "metadata_event", "observation_name": "history_start", "sequence": 5, "capture_session_id": "strap-capture-2026-01-01"},
                 {"evidence_id": "physical-raw-7", "sha256": "0000000000000000000000000000000000000000000000000000000000000007", "observation_kind": "metadata_event", "observation_name": "history_end", "sequence": 6, "capture_session_id": "strap-capture-2026-01-01"},
-                {"evidence_id": "physical-raw-8", "sha256": "0000000000000000000000000000000000000000000000000000000000000008", "observation_kind": "metadata_event", "observation_name": "history_complete", "sequence": 7, "capture_session_id": "strap-capture-2026-01-01"},
-                {"evidence_id": "physical-raw-9", "sha256": "0000000000000000000000000000000000000000000000000000000000000009", "observation_kind": "command_event", "observation_name": "historical_data_result", "sequence": 8, "capture_session_id": "strap-capture-2026-01-01"},
+                {"evidence_id": "physical-raw-8", "sha256": "0000000000000000000000000000000000000000000000000000000000000008", "observation_kind": "command_event", "observation_name": "historical_data_result", "sequence": 7, "capture_session_id": "strap-capture-2026-01-01"},
+                {"evidence_id": "physical-raw-9", "sha256": "0000000000000000000000000000000000000000000000000000000000000009", "observation_kind": "metadata_event", "observation_name": "history_complete", "sequence": 8, "capture_session_id": "strap-capture-2026-01-01"},
                 {"evidence_id": "physical-raw-10", "sha256": "0000000000000000000000000000000000000000000000000000000000000010", "observation_kind": "timestamp_evidence", "observation_name": "raw_motion_k21:raw_motion_k21", "capture_session_id": "strap-capture-2026-01-01"},
                 {"evidence_id": "physical-raw-11", "sha256": "0000000000000000000000000000000000000000000000000000000000000011", "observation_kind": "timestamp_evidence", "observation_name": "normal_history:heart_rate", "capture_session_id": "strap-capture-2026-01-01"}
             ]
@@ -916,6 +916,15 @@ fn bridge_exposes_command_definitions_for_device_and_debug_controls() {
 
 #[test]
 fn bridge_runs_ui_coverage_audit_for_debug_coverage_surface() {
+    // Pinned to sha256 digests of the apk-ui-inventory artifact, which only
+    // exists in the original monorepo; logic coverage lives in
+    // ui_coverage_tests.rs via tempdir fixtures.
+    let coverage_map = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../apk-ui-inventory/coverage-map.json");
+    if !coverage_map.exists() {
+        eprintln!("skipping bridge_runs_ui_coverage_audit_for_debug_coverage_surface: apk-ui-inventory artifact absent from this checkout");
+        return;
+    }
     let response = request(serde_json::json!({
         "schema": "goose.bridge.request.v1",
         "request_id": "ui-coverage-1",
@@ -3027,6 +3036,11 @@ fn bridge_writes_validated_raw_motion_step_estimate_as_local_activity_metric() {
             "end": "2026-06-02T12:01:00Z",
             "min_owned_captures": 1,
             "require_trusted_evidence": true,
+            // The k10 fixture is a 50 Hz-era synthetic (peaks 15 samples
+            // apart); pass its rate explicitly now that the bridge defaults
+            // to the field-verified 100 Hz.
+            "sample_rate_hz": 50.0,
+            "min_peak_spacing_samples": 10,
             "manual_step_delta": 5,
             "official_whoop_step_delta": 5,
             "tolerance_steps": 0,
@@ -3066,6 +3080,25 @@ fn bridge_writes_validated_raw_motion_step_estimate_as_local_activity_metric() {
         provenance["official_labels_policy"],
         "validation_label_only"
     );
+}
+
+#[test]
+fn bridge_raw_motion_step_estimate_defaults_to_field_verified_100hz() {
+    let tempdir = tempfile::tempdir().unwrap();
+    let db = tempdir.path().join("goose.sqlite");
+    let db_path = db.display().to_string();
+
+    let response = request(serde_json::json!({
+        "schema": "goose.bridge.request.v1",
+        "request_id": "raw-motion-step-estimate-defaults",
+        "method": "metrics.raw_motion_step_estimate",
+        "args": { "database_path": db_path }
+    }));
+
+    assert!(response.ok, "{:?}", response.error);
+    let report = response.result.unwrap();
+    assert_eq!(report["sample_rate_hz"], 100.0);
+    assert_eq!(report["min_peak_spacing_samples"], 20);
 }
 
 #[test]

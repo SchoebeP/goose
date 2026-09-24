@@ -1251,7 +1251,7 @@ pub fn command_evidence_from_emulator_log_text(
     let mut issues = Vec::new();
     let mut pending_writes = Vec::<PendingEmulatorCommandWrite>::new();
     let mut accumulators = BTreeMap::<String, EmulatorCommandEvidenceAccumulator>::new();
-    let mut seen_responses = BTreeSet::<String>::new();
+    let mut paired_responses = BTreeSet::<String>::new();
 
     for (index, line) in lines.iter().enumerate() {
         let line_no = index + 1;
@@ -1267,6 +1267,10 @@ pub fn command_evidence_from_emulator_log_text(
                     continue;
                 }
             };
+            if !parsed.header_crc_valid || !parsed.payload_crc_valid {
+                issues.push(format!("emulator_write_crc_invalid:{}", write.line_no));
+                continue;
+            }
             let Some((command_number, sequence)) = parsed_command_write(&parsed) else {
                 issues.push(format!(
                     "emulator_write_not_command_payload:{}:{}",
@@ -1299,10 +1303,6 @@ pub fn command_evidence_from_emulator_log_text(
         let Some(response) = emulator_command_response_record(line_no, message) else {
             continue;
         };
-        let response_key = normalize_hex(&response.frame_hex);
-        if !seen_responses.insert(response_key) {
-            continue;
-        }
         let parsed = match parse_frame_hex(DeviceType::Goose, &response.frame_hex) {
             Ok(parsed) => parsed,
             Err(error) => {
@@ -1313,6 +1313,13 @@ pub fn command_evidence_from_emulator_log_text(
                 continue;
             }
         };
+        if !parsed.header_crc_valid || !parsed.payload_crc_valid {
+            issues.push(format!(
+                "emulator_response_crc_invalid:{}",
+                response.line_no
+            ));
+            continue;
+        }
         let Some((response_to_command, origin_sequence, result_code)) =
             parsed_command_response(&parsed)
         else {
@@ -1323,15 +1330,20 @@ pub fn command_evidence_from_emulator_log_text(
             ));
             continue;
         };
+        let response_key = normalize_hex(&response.frame_hex);
         let Some(pending_index) = pending_writes.iter().position(|write| {
             write.command_number == response_to_command && write.sequence == origin_sequence
         }) else {
+            if paired_responses.contains(&response_key) {
+                continue;
+            }
             issues.push(format!(
                 "emulator_response_unpaired:{}:command={response_to_command}:sequence={origin_sequence}",
                 response.line_no
             ));
             continue;
         };
+        paired_responses.insert(response_key);
         let pending = pending_writes.remove(pending_index);
         let Some(accumulator) = accumulators.get_mut(&pending.command) else {
             issues.push(format!(
@@ -1516,6 +1528,12 @@ fn emulator_log_issue_next_action(issue: &str) -> (&'static str, String) {
             "official_write_frame_parseable",
             "Recapture or repair the official app write frame so Goose can parse it.".to_string(),
         )
+    } else if issue.starts_with("emulator_write_crc_invalid:") {
+        (
+            "official_frame_crc_valid",
+            "Recapture the official app write; the logged frame bytes failed CRC validation."
+                .to_string(),
+        )
     } else if issue.starts_with("emulator_write_not_command_payload:") {
         (
             "official_command_write_frame_required",
@@ -1532,6 +1550,12 @@ fn emulator_log_issue_next_action(issue: &str) -> (&'static str, String) {
         (
             "official_response_frame_parseable",
             "Recapture or repair the strap response frame so Goose can parse it.".to_string(),
+        )
+    } else if issue.starts_with("emulator_response_crc_invalid:") {
+        (
+            "official_response_frame_crc_valid",
+            "Recapture the strap response; the logged frame bytes failed CRC validation."
+                .to_string(),
         )
     } else if issue.starts_with("emulator_response_not_command_response:") {
         (
@@ -2610,7 +2634,7 @@ fn emulator_command_response_frame_hex(message: &str) -> Option<String> {
     if !message.contains("Notify command_from_strap ") || !message.contains("queued=true:") {
         return None;
     }
-    let (_, value) = message.rsplit_once(':')?;
+    let (_, value) = message.split_once("queued=true:")?;
     normalize_emulator_hex(value)
 }
 

@@ -26,6 +26,10 @@ extension GooseBLEClient {
   }
 
   func applyBatteryLevel(_ rawLevel: Int, capturedAt: Date, sourceTitle: String) {
+    if !Thread.isMainThread {
+      DispatchQueue.main.async { [weak self] in self?.applyBatteryLevel(rawLevel, capturedAt: capturedAt, sourceTitle: sourceTitle) }
+      return
+    }
     let normalizedLevel = min(max(rawLevel, 0), 100)
     let previousSample = lastBatteryLevelSample
     batteryLevelPercent = normalizedLevel
@@ -89,6 +93,10 @@ extension GooseBLEClient {
     previousSample: (percent: Int, capturedAt: Date)?,
     capturedAt: Date
   ) {
+    if !Thread.isMainThread {
+      DispatchQueue.main.async { [weak self] in self?.updateBatteryChargingInference(currentPercent: currentPercent, previousSample: previousSample, capturedAt: capturedAt) }
+      return
+    }
     guard let previousSample else {
       return
     }
@@ -139,11 +147,17 @@ extension GooseBLEClient {
   }
 
   func applyBatteryStatus(_ status: BatteryLevelStatus, rawValue: Data, capturedAt: Date) {
-    // WHOOP 4.0: this bit-packed "battery status" characteristic uses the 5.0
-    // layout and decodes to garbage here — it reported 10/36% (and wrong charging)
-    // against a real 96% while charging. Ignore its level AND charging entirely;
-    // the standard 0x2A19 characteristic gives the percent and CHARGING_*/5V
-    // events give the charging state.
+    // Tiger 10.1 pattern: @Published mutations must happen on main.
+    if !Thread.isMainThread {
+      DispatchQueue.main.async { [weak self] in self?.applyBatteryStatus(status, rawValue: rawValue, capturedAt: capturedAt) }
+      return
+    }
+    // WHOOP 4.0 (field-verified, KEEP): this bit-packed "battery status"
+    // characteristic uses the 5.0 layout and decodes to garbage here — it
+    // reported 10/36% (and wrong charging) against a real 96% while charging.
+    // Ignore its level AND charging entirely; the standard 0x2A19
+    // characteristic gives the percent and CHARGING_*/5V events give the
+    // charging state.
     _ = status
     _ = rawValue
     batteryUpdatedAt = capturedAt
@@ -156,6 +170,10 @@ extension GooseBLEClient {
     characteristic: CBCharacteristic,
     capturedAt: Date
   ) -> Bool {
+    if !Thread.isMainThread {
+      DispatchQueue.main.async { [weak self] in self?.handleStandardReadValue(value, characteristic: characteristic, capturedAt: capturedAt) }
+      return true
+    }
     switch characteristic.uuid {
     case batteryLevelCharacteristicID:
       guard let raw = value.first else {
@@ -417,7 +435,12 @@ extension GooseBLEClient {
     fallbackName: String? = nil,
     disconnect: Bool = false
   ) {
+    if !Thread.isMainThread {
+      DispatchQueue.main.async { [weak self] in self?.rejectNonWhoopPeripheral(peripheral, reason: reason, fallbackName: fallbackName, disconnect: disconnect) }
+      return
+    }
     let name = peripheral.name ?? fallbackName ?? "unknown"
+    if isScanning { scanNeighborCount += 1 }
     record(
       level: .warn,
       source: "ble",
@@ -454,11 +477,19 @@ extension GooseBLEClient {
   }
 
   func updateActiveDevice(_ peripheral: CBPeripheral, fallbackName: String? = nil) {
+    if !Thread.isMainThread {
+      DispatchQueue.main.async { [weak self] in self?.updateActiveDevice(peripheral, fallbackName: fallbackName) }
+      return
+    }
     activeDeviceIdentifier = peripheral.identifier
     updateActiveDeviceName(Self.sanitizedWhoopDisplayName(peripheral.name ?? fallbackName ?? rememberedDeviceName ?? "WHOOP strap"))
   }
 
   func resetLiveDeviceFieldsIfNeeded(for peripheral: CBPeripheral) {
+    if !Thread.isMainThread {
+      DispatchQueue.main.async { [weak self] in self?.resetLiveDeviceFieldsIfNeeded(for: peripheral) }
+      return
+    }
     guard activeDeviceIdentifier != peripheral.identifier else {
       return
     }
@@ -871,7 +902,7 @@ extension GooseBLEClient {
   }
 
   static func historicalDataResultPayload(fromHistoryEndMetadataPayload payload: [UInt8]) -> [UInt8]? {
-    guard payload.count > 21 else {
+    guard payload.count >= 21 else {
       return nil
     }
 
@@ -940,6 +971,69 @@ extension GooseBLEClient {
     return Array(bytes[8..<(bytes.count - 4)])
   }
 
+  // Gen4 (WHOOP 4.0) deframer: 4-byte header [0xaa, len_lo, len_hi, crc8] where
+  // len = payload.count + 4 (no header byte beyond the SOF/length/crc8). The
+  // inner payload (packet type + body) is generation-independent, so once
+  // deframed the existing payload handlers work unchanged.
+  static func gen4Frames(in data: Data) -> [Data] {
+    var bytes = Array(data)
+    var frames: [Data] = []
+    while let startIndex = bytes.firstIndex(of: 0xaa) {
+      if startIndex > 0 {
+        bytes.removeFirst(startIndex)
+      }
+      guard bytes.count >= 4 else {
+        break
+      }
+      let declaredLength = Int(UInt16(bytes[1]) | UInt16(bytes[2]) << 8)
+      guard declaredLength >= 4 else {
+        bytes.removeFirst()
+        continue
+      }
+      let expectedLength = declaredLength + 4
+      guard bytes.count >= expectedLength else {
+        break
+      }
+      frames.append(Data(bytes[0..<expectedLength]))
+      bytes.removeFirst(expectedLength)
+    }
+    return frames
+  }
+
+  static func gen4Payload(in frame: Data) -> [UInt8]? {
+    let bytes = Array(frame)
+    guard bytes.count >= 8 else {
+      return nil
+    }
+    let declaredLength = Int(UInt16(bytes[1]) | UInt16(bytes[2]) << 8)
+    let expectedLength = declaredLength + 4
+    guard bytes.count == expectedLength, declaredLength >= 4 else {
+      return nil
+    }
+    return Array(bytes[4..<(bytes.count - 4)])
+  }
+
+  // Generation-aware deframing for the Swift-side command/response state
+  // machines (clock, alarm, sensor, historical, debug). Dispatches on the
+  // connected strap's command characteristic generation.
+  func strapFrames(in data: Data) -> [Data] {
+    switch activeCommandGeneration {
+    case .gen4:
+      return Self.gen4Frames(in: data)
+    case .gen5, .none:
+      return Self.v5Frames(in: data)
+    }
+  }
+
+  func strapPayload(in frame: Data) -> [UInt8]? {
+    switch activeCommandGeneration {
+    case .gen4:
+      return Self.gen4Payload(in: frame)
+    case .gen5, .none:
+      return Self.v5Payload(in: frame)
+    }
+  }
+
   static func buildV5CommandFrame(sequence: UInt8, command: UInt8, data: [UInt8]) -> Data {
     var payload = [V5PacketType.command, sequence, command]
     payload.append(contentsOf: data)
@@ -967,6 +1061,66 @@ extension GooseBLEClient {
     frame.append(UInt8((payloadCRC >> 16) & 0xff))
     frame.append(UInt8((payloadCRC >> 24) & 0xff))
     return Data(frame)
+  }
+
+  // WHOOP 4.0 (Gen4) command frame: 4-byte header [0xaa, len_lo, len_hi,
+  // crc8(len bytes)] + payload + crc32(payload) little-endian, where
+  // len = payload.count + 4 and the payload is NOT zero-padded. Verified against
+  // the openwhoop reference: buildGen4CommandFrame(0, 35, [0x00]) ==
+  // aa0800a823002300ada86a2d.
+  //
+  // Gen4 frames are intentionally unpadded — unlike `buildV5CommandFrame`,
+  // which rounds the payload up to a 4-byte boundary. Confirmed from a
+  // PacketLogger capture of the official iOS app: it emits `cmd 120` with a
+  // 65-byte args field (not a multiple of 4), proving no padding is applied,
+  // and unpadded frames round-trip cleanly with the strap.
+  static func buildGen4CommandFrame(sequence: UInt8, command: UInt8, data: [UInt8]) -> Data {
+    var payload = [V5PacketType.command, sequence, command]
+    payload.append(contentsOf: data)
+
+    let payloadCRC = crc32(payload)
+    let declaredLength = UInt16(payload.count + 4)
+    let lengthLow = UInt8(declaredLength & 0xff)
+    let lengthHigh = UInt8((declaredLength >> 8) & 0xff)
+    var frame: [UInt8] = [
+      0xaa,
+      lengthLow,
+      lengthHigh,
+      crc8([lengthLow, lengthHigh]),
+    ]
+    frame.append(contentsOf: payload)
+    frame.append(UInt8(payloadCRC & 0xff))
+    frame.append(UInt8((payloadCRC >> 8) & 0xff))
+    frame.append(UInt8((payloadCRC >> 16) & 0xff))
+    frame.append(UInt8((payloadCRC >> 24) & 0xff))
+    return Data(frame)
+  }
+
+  // Picks the correct command frame format for the connected strap generation.
+  func buildCommandFrame(sequence: UInt8, command: UInt8, data: [UInt8]) -> Data {
+    switch activeCommandGeneration {
+    case .gen4:
+      return Self.buildGen4CommandFrame(sequence: sequence, command: command, data: data)
+    case .gen5, .none:
+      return Self.buildV5CommandFrame(sequence: sequence, command: command, data: data)
+    }
+  }
+
+  // CRC-8 with polynomial 0x07, initial value 0, non-reflected (used for the
+  // Gen4 frame header over the two length bytes).
+  static func crc8(_ bytes: [UInt8]) -> UInt8 {
+    var crc: UInt8 = 0
+    for byte in bytes {
+      crc ^= byte
+      for _ in 0..<8 {
+        if crc & 0x80 != 0 {
+          crc = (crc << 1) ^ 0x07
+        } else {
+          crc <<= 1
+        }
+      }
+    }
+    return crc
   }
 
   static func crc16Modbus(_ bytes: [UInt8]) -> UInt16 {
@@ -1007,8 +1161,8 @@ final class WhoopCloudForwarder {
 
   /// Self-hosted ingest endpoint (token-protected; no basic auth on this path).
   private let endpoint = URL(string: "https://latenightgames.fr/whoop/ingest/samples")!
-  // SEC1: token lives in Info.plist (never in source/history).
-  private let token = Bundle.main.object(forInfoDictionaryKey: "WHOOP_INGEST_TOKEN") as? String ?? ""
+  // SEC1: token lives in Info.plist (never in source/history) via IngestCredentials.
+  private var token: String { IngestCredentials.token }
   private let queue = DispatchQueue(label: "com.goose.swift.cloud-forward", qos: .utility)
   private let iso = ISO8601DateFormatter()
   private var lastSent = Date.distantPast
@@ -1019,6 +1173,28 @@ final class WhoopCloudForwarder {
   private var frameBuffers: [String: [UInt8]] = [:]   // per-characteristic frame reassembly
   private var pendingFrames: [String] = []            // complete-frame hex awaiting POST
   private var lastFrameFlush = Date.distantPast
+  private var flushTimer: DispatchSourceTimer?
+
+  private init() {
+    // Periodic flush so tail batches (the last logs before a crash, the last
+    // frames before going out of range) upload even when no new data arrives.
+    let timer = DispatchSource.makeTimerSource(queue: queue)
+    timer.schedule(deadline: .now() + 3, repeating: 3)
+    timer.setEventHandler { [weak self] in self?.timedFlushOnQueue() }
+    timer.resume()
+    flushTimer = timer
+  }
+
+  private func timedFlushOnQueue() {
+    let now = Date()
+    if !pendingFrames.isEmpty, now.timeIntervalSince(lastFrameFlush) >= 3 {
+      flushFramesOnQueue(now)
+    }
+    if !pendingLogs.isEmpty, now.timeIntervalSince(lastLogFlush) >= 5 {
+      flushLogsOnQueue(now)
+    }
+    drainOutbox()
+  }
 
   /// Enable/disable the cloud feed (defaults on; flip via UserDefaults "whoopCloudForwarding").
   var isEnabled: Bool {
@@ -1095,10 +1271,25 @@ final class WhoopCloudForwarder {
       var i = 0
       while i + 4 <= buf.count {
         if buf[i] != 0xAA { i += 1; continue }
+        // Header crc8 (poly 0x07 over the two length bytes, per the GEN4 frame
+        // builder): a payload byte that happens to be 0xAA fails this and is
+        // skipped before its bogus declared length can desync the scanner.
+        if GooseBLEClient.crc8Gen4([buf[i + 1], buf[i + 2]]) != buf[i + 3] { i += 1; continue }
         let len = Int(buf[i + 1]) | (Int(buf[i + 2]) << 8)
+        if len < 4 { i += 1; continue }              // must at least hold the trailing CRC-32
         let end = i + 4 + len
         if end > buf.count { break }                 // frame not fully arrived yet
         let frame = Array(buf[i..<end])
+        // Trailing CRC-32 check. Real captures off this band validate over the
+        // body only (frame[4..<count-4], matching the Rust parser); the
+        // header-inclusive range from community docs is accepted as fallback.
+        let tail = GooseBLEClient.readUInt32LE(frame, at: frame.count - 4) ?? 0
+        let body = Array(frame[4..<(frame.count - 4)])
+        if GooseBLEClient.crc32(body) != tail,
+           GooseBLEClient.crc32(Array(frame[0..<(frame.count - 4)])) != tail {
+          i += 1                                     // false header — resync
+          continue
+        }
         let type = frame.count > 4 ? frame[4] : 0
         if type == 40 || type == 43 || type == 48 || type == 36 || type == 47 {
           // HR / optical / event / cmd-resp / historical-backfill
@@ -1107,7 +1298,16 @@ final class WhoopCloudForwarder {
         i = end
       }
       if i > 0 { buf.removeFirst(i) }
-      if buf.count > 16384 { buf.removeFirst(buf.count - 8192) }     // guard against runaway
+      if buf.count > 16384 {                         // guard against runaway
+        // A crc8-valid false header with a huge declared length can pin the
+        // scan at 0; drop to the next sync candidate so any valid frames
+        // buffered behind it survive, and log — this should be rare.
+        let next = buf.dropFirst().firstIndex(of: 0xAA) ?? buf.count
+        buf.removeFirst(next)
+        self.ingestLog(level: "warn", source: "cloud.frames",
+                       title: "frame_buffer.overflow_trim",
+                       body: "dropped \(next) bytes on \(uuid)", at: Date())
+      }
       self.frameBuffers[uuid] = buf
       let now = Date()
       if self.pendingFrames.count >= 30
@@ -1115,6 +1315,14 @@ final class WhoopCloudForwarder {
         self.flushFramesOnQueue(now)
       }
     }
+  }
+
+  /// Drop all partial frame-reassembly state. The BLE client must call this on
+  /// connect and disconnect (and dead-link recovery): a frame stranded
+  /// mid-reassembly by a dropped link would otherwise absorb the next
+  /// connection's bytes into a chimera frame and desync the scanner.
+  func resetFrameReassembly() {
+    queue.async { self.frameBuffers.removeAll() }
   }
 
   // MARK: Disk-backed outbox — no internet must never lose biometric frames
@@ -1129,7 +1337,16 @@ final class WhoopCloudForwarder {
   }()
   private var outboxSeq = 0
   private let maxOutboxFiles = 4000   // ~hours of backlog; oldest dropped beyond this
-
+  /// True while a frames POST (live batch or outbox drain) is outstanding.
+  /// During a history sync the band produces batches faster than the uplink
+  /// can confirm them; without this gate every 30-frame batch spawned another
+  /// URLSession task and the in-flight request bodies grew without bound
+  /// (memory jetsam). With it, at most ONE frames POST is in flight and any
+  /// batch that arrives meanwhile is spilled to the disk outbox — durable,
+  /// bounded by maxOutboxFiles, drained in order once the uplink catches up.
+  private var framesPostInFlight = false
+  /// Count of batches spilled to disk because a POST was already in flight.
+  private var inFlightSpillCount = 0
   /// Build the POST body, tagging it with the capture time so frames that upload
   /// late (after an outage) are stamped at when they happened, not when they land.
   private func framesBody(_ frames: [String]) -> Data? {
@@ -1139,8 +1356,8 @@ final class WhoopCloudForwarder {
     ])
   }
 
-  private func postFrames(_ body: Data, completion: @escaping (Bool) -> Void) {
-    var req = URLRequest(url: Self.framesEndpoint)
+  private func post(_ body: Data, to url: URL, completion: @escaping (Bool) -> Void) {
+    var req = URLRequest(url: url)
     req.httpMethod = "POST"
     req.setValue("application/json", forHTTPHeaderField: "Content-Type")
     req.setValue(token, forHTTPHeaderField: "X-Ingest-Token")
@@ -1161,31 +1378,54 @@ final class WhoopCloudForwarder {
     lastFrameFlush = now
     if batch.isEmpty { drainOutbox(); return }
     guard let body = framesBody(batch) else { return }
-    postFrames(body) { [weak self] ok in
+    guard !framesPostInFlight else {
+      // Uplink slower than the band (typical mid history-sync): never stack
+      // unbounded in-flight bodies — spill to disk, replayed in order by
+      // drainOutbox. Biometric frames are preserved, memory stays O(1 body).
+      persistFailedBody(body, kind: "frames")
+      inFlightSpillCount += 1
+      if inFlightSpillCount == 1 || inFlightSpillCount.isMultiple(of: 100) {
+        self.ingestLog(
+          level: "info", source: "cloud.forward", title: "frames.spilled_to_outbox",
+          body: "in_flight_spills=\(inFlightSpillCount) (uplink slower than frame production; replayed from disk outbox)",
+          at: now
+        )
+      }
+      return
+    }
+    framesPostInFlight = true
+    post(body, to: Self.framesEndpoint) { [weak self] ok in
       self?.queue.async {
-        if ok { self?.drainOutbox() } else { self?.persistFailedBody(body) }
+        self?.framesPostInFlight = false
+        if ok { self?.drainOutbox() } else { self?.persistFailedBody(body, kind: "frames") }
       }
     }
   }
 
   /// Persist a body that failed to upload, ordered by time for in-order replay.
-  private func persistFailedBody(_ body: Data) {
+  /// `kind` selects the replay endpoint ("frames" or "samples").
+  private func persistFailedBody(_ body: Data, kind: String) {
     outboxSeq += 1
-    let name = String(format: "%015.0f-%05d.json", Date().timeIntervalSince1970 * 1000, outboxSeq)
+    let name = String(format: "%@-%015.0f-%05d.json", kind, Date().timeIntervalSince1970 * 1000, outboxSeq)
     try? body.write(to: Self.outboxDir.appendingPathComponent(name))
     trimOutboxIfNeeded()
   }
 
   /// Send the oldest backlog file; on success delete it and continue draining,
   /// on failure stop (still offline) and leave it for the next attempt.
+  /// Shares the single-POST gate with the live path so a drain chain and a live
+  /// flush can never run concurrent uploads.
   private func drainOutbox() {
-    let fm = FileManager.default
+    guard !framesPostInFlight else { return }
+     let fm = FileManager.default
     guard let url = (try? fm.contentsOfDirectory(at: Self.outboxDir, includingPropertiesForKeys: nil))?
       .filter({ $0.pathExtension == "json" })
       .sorted(by: { $0.lastPathComponent < $1.lastPathComponent }).first else { return }
     guard let body = try? Data(contentsOf: url) else { try? fm.removeItem(at: url); return }
-    postFrames(body) { [weak self] ok in
+    framesPostInFlight = true
+    post(body, to: Self.framesEndpoint) { [weak self] ok in
       self?.queue.async {
+        self?.framesPostInFlight = false
         guard ok else { return }
         try? fm.removeItem(at: url)
         self?.drainOutbox()
@@ -1235,17 +1475,24 @@ final class WhoopCloudForwarder {
     }
   }
 
-  /// POST the batched log lines to /ingest/logs. Call on `queue` only.
+  /// POST the batched log lines to /ingest/logs. A failed batch is re-queued
+  /// (capped) so transient outages don't lose the tail of the log — exactly the
+  /// lines needed when debugging a dead link. Call on `queue` only.
   private func flushLogsOnQueue(_ now: Date) {
     let batch = pendingLogs
     pendingLogs = []
     lastLogFlush = now
-    guard !batch.isEmpty else { return }
-    var req = URLRequest(url: Self.logsEndpoint)
-    req.httpMethod = "POST"
-    req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-    req.setValue(token, forHTTPHeaderField: "X-Ingest-Token")
-    req.httpBody = try? JSONSerialization.data(withJSONObject: ["logs": batch])
-    URLSession.shared.dataTask(with: req).resume()
+    guard !batch.isEmpty,
+          let body = try? JSONSerialization.data(withJSONObject: ["logs": batch]) else { return }
+    post(body, to: Self.logsEndpoint) { [weak self] ok in
+      guard !ok else { return }
+      self?.queue.async {
+        guard let self else { return }
+        self.pendingLogs.insert(contentsOf: batch, at: 0)
+        if self.pendingLogs.count > 500 {
+          self.pendingLogs.removeFirst(self.pendingLogs.count - 250)
+        }
+      }
+    }
   }
 }

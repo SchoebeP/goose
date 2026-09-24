@@ -52,6 +52,11 @@ extension GooseAppModel {
 
   @discardableResult
   func handleDebugCommandDeepLink(_ url: URL) -> Bool {
+#if !DEBUG
+    // Clean builds accept no remote/raw BLE command channel at all — a
+    // Release app must never let an arbitrary URL push bytes to the band.
+    return false
+#else
     guard ["gooseswift", "goose"].contains(url.scheme?.lowercased() ?? ""),
           url.host == "debug-command" else {
       return false
@@ -68,9 +73,27 @@ extension GooseAppModel {
       return true
     }
 
-    ble.record(source: "ui", title: "debug_command.deep_link", body: "\(commandID) payload=\(payloadHex ?? "nil")")
-    _ = ble.sendDebugResearchCommand(id: commandID, payloadHex: payloadHex, source: "deep_link")
+    let normalizedID = commandID.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    guard let command = ble.debugResearchCommands.first(where: { $0.id == normalizedID }) else {
+      ble.setDebugCommandStatus("Unknown debug command: \(commandID)")
+      ble.record(level: .warn, source: "ble.debug_command", title: "deep_link.unknown", body: commandID)
+      return true
+    }
+    guard command.allowsRemoteInvocation else {
+      ble.setDebugCommandStatus("\(command.title) blocked from external deep link")
+      ble.record(
+        level: .warn,
+        source: "ble.debug_command",
+        title: "deep_link.blocked",
+        body: "\(command.id) risk=\(command.risk)"
+      )
+      return true
+    }
+
+    ble.record(source: "ui", title: "debug_command.deep_link", body: "\(command.id) payload=\(payloadHex ?? "nil")")
+    _ = ble.sendDebugResearchCommand(id: command.id, payloadHex: payloadHex, source: "deep_link")
     return true
+#endif
   }
 
   func refreshHeartRateHourlyRanges(for date: Date = Date()) {
@@ -82,7 +105,41 @@ extension GooseAppModel {
     heartRateStorageStatus = snapshot.status
   }
 
+  /// Key for the opt-in "Live Heart Rate on Lock Screen / Dynamic Island" toggle.
+  static let liveHeartRateActivityDefaultsKey = "liveHeartRateActivityEnabled"
+
+  /// Push the band's current live values into the standalone Live Heart Rate
+  /// activity (no-op unless the user enabled it). Safe to call on every HR
+  /// sample and on connection changes — the controller starts/throttles/ends.
+  func syncLiveHeartRateActivity() {
+    let enabled = UserDefaults.standard.bool(forKey: Self.liveHeartRateActivityDefaultsKey)
+    let connected = ble.connectionState == "ready" || ble.connectionState == "connected"
+    let state = LiveHeartRateActivityAttributes.ContentState(
+      bpm: connected ? ble.liveHeartRateBPM : nil,
+      hrvRMSSD: ble.liveHRVRMSSD,
+      source: ble.liveHeartRateSource,
+      connection: ble.connectionState,
+      batteryPercent: ble.batteryLevelPercent,
+      charging: ble.batteryIsCharging ?? false,
+      updatedAt: Date()
+    )
+    LiveHeartRateActivityController.shared.sync(
+      enabled: enabled,
+      deviceName: ble.activeDeviceName,
+      state: state
+    )
+  }
+
   func handleBLEConnectionStateChange(_ state: String) {
+    syncLiveHeartRateActivity()
+    if state != "ready" {
+      // A partial frame stranded by a dropped link must not absorb the next
+      // connection's bytes into a chimera frame — drop all partial state on
+      // disconnect (mirrors resetFrameReassembly() on the cloud path).
+      notificationIngestQueue.async { [weak self] in
+        self?.frameReassemblyBuffers.removeAll()
+      }
+    }
     if overnightGuardActive {
       if state == "ready" {
         resumeOvernightGuardStreamsIfReady(reason: "ble_ready")
@@ -101,8 +158,17 @@ extension GooseAppModel {
       return
     }
     refreshOvernightReadiness(reason: "ble_ready")
-    schedulePassiveActivityCapture(reason: "ble_ready")
+    // Do NOT auto-start passive packet capture on connect. It began a 12-hour,
+    // full-rate capture that persisted every frame to SQLite via the Rust bridge —
+    // the dominant source of UI lag and unbounded database growth — with no user
+    // opt-in. It is also redundant on WHOOP 4.0, where live heart rate already comes
+    // from the standard 180D/2A37 service. Packet capture remains available on demand
+    // from the More tab (startHealthPacketCapture).
     scheduleAutoStartRespiratoryPacketWatchIfNeeded()
+    if ble.canSyncClock {
+      ble.writeClockCommand(.get, syncIfNeeded: true)
+      ble.record(source: "ble.clock", title: "clock.auto_sync.triggered", body: "state=ready")
+    }
   }
 
   func schedulePassiveActivityCapture(reason: String) {
@@ -180,7 +246,10 @@ extension GooseAppModel {
 
     let taskName = "Goose Overnight \(reason)"
     let taskID = UIApplication.shared.beginBackgroundTask(withName: taskName) { [weak self] in
-      Task { @MainActor [weak self] in
+      // Must end the task before the expiration handler returns (deferring to
+      // a later main-actor hop risks watchdog termination). UIKit invokes the
+      // handler on the main thread, so assumeIsolated is valid.
+      MainActor.assumeIsolated {
         self?.expireOvernightGuardCriticalBackgroundTask()
       }
     }

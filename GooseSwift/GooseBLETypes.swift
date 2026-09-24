@@ -118,7 +118,14 @@ struct GooseDebugCommandDefinition: Identifiable, Equatable {
     defaultPayloadHex != nil || !requiresPayloadHex
   }
 
+  var allowsRemoteInvocation: Bool {
+    risk == "read" || risk == "keyed read"
+  }
+
   var remoteURLExample: String {
+    guard allowsRemoteInvocation else {
+      return "Remote invocation disabled"
+    }
     if requiresPayloadHex {
       return "gooseswift://debug-command/\(id)?payload=<hex>"
     }
@@ -146,6 +153,45 @@ struct GooseDebugCommandResponse: Identifiable, Equatable {
     let time = completedAt ?? requestedAt
     let body = responseBodyHex.isEmpty ? "no body" : "body \(responseBodyHex)"
     return "\(status) | \(result) | seq \(sequence) | \(body) | \(time.formatted(date: .omitted, time: .standard))"
+  }
+}
+
+/// X-Ingest-Token for the self-hosted VPS ingest API, shared by every caller.
+/// Overridable at runtime via the "whoopIngestToken" user default so a
+/// server-side rotation never requires committing a new value to the repo:
+///   defaults: Settings → set "whoopIngestToken", or
+///   `xcrun simctl spawn booted defaults write com.pschoebela.goosewhoop whoopIngestToken <new>`
+enum IngestCredentials {
+  /// Rotation override: Documents/ingest-token.txt, pushed onto the device
+  /// over USB/Wi-Fi (devicectl) — survives relaunches, never touches the repo.
+  private static let fileToken: String? = {
+    guard let documents = FileManager.default.urls(
+      for: .documentDirectory, in: .userDomainMask).first else { return nil }
+    let value = try? String(contentsOf: documents.appendingPathComponent("ingest-token.txt"))
+      .trimmingCharacters(in: .whitespacesAndNewlines)
+    return (value?.isEmpty == false) ? value : nil
+  }()
+
+  static var token: String {
+    if let override = UserDefaults.standard.string(forKey: "whoopIngestToken"),
+       !override.isEmpty {
+      // Persist launch-argument overrides (-whoopIngestToken X) so background
+      // relaunches — which carry no launch arguments — keep the rotated token.
+      if UserDefaults.standard.persistentDomain(
+        forName: Bundle.main.bundleIdentifier ?? "")?["whoopIngestToken"] as? String != override {
+        UserDefaults.standard.set(override, forKey: "whoopIngestToken")
+      }
+      return override
+    }
+    if let fileToken { return fileToken }
+    // Last resort: the value injected into Info.plist at build time from the
+    // (git-ignored) GooseSecrets.xcconfig — never committed to source. Without
+    // any of the three sources the feeds stay silent rather than 401-ing.
+    if let plistToken = Bundle.main.object(forInfoDictionaryKey: "WHOOP_INGEST_TOKEN") as? String,
+       !plistToken.isEmpty {
+      return plistToken
+    }
+    return ""
   }
 }
 

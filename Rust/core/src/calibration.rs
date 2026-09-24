@@ -192,6 +192,10 @@ pub fn evaluate_linear_calibration(
     validate_required("algorithm_id", &options.algorithm_id, &mut issues);
     validate_required("algorithm_version", &options.algorithm_version, &mut issues);
     validate_required("split_at", &options.split_at, &mut issues);
+    let split_at_unix_ms = parse_rfc3339_utc_unix_ms(&options.split_at);
+    if !options.split_at.trim().is_empty() && split_at_unix_ms.is_none() {
+        issues.push("split_at is not a UTC RFC3339 timestamp".to_string());
+    }
 
     let mut scoped = Vec::new();
     for record in &dataset.records {
@@ -204,9 +208,12 @@ pub fn evaluate_linear_calibration(
         }
     }
 
-    let (train, holdout): (Vec<_>, Vec<_>) = scoped
-        .into_iter()
-        .partition(|record| record.captured_at.as_str() < options.split_at.as_str());
+    let (train, holdout): (Vec<_>, Vec<_>) = scoped.into_iter().partition(|record| {
+        matches!(
+            (record_captured_at_unix_ms(record), split_at_unix_ms),
+            (Some(captured_ms), Some(split_ms)) if captured_ms < split_ms
+        )
+    });
     let train_count = train.len();
     let holdout_count = holdout.len();
 
@@ -223,7 +230,7 @@ pub fn evaluate_linear_calibration(
         ));
     }
 
-    let leakage_checks = leakage_checks(&train, &holdout, &options.split_at);
+    let leakage_checks = leakage_checks(&train, &holdout, split_at_unix_ms);
     if !leakage_checks.train_rows_before_split {
         issues.push("train rows must be before split_at".to_string());
     }
@@ -487,6 +494,12 @@ fn calibration_issue_scope(issue: &str) -> String {
     if let Some((record_id, _)) = issue.split_once(" missing label_provenance") {
         return record_id.to_string();
     }
+    if issue == "split_at is not a UTC RFC3339 timestamp" {
+        return "split_at".to_string();
+    }
+    if let Some((record_id, _)) = issue.split_once(" captured_at is not a UTC RFC3339 timestamp") {
+        return record_id.to_string();
+    }
     if issue.starts_with("train_count ") || issue == "train rows must be before split_at" {
         return "train".to_string();
     }
@@ -549,6 +562,11 @@ fn calibration_issue_action(issue: &str) -> (&'static str, &'static str) {
         (
             "missing_label_provenance",
             "Attach non-empty provenance JSON that explains how the user-owned label was captured.",
+        )
+    } else if issue.ends_with(" is not a UTC RFC3339 timestamp") {
+        (
+            "timestamp_not_utc_rfc3339",
+            "Normalize split_at and every captured_at to UTC RFC3339 timestamps with a Z suffix before evaluating calibration.",
         )
     } else if issue.starts_with("train_count ") {
         (
@@ -630,6 +648,7 @@ fn calibration_dataset_issue(issue: &str) -> bool {
     issue.starts_with("unsupported dataset schema ")
         || issue.contains(" is required")
         || issue.contains(" prediction is not finite")
+        || issue.ends_with(" is not a UTC RFC3339 timestamp")
 }
 
 fn calibration_label_issue(issue: &str) -> bool {
@@ -795,7 +814,7 @@ fn correlation(x: &[f64], y: &[f64]) -> Option<f64> {
 fn leakage_checks(
     train: &[CalibrationRecord],
     holdout: &[CalibrationRecord],
-    split_at: &str,
+    split_at_unix_ms: Option<i64>,
 ) -> LeakageChecks {
     let train_sessions: BTreeSet<&str> = train
         .iter()
@@ -806,27 +825,45 @@ fn leakage_checks(
         .filter_map(|record| record.session_id.as_deref())
         .collect();
     LeakageChecks {
-        train_rows_before_split: train
-            .iter()
-            .all(|record| record.captured_at.as_str() < split_at),
-        holdout_rows_at_or_after_split: holdout
-            .iter()
-            .all(|record| record.captured_at.as_str() >= split_at),
+        train_rows_before_split: train.iter().all(|record| {
+            matches!(
+                (record_captured_at_unix_ms(record), split_at_unix_ms),
+                (Some(captured_ms), Some(split_ms)) if captured_ms < split_ms
+            )
+        }),
+        holdout_rows_at_or_after_split: holdout.iter().all(|record| {
+            matches!(
+                (record_captured_at_unix_ms(record), split_at_unix_ms),
+                (Some(captured_ms), Some(split_ms)) if captured_ms >= split_ms
+            )
+        }),
         no_session_overlap: train_sessions.is_disjoint(&holdout_sessions),
     }
 }
 
+fn record_captured_at_unix_ms(record: &CalibrationRecord) -> Option<i64> {
+    parse_rfc3339_utc_unix_ms(&record.captured_at)
+}
+
+fn label_band_name(label: f64) -> &'static str {
+    if (0.0..34.0).contains(&label) {
+        "0-33"
+    } else if (34.0..67.0).contains(&label) {
+        "34-66"
+    } else if (67.0..=100.0).contains(&label) {
+        "67-100"
+    } else {
+        "out-of-range"
+    }
+}
+
 fn holdout_bias_by_label_band(holdout: &[CalibrationRecord]) -> Vec<ScoreBandBias> {
-    let bands = [
-        ("0-33", 0.0, 33.0),
-        ("34-66", 34.0, 66.0),
-        ("67-100", 67.0, 100.0),
-    ];
+    let bands = ["0-33", "34-66", "67-100", "out-of-range"];
     let mut result = Vec::new();
-    for (name, min, max) in bands {
+    for name in bands {
         let rows: Vec<_> = holdout
             .iter()
-            .filter(|record| record.label >= min && record.label <= max)
+            .filter(|record| label_band_name(record.label) == name)
             .collect();
         if rows.is_empty() {
             continue;
@@ -848,6 +885,12 @@ fn holdout_bias_by_label_band(holdout: &[CalibrationRecord]) -> Vec<ScoreBandBia
 fn validate_record(record: &CalibrationRecord, issues: &mut Vec<String>) {
     validate_required("record_id", &record.record_id, issues);
     validate_required("captured_at", &record.captured_at, issues);
+    if !record.captured_at.trim().is_empty() && record_captured_at_unix_ms(record).is_none() {
+        issues.push(format!(
+            "{} captured_at is not a UTC RFC3339 timestamp",
+            record.record_id
+        ));
+    }
     validate_required("metric_family", &record.metric_family, issues);
     validate_required("algorithm_id", &record.algorithm_id, issues);
     validate_required("algorithm_version", &record.algorithm_version, issues);
@@ -902,4 +945,65 @@ fn default_min_train_rows() -> usize {
 
 fn default_min_holdout_rows() -> usize {
     1
+}
+
+fn parse_rfc3339_utc_unix_ms(value: &str) -> Option<i64> {
+    let value = value.trim();
+    let date_time = value.strip_suffix('Z')?;
+    let (date, time) = date_time.split_once('T')?;
+    let mut date_parts = date.split('-');
+    let year = date_parts.next()?.parse::<i32>().ok()?;
+    let month = date_parts.next()?.parse::<u32>().ok()?;
+    let day = date_parts.next()?.parse::<u32>().ok()?;
+    if date_parts.next().is_some() {
+        return None;
+    }
+
+    let (time_main, fraction) = time.split_once('.').unwrap_or((time, ""));
+    let mut time_parts = time_main.split(':');
+    let hour = time_parts.next()?.parse::<u32>().ok()?;
+    let minute = time_parts.next()?.parse::<u32>().ok()?;
+    let second = time_parts.next()?.parse::<u32>().ok()?;
+    if time_parts.next().is_some()
+        || !(1..=12).contains(&month)
+        || !(1..=31).contains(&day)
+        || hour > 23
+        || minute > 59
+        || second > 60
+    {
+        return None;
+    }
+
+    let millis = if fraction.is_empty() {
+        0
+    } else {
+        let digits = fraction
+            .chars()
+            .take_while(|character| character.is_ascii_digit())
+            .take(3)
+            .collect::<String>();
+        if digits.is_empty() {
+            0
+        } else {
+            format!("{digits:0<3}").parse::<i64>().ok()?
+        }
+    };
+
+    let days = days_from_civil(year, month, day);
+    let seconds = days * 86_400
+        + i64::from(hour) * 3_600
+        + i64::from(minute) * 60
+        + i64::from(second.min(59));
+    Some(seconds * 1_000 + millis)
+}
+
+fn days_from_civil(year: i32, month: u32, day: u32) -> i64 {
+    let year = year - i32::from(month <= 2);
+    let era = if year >= 0 { year } else { year - 399 } / 400;
+    let yoe = year - era * 400;
+    let month = month as i32;
+    let day = day as i32;
+    let doy = (153 * (month + if month > 2 { -3 } else { 9 }) + 2) / 5 + day - 1;
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    i64::from(era) * 146_097 + i64::from(doe) - 719_468
 }

@@ -41,9 +41,9 @@ struct FitnessSummaryView: View {
 
           FitnessWorkoutDetailsCard(
             workoutTime: formatDuration(session.elapsed),
-            elapsedTime: formatDuration(session.elapsed + 12),
+            elapsedTime: formatDuration(wallClockElapsed),
             activeCalories: "\(activeCalories)KCAL",
-            totalCalories: "\(activeCalories + 2)KCAL",
+            totalCalories: "\(activeCalories)KCAL",
             detailMetricTitle: detailMetricTitle,
             detailMetricValue: detailMetricValue,
             averageHeartRate: averageHeartRateText
@@ -73,6 +73,16 @@ struct FitnessSummaryView: View {
 
   private var activeCalories: Int {
     max(Int(session.elapsed / 8), 0)
+  }
+
+  /// Real wall-clock span of the session (covers paused stretches), never
+  /// less than the active workout time.
+  private var wallClockElapsed: TimeInterval {
+    guard let startedAt = session.startedAt else {
+      return session.elapsed
+    }
+    let endedAt = session.endedAt ?? Date()
+    return max(endedAt.timeIntervalSince(startedAt), session.elapsed)
   }
 
   private var averagePaceText: String {

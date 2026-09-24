@@ -2,6 +2,138 @@ import Foundation
 import UIKit
 
 
+/// Routing state read by handleNotification on the CoreBluetooth queue. The
+/// authoritative values live on the main actor; this is their lock-guarded
+/// mirror (Swift 5 language mode performs no actor enforcement on that path,
+/// so reading the actor storage directly was a data race).
+struct NotificationRoutingFlags {
+  var captureImportActive = false
+  var healthCaptureActive = false
+  var overnightGuardActive = false
+  var respiratoryPacketWatchActive = false
+  var fallbackHeartRateBPM: Int?
+  var fallbackHeartRateUpdatedAt: Date?
+
+  /// Mirrors recentLiveHeartRate(around:): only trust a live HR within 12 s.
+  func recentFallbackHeartRate(around date: Date) -> Int? {
+    guard
+      let bpm = fallbackHeartRateBPM,
+      let updatedAt = fallbackHeartRateUpdatedAt,
+      abs(date.timeIntervalSince(updatedAt)) <= 12
+    else {
+      return nil
+    }
+    return bpm
+  }
+}
+
+final class NotificationRoutingFlagsBox: @unchecked Sendable {
+  private let lock = NSLock()
+  private var flags = NotificationRoutingFlags()
+
+  var snapshot: NotificationRoutingFlags {
+    lock.lock()
+    defer {
+      lock.unlock()
+    }
+    return flags
+  }
+
+  func update(_ mutate: (inout NotificationRoutingFlags) -> Void) {
+    lock.lock()
+    mutate(&flags)
+    lock.unlock()
+  }
+}
+
+/// Bounded admission gate for the overnight spool ingest queue: the
+/// CoreBluetooth delegate queue must never block on spool I/O, so appends are
+/// handed off — this caps what may be in flight and counts drops instead of
+/// growing the queue without bound.
+final class OvernightSpoolIngestGate: @unchecked Sendable {
+  enum Admission {
+    case admitted
+    case dropped(totalDropped: Int)
+  }
+
+  let maxDepth: Int
+  private let lock = NSLock()
+  private var depth = 0
+  private var droppedCount = 0
+
+  init(maxDepth: Int) {
+    self.maxDepth = maxDepth
+  }
+
+  func admit() -> Admission {
+    lock.lock()
+    defer {
+      lock.unlock()
+    }
+    guard depth < maxDepth else {
+      droppedCount += 1
+      return .dropped(totalDropped: droppedCount)
+    }
+    depth += 1
+    return .admitted
+  }
+
+  func finish() {
+    lock.lock()
+    depth = max(0, depth - 1)
+    lock.unlock()
+  }
+}
+
+/// Collapses the per-notification frame-reassembly drop warnings into one
+/// summary per characteristic per minute. The band streams small non-0xAA
+/// messages on 61080005 continuously (~100k+ drops/day before this), and each
+/// warn was uploaded to the VPS log table. A hex sample is kept so the
+/// undecoded channel stays inspectable. Called from both the main thread and
+/// the notification-ingest queue, hence the lock.
+final class FrameReassemblyDropAggregator: @unchecked Sendable {
+  struct Summary {
+    let count: Int
+    let bytes: Int
+    let sample: String
+    let seconds: Int
+  }
+
+  private let lock = NSLock()
+  private var windows: [String: (count: Int, bytes: Int, sample: String, windowStart: Date)] = [:]
+
+  /// First drop on a characteristic reports immediately (a new channel is
+  /// never silent); afterwards drops accumulate and a summary is returned
+  /// once per 60s window.
+  func record(
+    characteristicUUID: String,
+    droppedBytes: Int,
+    sampleHex: String,
+    at now: Date = Date()
+  ) -> Summary? {
+    lock.lock()
+    defer {
+      lock.unlock()
+    }
+    guard var window = windows[characteristicUUID] else {
+      windows[characteristicUUID] = (0, 0, "", now)
+      return Summary(count: 1, bytes: droppedBytes, sample: sampleHex, seconds: 0)
+    }
+    window.count += 1
+    window.bytes += droppedBytes
+    if window.sample.isEmpty {
+      window.sample = sampleHex
+    }
+    let elapsed = now.timeIntervalSince(window.windowStart)
+    guard elapsed >= 60 else {
+      windows[characteristicUUID] = window
+      return nil
+    }
+    windows[characteristicUUID] = (0, 0, "", now)
+    return Summary(count: window.count, bytes: window.bytes, sample: window.sample, seconds: Int(elapsed))
+  }
+}
+
 @MainActor
 final class GooseAppModel: ObservableObject {
   @Published var onboardingComplete = false
@@ -24,9 +156,19 @@ final class GooseAppModel: ObservableObject {
   @Published var healthPacketCaptureTargetSummary = "No health packet capture"
   @Published var healthPacketCaptureLastPacketSummary = "No packets captured"
   @Published var healthPacketCaptureFamilyRows: [HealthPacketCaptureFamily] = []
-  @Published var respiratoryPacketWatchActive = false
+  @Published var respiratoryPacketWatchActive = false {
+    didSet {
+      let active = respiratoryPacketWatchActive
+      notificationRoutingFlags.update { $0.respiratoryPacketWatchActive = active }
+    }
+  }
   @Published var respiratoryPacketWatchStatus = "Not watching K18 respiratory history"
-  @Published var overnightGuardActive = false
+  @Published var overnightGuardActive = false {
+    didSet {
+      let active = overnightGuardActive
+      notificationRoutingFlags.update { $0.overnightGuardActive = active }
+    }
+  }
   @Published var overnightGuardStatus = "Not started"
   @Published var overnightGuardReadinessStatus = "pending"
   @Published var overnightGuardReadinessSummary = "Not sleep-ready | connect WHOOP and start Overnight Guard"
@@ -85,13 +227,27 @@ final class GooseAppModel: ObservableObject {
   let captureFrameEnqueueAggregator = CaptureFrameEnqueueAggregator(
     publishInterval: GooseAppModel.packetUIStatePublishInterval
   )
+  let frameReassemblyDrops = FrameReassemblyDropAggregator()
   let overnightSQLiteMirror = OvernightSQLiteMirrorQueue(databasePath: HealthDataStore.defaultDatabasePath())
   let passiveActivityDetectionPipeline = PassiveActivityDetectionPipeline()
-  var activeActivityPersistence: ActiveActivityPersistence?
+  var activeActivityPersistence: ActiveActivityPersistence? {
+    didSet {
+      updateNotificationRoutingCaptureFlags()
+    }
+  }
   var activeActivityOwnsCaptureSession = false
   var activityRequestedHighFrequencyHistorySync = false
-  var activeHealthPacketCapture: ActiveHealthPacketCapture?
+  var activeHealthPacketCapture: ActiveHealthPacketCapture? {
+    didSet {
+      updateNotificationRoutingCaptureFlags()
+    }
+  }
+  let notificationRoutingFlags = NotificationRoutingFlagsBox()
   let overnightRawSpool = OvernightRawNotificationSpool()
+  // Spool appends are handed off the CoreBluetooth/diagnostic queues here so
+  // blocking JSONL+fsync writes never starve the BLE link (see persistOvernight*).
+  let overnightSpoolIngestQueue = DispatchQueue(label: "com.goose.swift.overnight-spool-ingest", qos: .utility)
+  let overnightSpoolIngestGate = OvernightSpoolIngestGate(maxDepth: 512)
 
   /// Local overnight raw-notification spooling. OFF by default: this band can't
   /// capture overnight (never activated via WHOOP + iOS suspends BLE in the
@@ -121,6 +277,8 @@ final class GooseAppModel: ObservableObject {
   var overnightGuardLastRawStaleWarningAt = Date.distantPast
   var overnightGuardLastRangeSuccessWarningAt = Date.distantPast
   var overnightGuardLastTargetMissingWarningAt = Date.distantPast
+  var overnightGuardLastStatusWriteAt = Date.distantPast
+  var overnightGuardStatusWriteWorkItem: DispatchWorkItem?
   var activityDetectionIdleWorkItem: DispatchWorkItem?
   var movementPacketValidation = MovementPacketValidation()
   var movementPacketValidationTimeoutWorkItem: DispatchWorkItem?
@@ -286,6 +444,9 @@ final class GooseAppModel: ObservableObject {
     return formatter
   }()
   static let maximumBufferedFrameBytes = 64 * 1024
+  /// Cap for stalled app-side reassembly buffers (false-header poison) —
+  /// mirrors the cloud forwarder's trim threshold.
+  static let frameReassemblyPoisonLimitBytes = 16 * 1024
   static let packetImportRevisionInterval: TimeInterval = 5
   static let healthPacketCaptureUIUpdateInterval: TimeInterval = 1
   static let healthPacketCaptureSummaryLogInterval: TimeInterval = 10
@@ -384,8 +545,12 @@ final class GooseAppModel: ObservableObject {
     ble.onNotification = { [weak self] event in
       self?.handleNotification(event)
     }
-    ble.onLiveHeartRate = { bpm, source, capturedAt in
+    ble.onLiveHeartRate = { [weak self] bpm, source, capturedAt in
+      self?.recordRoutingFallbackHeartRate(bpm, at: capturedAt)
       heartRateSamplePipeline.recordHeartRateSample(bpm: bpm, source: source, capturedAt: capturedAt)
+      Task { @MainActor [weak self] in
+        self?.syncLiveHeartRateActivity()
+      }
     }
     ble.onHRVSample = { rmssdMS, rrIntervalCount, source, capturedAt in
       heartRateSamplePipeline.recordHRVSample(
@@ -419,6 +584,15 @@ final class GooseAppModel: ObservableObject {
     scheduleAutoStartHealthPacketCaptureIfNeeded()
     scheduleAutoStartRespiratoryPacketWatchIfNeeded()
     recoverUncleanOvernightGuardSessionIfNeeded()
+  }
+
+  func updateNotificationRoutingCaptureFlags() {
+    let healthCaptureActive = activeHealthPacketCapture != nil
+    let captureImportActive = healthCaptureActive || activeActivityPersistence != nil
+    notificationRoutingFlags.update {
+      $0.healthCaptureActive = healthCaptureActive
+      $0.captureImportActive = captureImportActive
+    }
   }
 
   deinit {

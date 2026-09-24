@@ -98,8 +98,10 @@ private struct CoachMessageText: View {
   }
 
   private static func markdownText(for line: String) -> AttributedString {
+    // Inline-only: .full would let a model-controlled reply embed remote
+    // images (tracking pixels) that SwiftUI fetches on render.
     let options = AttributedString.MarkdownParsingOptions(
-      interpretedSyntax: .full,
+      interpretedSyntax: .inlineOnlyPreservingWhitespace,
       failurePolicy: .returnPartiallyParsedIfPossible
     )
     return (try? AttributedString(markdown: line, options: options)) ?? AttributedString(line)

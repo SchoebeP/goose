@@ -1,5 +1,9 @@
 import SwiftUI
 
+// The mega diagnostics screen: Rust/parser probes, packet capture, raw
+// research BT commands, internal QA tooling, and the destructive-command
+// gate. Dev only: compiled out of Release entirely (see DeveloperSettings.swift).
+#if DEBUG
 struct MoreDebugView: View {
   @EnvironmentObject private var model: GooseAppModel
   @EnvironmentObject private var packetMonitor: PacketMonitorModel
@@ -398,7 +402,6 @@ struct MoreDebugView: View {
         MoreInfoRow(title: "Gate", value: store.destructiveGateStatus, systemImage: "lock", status: .blocked)
       }
 
-#if DEBUG
       Section("Developer") {
         Button {
           model.ble.previewHelloWorldToast()
@@ -416,7 +419,6 @@ struct MoreDebugView: View {
           Label("Re-do Onboarding", systemImage: "arrow.counterclockwise.circle")
         }
       }
-#endif
     }
     .gooseListBackground()
     .navigationTitle("Debug")
@@ -595,3 +597,4 @@ struct MoreDebugView: View {
     }
   }
 }
+#endif

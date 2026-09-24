@@ -121,6 +121,8 @@ pub struct StepCounterDailyRollupReport {
     pub metric_provenance_written: bool,
     pub quality_flags: Vec<String>,
     pub packet_fields: Vec<StepCounterPacketField>,
+    #[serde(default)]
+    pub per_source_step_totals: BTreeMap<String, i64>,
     pub issues: Vec<String>,
     pub next_actions: Vec<StepCounterNextAction>,
 }
@@ -154,6 +156,8 @@ pub struct StepCounterHourlyRollupReport {
     pub metric_provenance_written: bool,
     pub quality_flags: Vec<String>,
     pub packet_fields: Vec<StepCounterPacketField>,
+    #[serde(default)]
+    pub per_source_step_totals: BTreeMap<String, i64>,
     pub issues: Vec<String>,
     pub next_actions: Vec<StepCounterNextAction>,
 }
@@ -220,6 +224,8 @@ struct StepSegmentSummary {
     first_counter_value: Option<i64>,
     last_counter_value: Option<i64>,
     quality_flags: BTreeSet<String>,
+    counter_source_count: usize,
+    per_source_steps: BTreeMap<String, i64>,
 }
 
 pub fn run_step_counter_ingest_for_store(
@@ -411,6 +417,9 @@ pub fn rollup_device_step_counter_day(
     if samples.len() >= options.min_sample_count {
         quality_flags.insert(0, "counter_delta".to_string());
     }
+    if segment_summary.counter_source_count > 1 {
+        issues.push("multiple_step_counter_sources".to_string());
+    }
     if segment_summary.usable_segment_count == 0 && samples.len() >= options.min_sample_count {
         issues.push("no_usable_step_counter_segments".to_string());
     }
@@ -447,6 +456,7 @@ pub fn rollup_device_step_counter_day(
             "usable_segment_count": segment_summary.usable_segment_count,
             "reset_count": segment_summary.reset_count,
             "packet_fields": packet_fields,
+            "per_source_step_totals": segment_summary.per_source_steps,
         })
         .to_string();
         let quality_flags_json = serde_json::to_string(&quality_flags).map_err(|error| {
@@ -523,6 +533,7 @@ pub fn rollup_device_step_counter_day(
         metric_provenance_written,
         quality_flags,
         packet_fields,
+        per_source_step_totals: segment_summary.per_source_steps,
         issues,
         next_actions,
     })
@@ -548,6 +559,9 @@ pub fn rollup_device_step_counter_hour(
         .collect::<Vec<_>>();
     if samples.len() >= options.min_sample_count {
         quality_flags.insert(0, "counter_delta".to_string());
+    }
+    if segment_summary.counter_source_count > 1 {
+        issues.push("multiple_step_counter_sources".to_string());
     }
     if segment_summary.usable_segment_count == 0 && samples.len() >= options.min_sample_count {
         issues.push("no_usable_step_counter_segments".to_string());
@@ -590,6 +604,7 @@ pub fn rollup_device_step_counter_hour(
             "usable_segment_count": segment_summary.usable_segment_count,
             "reset_count": segment_summary.reset_count,
             "packet_fields": packet_fields,
+            "per_source_step_totals": segment_summary.per_source_steps,
         })
         .to_string();
         let quality_flags_json = serde_json::to_string(&quality_flags).map_err(|error| {
@@ -666,6 +681,7 @@ pub fn rollup_device_step_counter_hour(
         metric_provenance_written,
         quality_flags,
         packet_fields,
+        per_source_step_totals: segment_summary.per_source_steps,
         issues,
         next_actions,
     })
@@ -904,41 +920,73 @@ fn unavailable_step_quality_flags(
 }
 
 fn summarize_step_counter_segments(samples: &[StepCounterSampleRow]) -> StepSegmentSummary {
+    // Deltas are only meaningful within one counter source: interleaved
+    // samples from different (packet_family, json_path) fields would
+    // otherwise produce spurious giant deltas or phantom resets.
+    let mut groups: BTreeMap<(&str, &str), Vec<&StepCounterSampleRow>> = BTreeMap::new();
+    for sample in samples {
+        groups
+            .entry((sample.packet_family.as_str(), sample.json_path.as_str()))
+            .or_default()
+            .push(sample);
+    }
+
     let mut summary = StepSegmentSummary {
         steps: 0,
         usable_segment_count: 0,
         reset_count: 0,
         duplicate_sample_count: 0,
         same_timestamp_conflict_count: 0,
-        first_counter_value: samples.first().map(|sample| sample.counter_value),
-        last_counter_value: samples.last().map(|sample| sample.counter_value),
+        first_counter_value: None,
+        last_counter_value: None,
         quality_flags: BTreeSet::new(),
+        counter_source_count: groups.len(),
+        per_source_steps: BTreeMap::new(),
     };
 
-    for pair in samples.windows(2) {
-        let previous = &pair[0];
-        let current = &pair[1];
-        if current.sample_time_unix_ms == previous.sample_time_unix_ms {
-            if current.counter_value == previous.counter_value {
-                summary.duplicate_sample_count += 1;
-                summary.quality_flags.insert("duplicate_sample".to_string());
+    for ((packet_family, json_path), group) in &groups {
+        let mut source_steps = 0i64;
+        for pair in group.windows(2) {
+            let previous = pair[0];
+            let current = pair[1];
+            if current.sample_time_unix_ms == previous.sample_time_unix_ms {
+                if current.counter_value == previous.counter_value {
+                    summary.duplicate_sample_count += 1;
+                    summary.quality_flags.insert("duplicate_sample".to_string());
+                } else {
+                    summary.same_timestamp_conflict_count += 1;
+                    summary
+                        .quality_flags
+                        .insert("same_timestamp_counter_conflict".to_string());
+                }
+                continue;
+            }
+            if current.counter_value >= previous.counter_value {
+                source_steps += current.counter_value - previous.counter_value;
+                summary.usable_segment_count += 1;
             } else {
-                summary.same_timestamp_conflict_count += 1;
+                summary.reset_count += 1;
                 summary
                     .quality_flags
-                    .insert("same_timestamp_counter_conflict".to_string());
+                    .insert("counter_reset_detected".to_string());
             }
-            continue;
         }
-        if current.counter_value >= previous.counter_value {
-            summary.steps += current.counter_value - previous.counter_value;
-            summary.usable_segment_count += 1;
-        } else {
-            summary.reset_count += 1;
-            summary
-                .quality_flags
-                .insert("counter_reset_detected".to_string());
-        }
+        summary
+            .per_source_steps
+            .insert(format!("{packet_family}:{json_path}"), source_steps);
+    }
+
+    if groups.len() == 1 {
+        let group = groups.values().next().expect("single counter source");
+        summary.steps = summary.per_source_steps.values().sum();
+        summary.first_counter_value = group.first().map(|sample| sample.counter_value);
+        summary.last_counter_value = group.last().map(|sample| sample.counter_value);
+    } else if groups.len() > 1 {
+        // No single promoted source: never sum across sources, and leave the
+        // first/last counter values unset rather than mixing sources.
+        summary
+            .quality_flags
+            .insert("multiple_counter_sources".to_string());
     }
 
     summary
@@ -1180,6 +1228,16 @@ fn rollup_next_actions(issues: &[String]) -> Vec<StepCounterNextAction> {
             scope: "steps:daily-rollup".to_string(),
             reason: "no_positive_or_flat_segments".to_string(),
             action: "Capture a longer step-counter window or verify whether the decoded counter resets on every packet/reconnect.".to_string(),
+        });
+    }
+    if issues
+        .iter()
+        .any(|issue| issue == "multiple_step_counter_sources")
+    {
+        actions.push(StepCounterNextAction {
+            scope: "steps:daily-rollup".to_string(),
+            reason: "multiple_counter_sources".to_string(),
+            action: "Multiple decoded step-counter fields coexist in this window; promote a single (packet_family, json_path) counter source before writing device-counter steps.".to_string(),
         });
     }
     dedupe_actions(actions)

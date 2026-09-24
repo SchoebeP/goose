@@ -10,7 +10,7 @@ extension HealthDataStore {
     }
     switch route {
     case .sleep:
-      return Self.sleepTrendRows
+      return sleepTrendRowsForV2()
     case .recovery:
       return recoveryTrendRowsForV2()
     case .strain:
@@ -22,6 +22,100 @@ extension HealthDataStore {
     }
   }
 
+  /// Sleep's own multi-day rows. Only the metrics the server actually
+  /// computes per night (duration, HR dip, and — once the backend's sleep-
+  /// stage bugs are fixed — REM/deep) are wired here; the rest of
+  /// `Self.sleepTrendRows` (sleep score, sleep bank, wake time, ...) has no
+  /// real multi-day source today and is left as the honest static "No data"
+  /// placeholder, which `compactMap`'s nil naturally keeps off-screen instead
+  /// of rendering a permanently empty card.
+  func sleepTrendRowsForV2() -> [HealthMetricSnapshot] {
+    guard !previewMissingData else {
+      return []
+    }
+    return Self.sleepTrendRows.compactMap { snapshot in
+      switch snapshot.id {
+      case "time-asleep-trend":
+        return serverDailyTrendRow(
+          base: snapshot,
+          unit: "h",
+          fractionDigits: 1,
+          value: { day in
+            guard let minutes = day.sleep?.durationMin else {
+              return nil
+            }
+            return minutes / 60.0
+          },
+          status: { _, _ in "Server-computed" }
+        )
+      case "hr-dip-trend":
+        return serverDailyTrendRow(
+          base: snapshot,
+          unit: "%",
+          fractionDigits: 0,
+          value: { $0.hrDipPct },
+          status: { _, _ in "Server-computed" }
+        )
+      case "rem-trend":
+        return serverDailyTrendRow(
+          base: snapshot,
+          unit: "%",
+          fractionDigits: 0,
+          value: { $0.sleepStages?.remPct },
+          status: { _, _ in "Server-computed" }
+        )
+      case "deep-trend":
+        return serverDailyTrendRow(
+          base: snapshot,
+          unit: "%",
+          fractionDigits: 0,
+          value: { $0.sleepStages?.deepPct },
+          status: { _, _ in "Server-computed" }
+        )
+      default:
+        return nil
+      }
+    }
+  }
+
+  /// Baevsky Stress Index, server-computed per night from R-R intervals
+  /// (`stress` in `/ingest/metrics/daily`) — a DIFFERENT metric from the
+  /// on-device "Stress Score" % (`stressTrendRowsForV2()`), which is today's
+  /// intraday timeline and stays exactly as-is for the Stress detail screen.
+  /// Kept as its own standalone row (not folded into `Self.stressTrendRows`)
+  /// specifically for the multi-day Trends tab.
+  func dailyStressIndexTrendRows() -> [HealthMetricSnapshot] {
+    guard !previewMissingData else {
+      return []
+    }
+    let base = Self.snapshot(
+      id: "stress-index-trend",
+      route: .stress,
+      group: .vitals,
+      title: "Stress Index",
+      value: "--",
+      unit: "",
+      status: "No data",
+      freshness: "No local data",
+      provenance: "server-computed stress index (self-hosted VPS /metrics/daily)",
+      source: .unavailable("stress index trend not available"),
+      systemImage: "waveform.path.ecg",
+      tint: .yellow,
+      trendValues: [],
+      range: "No data"
+    )
+    guard let row = serverDailyTrendRow(
+      base: base,
+      unit: "",
+      fractionDigits: 0,
+      value: { $0.stress?.stressIndex },
+      status: { day, _ in day.stress?.band?.capitalized ?? "Server-computed" }
+    ) else {
+      return []
+    }
+    return [row]
+  }
+
   func recoveryTrendRowsForV2() -> [HealthMetricSnapshot] {
     guard !usesPreviewPacketData else {
       return []
@@ -30,6 +124,15 @@ extension HealthDataStore {
     return Self.recoveryTrendRows.compactMap { snapshot in
       switch snapshot.id {
       case "recovery-score-trend":
+        if let server = serverDailyTrendRow(
+          base: snapshot,
+          unit: "%",
+          fractionDigits: 0,
+          value: { $0.recoveryPct },
+          status: { _, v in Self.recoveryQualityLabel(score: v) }
+        ) {
+          return server
+        }
         guard let report = packetScoreReports["recovery"],
               let score = recoveryScoreValue(),
               let scoreText = Self.numberText(score, fractionDigits: 0) else {
@@ -58,6 +161,15 @@ extension HealthDataStore {
           trend: trend
         )
       case "recovery-hrv-trend":
+        if let server = serverDailyTrendRow(
+          base: snapshot,
+          unit: "ms",
+          fractionDigits: 0,
+          value: { $0.hrvRMSSDMs },
+          status: { _, _ in "Server-computed" }
+        ) {
+          return server
+        }
         if let stored = dailyRecoveryMetricSnapshot(
           base: snapshot,
           valueKey: "hrv_rmssd_ms",
@@ -99,6 +211,15 @@ extension HealthDataStore {
           trend: trend
         )
       case "recovery-rhr-trend":
+        if let server = serverDailyTrendRow(
+          base: snapshot,
+          unit: "bpm",
+          fractionDigits: 0,
+          value: { $0.rhrBPM },
+          status: { _, _ in "Server-computed" }
+        ) {
+          return server
+        }
         let dailyRecoveryRHRMetrics = dailyRecoveryMetricsWithRestingHR()
         if let metric = Self.preferredDailyRecoveryMetricWithRestingHR(from: dailyRecoveryRHRMetrics),
            let value = Self.doubleValue(metric["resting_hr_bpm"]),
@@ -164,6 +285,15 @@ extension HealthDataStore {
           trend: trend
         )
       case "recovery-rr-trend":
+        if let server = serverDailyTrendRow(
+          base: snapshot,
+          unit: "rpm",
+          fractionDigits: 1,
+          value: { $0.respRPM },
+          status: { _, _ in "Server-computed" }
+        ) {
+          return server
+        }
         return dailyRecoveryMetricSnapshot(
           base: snapshot,
           valueKey: "respiratory_rate_rpm",
@@ -180,6 +310,22 @@ extension HealthDataStore {
           metricName: "oxygen saturation"
         )
       case "recovery-temp-trend":
+        // Only ever chart a CALIBRATED value -- raw sensor units must never
+        // be displayed as a temperature (see ServerMetricsSkinTemp).
+        if let server = serverDailyTrendRow(
+          base: snapshot,
+          unit: "C",
+          fractionDigits: 1,
+          value: { day in
+            guard let temp = day.skinTemp, temp.isCalibratedCelsius else {
+              return nil
+            }
+            return temp.value
+          },
+          status: { _, _ in "Server-computed" }
+        ) {
+          return server
+        }
         return dailyRecoveryMetricSnapshot(
           base: snapshot,
           valueKey: "skin_temperature_delta_c",

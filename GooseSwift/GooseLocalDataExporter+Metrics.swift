@@ -28,7 +28,12 @@ extension GooseLocalDataExporter {
     let summaryPattern = Array("\"summary\"".utf8)
 
     while true {
-      let chunk = handle.readData(ofLength: 64 * 1024)
+      let chunk: Data
+      do {
+        chunk = try handle.read(upToCount: 64 * 1024) ?? Data()
+      } catch {
+        return "could not read bundle for JSON validation: \(error.localizedDescription)"
+      }
       if chunk.isEmpty {
         break
       }

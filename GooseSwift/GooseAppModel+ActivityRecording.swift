@@ -4,6 +4,11 @@ import UIKit
 
 extension GooseAppModel {
   func prepareClientHello() {
+    // Runs first thing in GooseAppModel.init, right before
+    // cleanupOrphanedActivityCaptureSessions() — recover an interrupted
+    // workout here so its capture session is finished with the true end time
+    // instead of being janitored as a zero-frame orphan at relaunch time.
+    recoverInterruptedActivityRecordingIfNeeded()
     ble.record(source: "rust", title: "hello.prepare.start")
     rustStatus = "Checking Rust bridge"
     helloSummary = "Preparing client hello"
@@ -75,6 +80,27 @@ extension GooseAppModel {
       importedFrameCount: 0
     )
     activityPersistenceStatus = syncStatus == "candidate" ? "Candidate \(activity.title)" : "Recording \(activity.title)"
+
+    if detectionMethod == "user_assigned" {
+      activitySession.attachRecoveryContextProvider { [weak self] in
+        guard let self, let persistence = self.activeActivityPersistence else {
+          return nil
+        }
+        return ActivityRecoveryContext(
+          activitySessionID: persistence.activitySessionID,
+          captureSessionID: persistence.captureSessionID,
+          ownsCaptureSession: self.activeActivityOwnsCaptureSession,
+          source: persistence.source,
+          detectionMethod: persistence.detectionMethod,
+          syncStatus: persistence.syncStatus,
+          importedFrameCount: persistence.importedFrameCount,
+          lastImportedFrameAt: persistence.lastImportedFrameAt,
+          distanceMeters: self.activityLocationTracker.distanceMeters,
+          elevationGainMeters: self.activityLocationTracker.elevationGainMeters,
+          routePointCount: self.activityLocationTracker.routePointCount
+        )
+      }
+    }
 
     if ownsCaptureSession {
       do {
@@ -326,6 +352,66 @@ extension GooseAppModel {
         ble.stopMovementHeartRateCapture()
       }
     }
+  }
+
+  /// Finalizes a workout whose process died mid-recording (jetsam, crash,
+  /// force-quit) from the periodic snapshot ActivitySessionModel writes while
+  /// active. The snapshot's last update becomes the end time, so the stored
+  /// session reflects what was actually recorded instead of being lost.
+  func recoverInterruptedActivityRecordingIfNeeded() {
+    guard let snapshot = ActivitySessionModel.consumeRecoverySnapshot() else {
+      return
+    }
+    guard let activity = ActivityKind(rawValue: snapshot.activityRawValue) else {
+      ble.record(
+        level: .warn,
+        source: "activity.recovery",
+        title: "snapshot.unknown_activity",
+        body: snapshot.activityRawValue
+      )
+      return
+    }
+    let endedAt = max(snapshot.lastUpdatedAt, snapshot.lastImportedFrameAt ?? snapshot.lastUpdatedAt)
+    var persistence = ActiveActivityPersistence(
+      activitySessionID: snapshot.activitySessionID,
+      captureSessionID: snapshot.captureSessionID,
+      startedAt: snapshot.startedAt,
+      source: snapshot.source,
+      detectionMethod: snapshot.detectionMethod,
+      syncStatus: "recovered",
+      importedFrameCount: snapshot.importedFrameCount
+    )
+    persistence.lastImportedFrameAt = snapshot.lastImportedFrameAt
+    persistence.averageHeartRate = snapshot.averageHeartRate
+    persistence.maxHeartRate = snapshot.maxHeartRate
+    persistence.zoneDurations = snapshot.zoneDurations
+    activeActivityPersistence = persistence
+    activeActivityOwnsCaptureSession = snapshot.ownsCaptureSession
+    ble.record(
+      level: .warn,
+      source: "activity.recovery",
+      title: "interrupted_workout.finalizing",
+      body: "\(activity.title) elapsed=\(Int(snapshot.elapsed))s ended=\(Self.captureTimestampFormatter.string(from: endedAt))"
+    )
+    finishActivityRecording(
+      activity: activity,
+      startedAt: snapshot.startedAt,
+      endedAt: endedAt,
+      elapsed: snapshot.elapsed,
+      averageHeartRate: snapshot.averageHeartRate,
+      maxHeartRate: snapshot.maxHeartRate,
+      zoneDurations: snapshot.zoneDurations,
+      distanceMeters: snapshot.distanceMeters,
+      elevationGainMeters: snapshot.elevationGainMeters,
+      routePointCount: snapshot.routePointCount,
+      source: snapshot.source,
+      detectionMethod: snapshot.detectionMethod,
+      syncStatus: "recovered",
+      extraProvenance: [
+        "recovered_after_relaunch": true,
+        "recovery_snapshot_last_updated_at": Self.captureTimestampFormatter.string(from: snapshot.lastUpdatedAt),
+      ]
+    )
   }
 
 }

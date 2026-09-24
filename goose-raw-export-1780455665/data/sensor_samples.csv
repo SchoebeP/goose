@@ -1,1 +1,0 @@
-sample_id,frame_id,evidence_id,captured_at,sample_time,sample_time_unix_ms,sample_time_source,source_signal,packet_type_name,packet_k,domain,series_name,sample_index,payload_offset,raw_i16,raw_u8,sample_value,unit,device_timestamp_seconds,device_timestamp_subseconds,parser_version,quality_flags_json,provenance_json

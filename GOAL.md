@@ -73,4 +73,4 @@ Work top to bottom. Tick a box only when its acceptance criteria are met (see CL
 
 ## Progress log
 _(append dated entries here as work completes; newest at top)_
-- (none yet)
+- **2026-08-24 — STATUS CORRECTION:** this roadmap describes the original Python-collector plan, which was superseded. The deployed system today is the **iOS app (`GooseSwift/` + embedded `Rust/core`) → self-hosted VPS (FastAPI/Postgres)**; see README.md and CLAUDE.md "Field-verified" section. Phases below are kept as history only — do **not** create collector/storage/api/web or run pytest/ruff against this repo (no Python package exists here). Full project review: see `REVIEW.md` (branch `review-fixes-20260824`).

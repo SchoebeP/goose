@@ -29,6 +29,7 @@ struct GooseLocalDataExportResult {
 enum GooseLocalDataExportError: LocalizedError, CustomStringConvertible {
   case invalidBundleJSON(String)
   case outputAlreadyExists(String)
+  case sqliteSnapshotFailed(String)
 
   var errorDescription: String? {
     description
@@ -40,6 +41,8 @@ enum GooseLocalDataExportError: LocalizedError, CustomStringConvertible {
       return "Bundle JSON validation failed: \(message)"
     case .outputAlreadyExists(let path):
       return "Bundle output already exists: \(path)"
+    case .sqliteSnapshotFailed(let message):
+      return "SQLite snapshot failed: \(message)"
     }
   }
 }
@@ -449,6 +452,28 @@ enum GooseLocalDataExporter {
     try applyExportProtection(to: temporaryURL)
     let handle = try FileHandle(forWritingTo: temporaryURL)
 
+    // Capture writers keep committing to goose.sqlite during export; a plain file
+    // copy of the live database can tear. Export a consistent snapshot instead.
+    let sqliteDatabasePath = defaultDatabasePath()
+    let sqliteSnapshotDirectory = fileManager.temporaryDirectory
+      .appendingPathComponent("goose-sqlite-snapshot-\(exportID)", isDirectory: true)
+    var sqliteSnapshotURL: URL?
+    var sqliteSnapshotIssue: String?
+    if fileManager.fileExists(atPath: sqliteDatabasePath) {
+      do {
+        sqliteSnapshotURL = try createSQLiteSnapshot(
+          databasePath: sqliteDatabasePath,
+          outputDirectory: sqliteSnapshotDirectory,
+          createdAt: createdAt
+        )
+      } catch {
+        sqliteSnapshotIssue = "sqlite snapshot failed, exported goose.sqlite is a live-file copy that may be torn: \(errorSummary(error))"
+      }
+    }
+    defer {
+      try? fileManager.removeItem(at: sqliteSnapshotDirectory)
+    }
+
     let exportScope = requiredOvernightSessionID.map { "overnight_session:\($0)" } ?? "full_app_container"
     let roots = exportRoots(
       fileManager: fileManager,
@@ -461,6 +486,7 @@ enum GooseLocalDataExporter {
     var exportedFileSummaries: [[String: Any]] = []
     var sourceReadFailureCount = 0
     var sourceReadFailureIssues: [String] = []
+    let validation: GooseLocalDataExportValidation
 
     do {
       try writeString("{", to: handle)
@@ -482,9 +508,18 @@ enum GooseLocalDataExporter {
           fileManager: fileManager
         )
         for file in files {
+          let fileURL: URL
+          if let sqliteSnapshotURL, file.relativePath == "Application Support/GooseSwift/goose.sqlite" {
+            fileURL = sqliteSnapshotURL
+          } else if sqliteSnapshotURL != nil, isLiveSQLiteSidecarPath(file.relativePath) {
+            // The snapshot is self-contained; live journal sidecars would not match its bytes.
+            continue
+          } else {
+            fileURL = file.url
+          }
           let inputHandle: FileHandle
           do {
-            inputHandle = try FileHandle(forReadingFrom: file.url)
+            inputHandle = try FileHandle(forReadingFrom: fileURL)
           } catch {
             sourceReadFailureCount += 1
             if sourceReadFailureIssues.count < 5 {
@@ -540,7 +575,11 @@ enum GooseLocalDataExporter {
       if sourceReadFailureCount > sourceReadFailureIssues.count {
         sourceReadFailureIssues.append("failed to read \(sourceReadFailureCount - sourceReadFailureIssues.count) additional selected export files")
       }
-      let validation = sourceReadFailureIssues.reduce(
+      var validationIssues = sourceReadFailureIssues
+      if let sqliteSnapshotIssue {
+        validationIssues.append(sqliteSnapshotIssue)
+      }
+      validation = validationIssues.reduce(
         validate(
           exportedRelativePaths: exportedRelativePaths,
           requiredOvernightSessionID: requiredOvernightSessionID,
@@ -569,21 +608,17 @@ enum GooseLocalDataExporter {
         throw GooseLocalDataExportError.outputAlreadyExists(outputURL.path)
       }
       try fileManager.moveItem(at: temporaryURL, to: outputURL)
-      try applyExportProtection(to: outputURL)
+      do {
+        try applyExportProtection(to: outputURL)
+      } catch {
+        // The bundle already moved into place; remove it so a failed export never leaves an orphan.
+        try? fileManager.removeItem(at: outputURL)
+        throw error
+      }
     } catch {
       try? handle.close()
       try? fileManager.removeItem(at: temporaryURL)
       throw error
-    }
-    let validation = sourceReadFailureIssues.reduce(
-      validate(
-        exportedRelativePaths: exportedRelativePaths,
-        requiredOvernightSessionID: requiredOvernightSessionID,
-        documentsDirectory: documentsDirectory,
-        fileManager: fileManager
-      ).withBundleJSONValidation(valid: true, error: nil)
-    ) { validation, issue in
-      validation.withAdditionalIssue(issue)
     }
     let manifestURL: URL?
     let manifestError: String?

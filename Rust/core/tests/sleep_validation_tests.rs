@@ -6360,7 +6360,7 @@ fn physical_validation_input() -> HistoricalSyncPhysicalValidationInput {
             },
             HistoricalSyncObservedCommand {
                 command: "historical_data_result".to_string(),
-                sequence: 8,
+                sequence: 7,
                 response_observed: true,
                 capture_session_id: Some("strap-capture-2026-01-01".to_string()),
             },
@@ -6378,7 +6378,7 @@ fn physical_validation_input() -> HistoricalSyncPhysicalValidationInput {
             },
             HistoricalSyncObservedEvent {
                 name: "HistoryComplete".to_string(),
-                sequence: 7,
+                sequence: 8,
                 capture_session_id: Some("strap-capture-2026-01-01".to_string()),
             },
         ],
@@ -6426,8 +6426,8 @@ fn physical_raw_evidence_anchors() -> Vec<HistoricalSyncRawEvidenceAnchor> {
         ("command_event", "send_historical_data", Some(4)),
         ("metadata_event", "history_start", Some(5)),
         ("metadata_event", "history_end", Some(6)),
-        ("metadata_event", "history_complete", Some(7)),
-        ("command_event", "historical_data_result", Some(8)),
+        ("command_event", "historical_data_result", Some(7)),
+        ("metadata_event", "history_complete", Some(8)),
         ("timestamp_evidence", "raw_motion_k21:raw_motion_k21", None),
         ("timestamp_evidence", "normal_history:heart_rate", None),
     ]

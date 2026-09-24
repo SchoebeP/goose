@@ -259,6 +259,10 @@ pub struct PlannedActivityHealthWrite {
     pub goose_marker: String,
     pub attached_metric_count: usize,
     pub attached_interval_count: usize,
+    #[serde(default)]
+    pub ignored_metric_count: usize,
+    #[serde(default)]
+    pub ignored_interval_count: usize,
     pub provenance: serde_json::Value,
 }
 
@@ -739,6 +743,8 @@ pub fn run_activity_health_sync_dry_run(
                     goose_marker: activity_goose_marker(session),
                     attached_metric_count: syncable_activity_metric_count(session),
                     attached_interval_count: syncable_activity_interval_count(session),
+                    ignored_metric_count: ignored_activity_metric_count(session),
+                    ignored_interval_count: ignored_activity_interval_count(session),
                     provenance: session.provenance.clone(),
                 });
                 continue;
@@ -1286,6 +1292,61 @@ fn syncable_activity_interval_count(session: &ActivitySyncCandidate) -> usize {
         .iter()
         .filter(|interval| {
             activity_interval_is_attachable(interval, session_start_time, session_end_time)
+        })
+        .count()
+}
+
+fn ignored_activity_metric_count(session: &ActivitySyncCandidate) -> usize {
+    let session_start_time = parse_utc_instant(&session.start_time);
+    let session_end_time = parse_utc_instant(&session.end_time);
+    let mut count = session
+        .metrics
+        .iter()
+        .filter(|metric| {
+            activity_metric_attachment_kind(metric).is_some()
+                && !activity_metric_is_in_attachment_window(
+                    metric,
+                    session_start_time,
+                    session_end_time,
+                )
+        })
+        .count();
+
+    for interval in &session.intervals {
+        if activity_interval_is_attachable(interval, session_start_time, session_end_time) {
+            let interval_start_time = parse_utc_instant(&interval.start_time);
+            let interval_end_time = parse_utc_instant(&interval.end_time);
+            count += interval
+                .metrics
+                .iter()
+                .filter(|metric| {
+                    activity_metric_attachment_kind(metric).is_some()
+                        && !activity_metric_is_in_attachment_window(
+                            metric,
+                            interval_start_time,
+                            interval_end_time,
+                        )
+                })
+                .count();
+        }
+    }
+
+    count
+}
+
+fn ignored_activity_interval_count(session: &ActivitySyncCandidate) -> usize {
+    let session_start_time = parse_utc_instant(&session.start_time);
+    let session_end_time = parse_utc_instant(&session.end_time);
+    session
+        .intervals
+        .iter()
+        .filter(|interval| {
+            activity_interval_is_supported(&interval.kind)
+                && !activity_interval_is_in_attachment_window(
+                    interval,
+                    session_start_time,
+                    session_end_time,
+                )
         })
         .count()
 }

@@ -80,6 +80,11 @@ final class OvernightRawNotificationSpool: @unchecked Sendable {
   private static let checkpointInterval: TimeInterval = 60
 
   private let queue = DispatchQueue(label: "com.goose.swift.overnight-raw-spool", qos: .utility)
+  // Mirrors `handle != nil` so the per-notification isActive check on the
+  // CoreBluetooth/diagnostic queues never blocks behind an in-flight
+  // append/fsync running on the spool queue.
+  private let activeStateLock = NSLock()
+  private var activeFlag = false
   private var sessionID: String?
   private var directoryURL: URL?
   private var rawNotificationsURL: URL?
@@ -181,6 +186,7 @@ final class OvernightRawNotificationSpool: @unchecked Sendable {
         self.commandWritesHandle = commandWritesHandle
         self.eventLogHandle = eventLogHandle
         self.checkpointHandle = checkpointHandle
+        setActiveFlag(true)
         self.notificationCount = 0
         self.historicalRangePollCount = 0
         self.commandWriteCount = 0
@@ -294,6 +300,7 @@ final class OvernightRawNotificationSpool: @unchecked Sendable {
         self.commandWritesHandle = commandWritesHandle
         self.eventLogHandle = eventLogHandle
         self.checkpointHandle = checkpointHandle
+        setActiveFlag(true)
         self.notificationCount = notificationCount
         self.historicalRangePollCount = historicalRangePollCount
         self.commandWriteCount = commandWriteCount
@@ -593,6 +600,7 @@ final class OvernightRawNotificationSpool: @unchecked Sendable {
       historicalRangePollsHandle = nil
       commandWritesHandle = nil
       eventLogHandle = nil
+      setActiveFlag(false)
       handlesClosed = true
       recomputeFileMetricsLocked(reason: "suspend")
       postCloseStatusRefresh = true
@@ -618,9 +626,17 @@ final class OvernightRawNotificationSpool: @unchecked Sendable {
   }
 
   var isActive: Bool {
-    queue.sync {
-      handle != nil
+    activeStateLock.lock()
+    defer {
+      activeStateLock.unlock()
     }
+    return activeFlag
+  }
+
+  private func setActiveFlag(_ active: Bool) {
+    activeStateLock.lock()
+    activeFlag = active
+    activeStateLock.unlock()
   }
 
   private func finishLocked(status: String, summary: [String: Any] = [:]) {
@@ -651,6 +667,7 @@ final class OvernightRawNotificationSpool: @unchecked Sendable {
     historicalRangePollsHandle = nil
     commandWritesHandle = nil
     eventLogHandle = nil
+    setActiveFlag(false)
     handlesClosed = true
     recomputeFileMetricsLocked(reason: "final")
     postCloseStatusRefresh = true

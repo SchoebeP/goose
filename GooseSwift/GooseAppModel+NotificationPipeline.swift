@@ -13,8 +13,12 @@ extension GooseAppModel {
     // for the 4.0 (recordLiveHeartRate source "rust.k10"). Skipping it blanked the
     // live heart-rate display. (The overnight-spool gating is the real slim-down.)
     let (queueDepth, highWatermark) = incrementNotificationIngestQueueDepth()
-    let captureImportActive = activeHealthPacketCapture != nil || activeActivityPersistence != nil
-    let parseContext = notificationParseContext(for: event)
+    // Runs on the CoreBluetooth queue: routing state must come from the
+    // lock-guarded mirror, never from the main-actor storage (data race under
+    // Swift 5 mode, which performs no actor enforcement here).
+    let routing = notificationRoutingFlags.snapshot
+    let captureImportActive = routing.captureImportActive
+    let parseContext = notificationParseContext(for: event, routing: routing)
     publishPipelinePerformanceStatus(
       "ingest queued notification bytes=\(event.value.count) | ingestQ \(queueDepth) hwm \(highWatermark)"
     )
@@ -65,7 +69,7 @@ extension GooseAppModel {
         )
       }
     }
-    if result.usedBufferedData && !result.frames.isEmpty {
+     if result.usedBufferedData && !result.frames.isEmpty {
       ble.record(
         source: "rust",
         title: "notification.frame.reassembled",
@@ -136,7 +140,7 @@ extension GooseAppModel {
         )
       }
     }
-    if result.usedBufferedData && !result.frames.isEmpty {
+     if result.usedBufferedData && !result.frames.isEmpty {
       ble.record(
         source: "rust",
         title: "notification.frame.reassembled",
@@ -159,12 +163,7 @@ extension GooseAppModel {
 
     let event = result.event
     if result.droppedBytes > 0 {
-      ble.record(
-        level: .warn,
-        source: "rust",
-        title: "notification.frame.reassembly.dropped",
-        body: "\(event.characteristicUUID) dropped=\(result.droppedBytes) buffered=\(result.bufferedBytes)"
-      )
+      recordFrameReassemblyDropIfNeeded(result)
       if result.bufferedBytes == 0 {
         return
       }
@@ -406,6 +405,22 @@ extension GooseAppModel {
     )
     notificationParseQueue.async {
       let frameHexes = frames.map(\.hex)
+      // WHOOP 4.0 body history: the Rust batch parser stays in GEN4 quiet mode
+      // (parseBatch skips GEN4), so decode the normal-history DSP fields
+      // (respiratory rate, raw skin temp, SpO2 red/IR) straight from the
+      // reassembled frames here and publish the latest values the same way
+      // liveHeartRateBPM is published. fromGen4FrameHex prefilters on the hex
+      // header bytes, so the ~100 Hz raw stream bails before any allocation.
+      if deviceType == "GEN4" {
+        for frameHex in frameHexes {
+          guard let bodyMetrics = BodyHistoryMetricsSample.fromGen4FrameHex(frameHex, capturedAt: event.capturedAt) else {
+            continue
+          }
+          DispatchQueue.main.async {
+            ble.recordBodyHistoryMetrics(bodyMetrics)
+          }
+        }
+      }
       let (parseResults, bridgeTiming, batchTiming) = parser.parseBatch(frameHexes: frameHexes, deviceType: deviceType)
       var mainResults: [ParsedNotificationFrameResult] = []
       var offMainDataSignalCount = 0
@@ -530,16 +545,33 @@ extension GooseAppModel {
   }
 
   func notificationParseContext(for event: GooseNotificationEvent) -> NotificationParseContext {
+    notificationParseContext(for: event, routing: notificationRoutingFlags.snapshot)
+  }
+
+  func notificationParseContext(
+    for event: GooseNotificationEvent,
+    routing: NotificationRoutingFlags
+  ) -> NotificationParseContext {
     NotificationParseContext(
       deviceType: event.rustDeviceType,
-      healthCaptureActive: activeHealthPacketCapture != nil,
-      overnightGuardActive: overnightGuardActive,
-      respiratoryPacketWatchActive: respiratoryPacketWatchActive,
-      fallbackHeartRate: recentLiveHeartRate(around: event.capturedAt),
+      healthCaptureActive: routing.healthCaptureActive,
+      overnightGuardActive: routing.overnightGuardActive,
+      respiratoryPacketWatchActive: routing.respiratoryPacketWatchActive,
+      fallbackHeartRate: routing.recentFallbackHeartRate(around: event.capturedAt),
       ble: ble,
       packetUIStateAggregator: packetUIStateAggregator,
       whoopDataSignalPipeline: whoopDataSignalPipeline
     )
+  }
+
+  /// Called from GooseBLEClient's realtime-vitals queue (see init wiring); the
+  /// box keeps the fallback HR readable from the CoreBluetooth queue without
+  /// touching the @Published live-HR mirror that is written on main.
+  nonisolated func recordRoutingFallbackHeartRate(_ bpm: Int, at date: Date) {
+    notificationRoutingFlags.update {
+      $0.fallbackHeartRateBPM = bpm
+      $0.fallbackHeartRateUpdatedAt = date
+    }
   }
 
   static func interpretNotificationFrame(
@@ -733,6 +765,32 @@ extension GooseAppModel {
     )
   }
 
+  /// 61080005 streams small non-0xAA messages continuously, so per-notification
+  /// drop warnings flooded the log pipeline (~100k+/day uploaded to the VPS).
+  /// The aggregator reports the first drop per characteristic immediately, then
+  /// one summary per minute with a hex sample of the undecoded payload.
+  func recordFrameReassemblyDropIfNeeded(_ result: NotificationIngestResult) {
+    guard result.droppedBytes > 0 else {
+      return
+    }
+    let event = result.event
+    guard let summary = frameReassemblyDrops.record(
+      characteristicUUID: event.characteristicUUID,
+      droppedBytes: result.droppedBytes,
+      sampleHex: String(event.value.hexString.prefix(48))
+    ) else {
+      return
+    }
+    ble.record(
+      level: .warn,
+      source: "rust",
+      title: "notification.frame.reassembly.dropped",
+      body: summary.seconds == 0
+        ? "\(event.characteristicUUID) dropped=\(summary.bytes) buffered=\(result.bufferedBytes) sample=\(summary.sample)"
+        : "\(event.characteristicUUID) dropped \(summary.count)x (\(summary.bytes) bytes) in \(summary.seconds)s sample=\(summary.sample)"
+    )
+  }
+
   func incrementNotificationIngestQueueDepth() -> (depth: Int, highWatermark: Int) {
     notificationIngestStateLock.lock()
     notificationIngestQueueDepth += 1
@@ -819,6 +877,16 @@ extension GooseAppModel {
         break
       }
 
+      // A payload byte that happens to be 0xAA must not desync the scanner —
+      // validate the GEN4 length CRC before trusting a header candidate
+      // (same gate as the cloud reassembler in GooseBLEClient+Parsing.swift).
+      if event.rustDeviceType == "GEN4",
+         GooseBLEClient.crc8Gen4([bytes[1], bytes[2]]) != bytes[3] {
+        droppedBytes += 1
+        bytes.removeFirst()
+        continue
+      }
+
       let declaredLength: Int
       if event.rustDeviceType == "GEN4" {
         declaredLength = Int(bytes[1]) | Int(bytes[2]) << 8
@@ -839,6 +907,18 @@ extension GooseAppModel {
       }
       frames.append(Data(bytes[0..<expectedLength]))
       bytes.removeFirst(expectedLength)
+    }
+
+    // Poison trim: a stalled buffer (false header awaiting bytes that never
+    // arrive) must not grow without bound — resync to the next sync candidate.
+    if bytes.count > Self.frameReassemblyPoisonLimitBytes {
+      if let next = bytes.dropFirst().firstIndex(of: 0xaa) {
+        droppedBytes += next
+        bytes.removeFirst(next)
+      } else {
+        droppedBytes += bytes.count
+        bytes.removeAll()
+      }
     }
 
     if bytes.isEmpty {

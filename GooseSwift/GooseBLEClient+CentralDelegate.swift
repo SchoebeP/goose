@@ -47,6 +47,7 @@ extension GooseBLEClient: CBCentralManagerDelegate {
       connectedAt = now
       lastSyncAt = now
       updateConnectionState("discovering")
+      armFirstDataWatchdog()
       peripheral.discoverServices(serviceDiscoveryIDs)
       processCachedServicesIfAvailable(peripheral, reason: "restore.connected")
       // CLAUDE.md rule: never trust restored connection state without a live
@@ -87,15 +88,47 @@ extension GooseBLEClient: CBCentralManagerDelegate {
 
     updateBluetoothState()
     if central.state == .poweredOn {
-      if !startupReconnectAttempted {
-        startupReconnectAttempted = true
-        attemptAutomaticReconnect(reason: "startup")
-      }
+      // Reconnect on every power-on, not just the first: a Bluetooth toggle or
+      // bluetoothd reset invalidates peripherals without firing
+      // didDisconnectPeripheral, and the once-only gate left the app stranded
+      // until relaunch. attemptAutomaticReconnect self-guards when a live or
+      // in-flight connection exists (e.g. right after state restoration).
+      let reason = startupReconnectAttempted ? "power_on" : "startup"
+      startupReconnectAttempted = true
+      attemptAutomaticReconnect(reason: reason)
     } else {
       isScanning = false
       if isHistoricalSyncing {
         failHistoricalSync("Bluetooth became unavailable during historical sync. State: \(bluetoothState).")
       }
+      if pendingAlarmCommand != nil {
+        failAlarmCommand("Bluetooth became unavailable during alarm command. State: \(bluetoothState).")
+      }
+      if pendingClockCommand != nil {
+        failClockCommand("Bluetooth became unavailable during clock command. State: \(bluetoothState).")
+      }
+      if !pendingDebugCommands.isEmpty {
+        failAllDebugCommands("Bluetooth became unavailable during debug command. State: \(bluetoothState).")
+      }
+      // iOS drops the link WITHOUT didDisconnectPeripheral when Bluetooth
+      // powers off/resets — run the same per-connection teardown so the
+      // power-on reconnect never sees a stale activePeripheral.
+      autoReconnectInFlight = false
+      autoConnectForPhysiologyCapture = false
+      autoStartedPhysiologyCapture = false
+      gen4StartedPulseStream = false
+      gen4StartedHistoricalBackfill = false
+      gen4HistoryDeadline = nil
+      gen4ReEnableTimer?.invalidate()
+      gen4ReEnableTimer = nil
+      WhoopCloudForwarder.shared.resetFrameReassembly()
+      readySyncWorkItem?.cancel()
+      pendingConnectionReason = nil
+      activePeripheral = nil
+      commandCharacteristic = nil
+      batteryLevelCharacteristic = nil
+      batteryLevelStatusCharacteristic = nil
+      clientHelloSentForCurrentConnection = false
       updateConnectionState("disconnected")
       updateReconnectState("waiting for bluetooth")
       connectedAt = nil
@@ -187,6 +220,7 @@ extension GooseBLEClient: CBCentralManagerDelegate {
     activePeripheral = peripheral
     peripheral.delegate = self
     clientHelloSentForCurrentConnection = false
+    connectionAttemptStartedAt = nil   // the attempt landed — stale timer only applies to in-flight connect()
     autoReconnectInFlight = false
     autoReconnectTargetID = nil
     connectFailureCount = 0
@@ -219,6 +253,7 @@ extension GooseBLEClient: CBCentralManagerDelegate {
     lastSyncAt = now
     updateConnectionState("discovering")
     updateReconnectState("connected")
+    armFirstDataWatchdog()
     record(source: "ble", title: "connect.succeeded", body: "\(peripheral.name ?? fallbackName ?? "WHOOP") \(peripheral.identifier.uuidString) evidence=\(evidence)")
     peripheral.discoverServices(serviceDiscoveryIDs)
     processCachedServicesIfAvailable(peripheral, reason: "connect.\(reason)")
@@ -292,6 +327,7 @@ extension GooseBLEClient: CBCentralManagerDelegate {
     gen4HistoryDeadline = nil                // close the backfill ack window
     gen4ReEnableTimer?.invalidate()
     gen4ReEnableTimer = nil
+    WhoopCloudForwarder.shared.resetFrameReassembly()  // a partial frame must not bridge connections
     readySyncWorkItem?.cancel()
     if isHistoricalSyncing {
       failHistoricalSync("WHOOP disconnected during historical sync. \(error?.localizedDescription ?? "No CoreBluetooth error was provided.")")

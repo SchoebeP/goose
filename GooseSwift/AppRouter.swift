@@ -94,3 +94,35 @@ final class AppRouter: ObservableObject {
     return ["gooseswift", "goose"].contains(scheme) && url.host == "codex-auth"
   }
 }
+
+enum GooseAppTab: String, CaseIterable, Identifiable {
+  case home
+  case morning
+  case trends
+  case health
+  case available
+  case cloudOnly
+  case coach
+  case more
+
+  // 4.0-focused, noise-trimmed UI: only Home (all the real decoded data + live
+  // pulse) and More (connect / capture / debug). Available is folded into Home;
+  // Cloud (WHOOP's proprietary cloud metrics we can't get), Health (cloud
+  // dashboards) and Coach are hidden — their views still exist, just untabbed.
+  static var allCases: [GooseAppTab] { [.home, .morning, .trends, .more] }
+
+  var id: String { rawValue }
+
+  var title: String {
+    switch self {
+    case .home: "Today"
+    case .morning: "Morning"
+    case .trends: "Trends"
+    case .health: "Health"
+    case .available: "Available"
+    case .cloudOnly: "Cloud"
+    case .coach: "Coach"
+    case .more: "More"
+    }
+  }
+}

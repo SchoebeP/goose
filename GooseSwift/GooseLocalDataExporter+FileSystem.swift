@@ -59,6 +59,57 @@ extension GooseLocalDataExporter {
       .path
   }
 
+  static func createSQLiteSnapshot(
+    databasePath: String,
+    outputDirectory: URL,
+    createdAt: String
+  ) throws -> URL {
+    // The raw-export bridge snapshots via VACUUM INTO, which holds a read
+    // transaction on the source, so the copy is transactionally consistent even
+    // while CaptureFrameWriteQueue keeps committing to the live database.
+    let bridge = GooseRustBridge()
+    let report = try bridge.request(
+      method: "export.raw_timeframe",
+      args: [
+        "database_path": databasePath,
+        "output_dir": outputDirectory.path,
+        "start": "1970-01-01T00:00:00Z",
+        "end": createdAt,
+        "include_sqlite": true,
+        "data_families": ["sqlite"],
+        "include_raw_bytes": true,
+      ]
+    )
+    let snapshotURL = outputDirectory
+      .appendingPathComponent("data", isDirectory: true)
+      .appendingPathComponent("goose.sqlite")
+    guard boolValue(report["pass"]) == true,
+          FileManager.default.fileExists(atPath: snapshotURL.path) else {
+      let issues = (report["issues"] as? [Any])?.compactMap { $0 as? String } ?? []
+      throw GooseLocalDataExportError.sqliteSnapshotFailed(
+        issues.isEmpty ? "raw export snapshot did not pass" : issues.joined(separator: "; ")
+      )
+    }
+    // Check the snapshot itself so the exported bytes are the verified bytes.
+    let check = try bridge.request(
+      method: "storage.check",
+      args: [
+        "database_path": snapshotURL.path,
+        "self_test": false,
+      ]
+    )
+    guard boolValue(check["pass"]) == true else {
+      let issues = (check["issues"] as? [Any])?.compactMap { $0 as? String } ?? []
+      throw GooseLocalDataExportError.sqliteSnapshotFailed(
+        issues.isEmpty
+          ? "snapshot storage check failed"
+          : "snapshot storage check failed: \(issues.joined(separator: "; "))"
+      )
+    }
+    try applyExportProtection(to: snapshotURL)
+    return snapshotURL
+  }
+
   static func currentBLELogByteCount(logURLs: [URL], fileManager: FileManager) -> UInt64 {
     logURLs
       .reduce(UInt64(0)) { total, url in
@@ -307,6 +358,7 @@ extension GooseLocalDataExporter {
       return relativePath == "goose.sqlite"
         || relativePath == "goose.sqlite-wal"
         || relativePath == "goose.sqlite-shm"
+        || relativePath == "goose.sqlite-journal"
         || relativePath == "goose-ble.log"
         || relativePath.hasPrefix("goose-ble.")
     case "Documents/GooseSwift":
@@ -317,6 +369,12 @@ extension GooseLocalDataExporter {
     default:
       return false
     }
+  }
+
+  static func isLiveSQLiteSidecarPath(_ relativePath: String) -> Bool {
+    relativePath == "Application Support/GooseSwift/goose.sqlite-wal"
+      || relativePath == "Application Support/GooseSwift/goose.sqlite-shm"
+      || relativePath == "Application Support/GooseSwift/goose.sqlite-journal"
   }
 
   static func relativePath(for url: URL, under root: URL) -> String {

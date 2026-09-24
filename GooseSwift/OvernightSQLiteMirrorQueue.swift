@@ -40,6 +40,7 @@ final class OvernightSQLiteMirrorQueue: @unchecked Sendable {
   private var pendingHistoricalRangePolls: [[String: Any]] = []
   private var compactRawNotificationCountsByKey: [String: Int] = [:]
   private var flushScheduled = false
+  private var consecutiveFlushFailures = 0
   private var sessionUpserted = 0
   private var rawInserted = 0
   private var rawExisting = 0
@@ -235,12 +236,22 @@ final class OvernightSQLiteMirrorQueue: @unchecked Sendable {
       historicalRangeExisting += Self.intValue(report["historical_range_existing"]) ?? 0
       let issues = Self.stringArray(report["issues"])
       lastError = issues.isEmpty ? nil : issues.prefix(2).joined(separator: " | ")
+      consecutiveFlushFailures = 0
     } catch {
       pendingSessions.insert(contentsOf: sessions, at: 0)
       pendingRawNotifications.insert(contentsOf: rawNotifications, at: 0)
       pendingHistoricalRangePolls.insert(contentsOf: historicalRangePolls, at: 0)
+      consecutiveFlushFailures += 1
       lastError = String(describing: error)
       publishLatestSnapshotLocked()
+      // Retry with capped backoff instead of stalling until the next enqueue.
+      let delay = flushDelay * Double(min(consecutiveFlushFailures, 30))
+      queue.asyncAfter(deadline: .now() + delay) { [weak self] in
+        guard let self, self.pendingRowCountLocked > 0 else {
+          return
+        }
+        self.flushPendingLocked()
+      }
       return
     }
 

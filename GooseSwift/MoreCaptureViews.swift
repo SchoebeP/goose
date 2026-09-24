@@ -53,6 +53,10 @@ struct MoreCommandGroup: Identifiable {
   }
 }
 
+// MoreCaptureView, MoreLocalStoreView, and MoreHealthSyncView are Dev-only
+// screens (capture sessions, raw SQLite internals, HealthKit sync scaffolding)
+// — compiled out of Release entirely (see DeveloperSettings.swift).
+#if DEBUG
 struct MoreCaptureView: View {
   @EnvironmentObject private var model: GooseAppModel
   @EnvironmentObject private var messageStore: GooseMessageStore
@@ -435,3 +439,4 @@ struct MoreHealthSyncView: View {
     store.healthAdapterStatus.contains("available") ? .ready : .unavailable
   }
 }
+#endif

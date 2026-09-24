@@ -259,3 +259,28 @@ struct SleepV2SleepStageRow: View {
   }
 }
 
+
+struct HealthSectionTitle: View {
+  let title: String
+
+  init(_ title: String) {
+    self.title = title
+  }
+
+  var body: some View {
+    Text(title)
+      .font(InkTheme.sectionTitle)
+      .foregroundStyle(InkTheme.ink)
+      .frame(maxWidth: .infinity, alignment: .leading)
+  }
+}
+
+extension View {
+  func healthCardSurface() -> some View {
+    background(InkTheme.wash, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+      .overlay {
+        RoundedRectangle(cornerRadius: 8, style: .continuous)
+          .strokeBorder(InkTheme.hairline)
+      }
+  }
+}

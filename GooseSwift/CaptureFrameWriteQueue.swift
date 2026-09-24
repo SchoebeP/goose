@@ -186,6 +186,8 @@ final class CaptureFrameWriteQueue: @unchecked Sendable {
   private let maxBatchRows: Int
   private let coalesceDelay: TimeInterval = 0.05
   private let completionCoalesceDelay: TimeInterval = 1
+  private let maxBatchWriteAttempts = 4
+  private let batchWriteRetryDelays: [TimeInterval] = [0.25, 1, 4]
   private var pendingRows: [CapturedFrameWriteRow] = []
   private var latestCompletion: (@MainActor (CaptureFrameWriteResult) -> Void)?
   private var pendingCompletionResult: CaptureFrameWriteResult?
@@ -193,6 +195,7 @@ final class CaptureFrameWriteQueue: @unchecked Sendable {
   private var completionFlushScheduled = false
   private var queuedRowCount = 0
   private var isWriting = false
+  private var consecutiveBatchWriteFailures = 0
 
   init(databasePath: String, maxQueuedRows: Int, maxBatchRows: Int) {
     self.databasePath = databasePath
@@ -278,11 +281,17 @@ final class CaptureFrameWriteQueue: @unchecked Sendable {
             "database_path": databasePath,
             "parser_version": "goose-swift/live-notification",
             "include_timeline_rows": false,
-            "compact_raw_payloads": false,
+            // Compact old raw payloads on every live write so the on-device database
+            // stays bounded (see DEFAULT_RAW_EVIDENCE_PAYLOAD_RETENTION_LIMIT_BYTES)
+            // instead of growing without limit during a long history sync.
+            "compact_raw_payloads": true,
             "include_results": false,
             "frames": rows.map(\.bridgeObject),
           ]
         )
+        stateLock.lock()
+        consecutiveBatchWriteFailures = 0
+        stateLock.unlock()
         result = CaptureFrameWriteResult(
           batchCount: 1,
           frameCount: rows.count,
@@ -298,6 +307,23 @@ final class CaptureFrameWriteQueue: @unchecked Sendable {
           importTimingSummary: Self.importTimingSummary(report["timing"])
         )
       } catch {
+        stateLock.lock()
+        consecutiveBatchWriteFailures += 1
+        let failureCount = consecutiveBatchWriteFailures
+        if failureCount < maxBatchWriteAttempts {
+          // Requeue at the head so a transient failure (SQLITE_BUSY, bridge hiccup)
+          // does not discard captured frames; retry with backoff.
+          pendingRows.insert(contentsOf: rows, at: 0)
+          queuedRowCount += rows.count
+          stateLock.unlock()
+          let delay = batchWriteRetryDelays[min(failureCount - 1, batchWriteRetryDelays.count - 1)]
+          writeQueue.asyncAfter(deadline: .now() + delay) { [weak self] in
+            self?.flushNext()
+          }
+          return
+        }
+        consecutiveBatchWriteFailures = 0
+        stateLock.unlock()
         result = CaptureFrameWriteResult(
           batchCount: 1,
           frameCount: rows.count,
@@ -308,7 +334,7 @@ final class CaptureFrameWriteQueue: @unchecked Sendable {
           pass: false,
           issues: [],
           nextActions: [],
-          errorDescription: String(describing: error),
+          errorDescription: "dropped \(rows.count) frames after \(failureCount) failed write attempts: \(String(describing: error))",
           bridgeTiming: rust.lastTiming,
           importTimingSummary: nil
         )

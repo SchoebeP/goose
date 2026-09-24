@@ -178,7 +178,6 @@ fn swift_source_root() -> PathBuf {
         .expect("core crate has parent")
         .parent()
         .expect("goose project has parent")
-        .join("goose-swift")
         .join("GooseSwift")
 }
 

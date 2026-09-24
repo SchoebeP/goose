@@ -112,6 +112,41 @@ struct ActivitySensorMetricSnapshot {
   let hasHeartRate: Bool
 }
 
+struct ActivityRecoveryContext {
+  let activitySessionID: String
+  let captureSessionID: String
+  let ownsCaptureSession: Bool
+  let source: String
+  let detectionMethod: String
+  let syncStatus: String
+  let importedFrameCount: Int
+  let lastImportedFrameAt: Date?
+  let distanceMeters: Double
+  let elevationGainMeters: Double
+  let routePointCount: Int
+}
+
+struct ActiveWorkoutRecoverySnapshot: Codable {
+  let activitySessionID: String
+  let captureSessionID: String
+  let ownsCaptureSession: Bool
+  let source: String
+  let detectionMethod: String
+  let syncStatus: String
+  let importedFrameCount: Int
+  let lastImportedFrameAt: Date?
+  let activityRawValue: String
+  let startedAt: Date
+  let elapsed: TimeInterval
+  let averageHeartRate: Int?
+  let maxHeartRate: Int?
+  let zoneDurations: [Int: TimeInterval]
+  let distanceMeters: Double
+  let elevationGainMeters: Double
+  let routePointCount: Int
+  let lastUpdatedAt: Date
+}
+
 struct ActivityTimelineRefreshResult {
   let items: [ActivityTimelineItem]
   let status: String
